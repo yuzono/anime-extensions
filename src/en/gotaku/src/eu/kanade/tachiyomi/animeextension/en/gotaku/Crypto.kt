@@ -149,15 +149,25 @@ object Crypto {
         null
     }
 
-    /** MPEG-TS sync byte (0x47), or fMP4 'ftyp'/'styp'/'moof' box at offset 4. */
-    fun looksLikeMedia(b: ByteArray): Boolean = when {
-        b.isEmpty() -> false
-        (b[0].toInt() and 0xFF) == 0x47 -> true
-        b.size >= 8 -> {
-            val magic = b.copyOfRange(4, 8)
-            magic.contentEquals(FTYP) || magic.contentEquals(STYP) || magic.contentEquals(MOOF)
+    /** MPEG-TS: 0x47 sync at byte 0 AND at every 188-byte packet boundary in
+     *  the sample. A lone 0x47 is 1/256 on encrypted data — not evidence.
+     *  Callers should pass ≥376 bytes (3 packets) when the body allows.
+     *  fMP4: 'ftyp'/'styp'/'moof' box magic at offset 4. */
+    fun looksLikeMedia(b: ByteArray): Boolean {
+        if (b.isEmpty()) return false
+        if ((b[0].toInt() and 0xFF) == 0x47) {
+            var i = 188
+            while (i < b.size) {
+                if ((b[i].toInt() and 0xFF) != 0x47) return false
+                i += 188
+            }
+            return true
         }
-        else -> false
+        if (b.size >= 8) {
+            val magic = b.copyOfRange(4, 8)
+            return magic.contentEquals(FTYP) || magic.contentEquals(STYP) || magic.contentEquals(MOOF)
+        }
+        return false
     }
 
     private val MOOF = "moof".toByteArray()
@@ -208,10 +218,28 @@ object Crypto {
         null
     }
 
-    /** Node's inflateSync = zlib-wrapped stream, which is InflaterInputStream's default. */
+    /** Hard cap on decompressed API payloads. The largest legitimate response
+     *  (episode lists for 1000+ episode shows) is well under 1 MB; anything
+     *  beyond this is a bomb or a bug, and gets rejected like any other
+     *  decrypt failure. */
+    private const val MAX_INFLATED_BYTES = 4 * 1024 * 1024
+
+    /** Node's inflateSync = zlib-wrapped stream, which is InflaterInputStream's default.
+     *  Aborts (returns null) once [MAX_INFLATED_BYTES] is exceeded — a small
+     *  GCM-valid payload can still be a decompression bomb. */
     private fun inflate(data: ByteArray): String? = try {
-        InflaterInputStream(ByteArrayInputStream(data)).use {
-            it.readBytes().toString(Charsets.UTF_8)
+        InflaterInputStream(ByteArrayInputStream(data)).use { input ->
+            val out = ByteArrayOutputStream(minOf(data.size * 4, 1 shl 20))
+            val buf = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val n = input.read(buf)
+                if (n == -1) break
+                total += n
+                if (total > MAX_INFLATED_BYTES) return null // bomb guard
+                out.write(buf, 0, n)
+            }
+            out.toString("UTF-8")
         }
     } catch (_: Exception) {
         null

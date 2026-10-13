@@ -46,19 +46,18 @@ class ProxyServer(
         .removeAll("Origin")
         .removeAll("Accept-Encoding")
         .build()
-    private val directManifestMap = java.util.concurrent.ConcurrentHashMap<String, String>()
-
     private val proxyClient by lazy {
         OkHttpClient.Builder()
             .readTimeout(30, TimeUnit.SECONDS)
             .connectTimeout(10, TimeUnit.SECONDS)
             .connectionPool(ConnectionPool(30, 2, TimeUnit.MINUTES))
             .retryOnConnectionFailure(true)
+            .followRedirects(false)
+            .followSslRedirects(false)
             .build()
     }
 
     // ============================ URL builders ============================
-
     fun createProxyUrl(
         originalUrl: String,
         keySeed: String,
@@ -82,7 +81,6 @@ class ProxyServer(
     fun createSubtitleProxyUrl(originalUrl: String): String = "http://127.0.0.1:$listeningPort/proxy/subtitles.vtt?url=${URLEncoder.encode(originalUrl, "UTF-8")}&sub=1"
 
     // ============================== Dispatch ==============================
-
     override fun handle(session: IHTTPSession): Response {
         val params = session.parameters
         val url = params["url"]?.firstOrNull()
@@ -98,7 +96,6 @@ class ProxyServer(
                     url,
                     params["key"]?.firstOrNull().orEmpty(),
                     params["sb"]?.firstOrNull()?.toIntOrNull() ?: 0,
-                    params["direct"]?.firstOrNull(),
                 )
                 params["plain"]?.firstOrNull() == "1" -> servePassthrough(url)
                 else -> serveSegment(
@@ -122,9 +119,8 @@ class ProxyServer(
         url: String,
         keySeed: String,
         segmentBytes: Int,
-        directId: String? = null,
     ): Response {
-        val rawText = directId?.let { directManifestMap.remove(it) } ?: run {
+        val rawText = run {
             var response: okhttp3.Response? = null
             var attempt = 0
             while (response == null) {
@@ -176,7 +172,19 @@ class ProxyServer(
                     "Playlist GCM decrypt failed: len=${bodyBytes.size} key=${keySeed.isNotBlank()} " +
                         "token=${runCatching { url.toHttpUrl().pathSegments.getOrNull(3) }.getOrNull()} - ${e.message}",
                 )
-                String(bodyBytes, Charsets.UTF_8)
+                val asText = String(bodyBytes, Charsets.UTF_8)
+                if (asText.removePrefix("\uFEFF").trimStart().startsWith("#EXTM3U")) {
+                    // Body was plaintext after all — serve it as-is.
+                    asText
+                } else {
+                    // Not decryptable and not a playlist: fail loudly instead of feeding
+                    // the player rewritten ciphertext as a 200 "playlist".
+                    return newFixedLengthResponse(
+                        Status.INTERNAL_ERROR,
+                        "text/plain",
+                        "Playlist decrypt failed: ${e.message}",
+                    )
+                }
             }
         }
 
@@ -209,8 +217,13 @@ class ProxyServer(
             line.startsWith("#EXT-X-KEY") || line.startsWith("#EXT-X-SESSION-KEY") ->
                 createPlainProxyUrl(resolved)
 
-            line.startsWith("#EXT-X-MEDIA") && line.contains("TYPE=SUBTITLES") ->
-                createProxyUrl(resolved, "", 0, isManifest = true)
+            line.startsWith("#EXT-X-MEDIA") -> {
+                if (line.contains("TYPE=SUBTITLES")) {
+                    createProxyUrl(resolved, "", 0, isManifest = true)
+                } else {
+                    createProxyUrl(resolved, keySeed, segmentBytes, isManifest = true)
+                }
+            }
 
             line.startsWith("#EXT-X-I-FRAME-STREAM-INF") ->
                 createProxyUrl(resolved, keySeed, segmentBytes, isManifest = true)
@@ -250,18 +263,20 @@ class ProxyServer(
         val source = body.source()
         val actualStart = if (response.code == 206) rangeStart else 0L
 
-        // ONE peek drives two decisions: already-plaintext and, at offset
-        // 0, which counter interpretation the site's split("/").drop(2) means.
+        // 3 TS packets = 3 sync bytes (~24 bits) of plaintext evidence
         val head = try {
             val peek = source.peek()
-            if (peek.request(8)) peek.readByteArray(8) else ByteArray(0)
+            peek.request(384)
+            if (peek.buffer.size > 0) peek.readByteArray(minOf(peek.buffer.size, 384L)) else ByteArray(0)
         } catch (_: Exception) {
             ByteArray(0)
         }
 
         val isPlaintext = head.isNotEmpty() && Crypto.looksLikeMedia(head)
 
-        if (!isPlaintext && actualStart == 0L && head.isNotEmpty() && counterFullPath == null) {
+        // Oracle: only judge candidates on a sample big enough to verify boundaries —
+        // an 8-byte peek can't distinguish a right answer from a 1/256 coincidence.
+        if (!isPlaintext && actualStart == 0L && head.size >= 189 && counterFullPath == null) {
             for (candidate in booleanArrayOf(true, false)) {
                 val decrypted = Crypto.decryptPrefix(head, url, key, candidate) ?: continue
                 if (Crypto.looksLikeMedia(decrypted)) {

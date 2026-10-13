@@ -72,7 +72,8 @@ class Gotaku :
 
     private val detailCache by lazy { LruCache<String, DetailsDataDto>(8) }
 
-    private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+    private val dateFormatLock = Any()
+    private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.ROOT).apply {
         timeZone = TimeZone.getTimeZone("UTC")
     }
 
@@ -88,6 +89,10 @@ class Gotaku :
     /** GET + native decrypt of a ?k=1 endpoint. Returns inflated JSON text or null. */
     private suspend fun decryptApiCall(url: String, referer: String = baseUrl): String? = try {
         val bytes = client.get(url, apiHeaders(referer)).body.bytes()
+        if (bytes.size > 8 * 1024 * 1024) { // ciphertext cap; compressed bodies are tiny
+            Log.w("Gotaku", "Oversized ?k=1 body (${bytes.size}B) — refusing")
+            return null
+        }
         Crypto.decryptInfo(bytes) ?: run {
             Log.w("Gotaku", "decryptInfo=null len=${bytes.size} head=${bytes.take(4).joinToString(" ") { "%02x".format(it) }} url=$url")
             null
@@ -303,7 +308,7 @@ class Gotaku :
                 }
                 fillermark = ep.isFiller
                 preview_url = ep.thumbnailUrl?.takeIf { it.isNotBlank() }
-                date_upload = dateFormat.tryParse(ep.airedAt)
+                date_upload = synchronized(dateFormatLock) { dateFormat.tryParse(ep.airedAt) }
             }
         }.reversed()
     }
@@ -325,7 +330,6 @@ class Gotaku :
         val epId = bits.getOrNull(1).orEmpty()
         if (slug.isEmpty() || epId.isEmpty()) return emptyList()
 
-        val epNum = episode.episode_number.toInt()
         val watchReferer = "$baseUrl/title/$slug?ep=$epId"
 
         val flags = decryptApiCall("$apiUrl/episodes/$epId?k=1", watchReferer)
@@ -336,7 +340,7 @@ class Gotaku :
 
         fun hoster(type: String, label: String) = Hoster(
             hosterName = label,
-            internalData = "embed::$slug::$epNum::$epId::$type",
+            internalData = "embed::$slug::$epId::$type",
         )
 
         return buildList {
@@ -363,10 +367,9 @@ class Gotaku :
     // ============================== Videos ================================
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
         val parts = hoster.internalData.split("::")
-        if (parts.size < 5) return emptyList()
-        val (_, slug, epNumStr, epId, type) = parts
-        val epNum = epNumStr.toIntOrNull() ?: 0
-        val watchReferer = "$baseUrl/title/$slug?ep=$epNum"
+        if (parts.size < 4) return emptyList()
+        val (_, slug, epId, type) = parts
+        val watchReferer = "$baseUrl/title/$slug?ep=$epId"
 
         val embedJson = decryptApiCall("$apiUrl/episodes/$epId/embed?type=$type&k=1", watchReferer)
         val embedDto = try {
@@ -376,7 +379,7 @@ class Gotaku :
         } ?: return emptyList()
 
         val embedPath = embedDto.url ?: return emptyList()
-        val embedUrl = if (embedPath.startsWith("http")) embedPath else "$baseUrl$embedPath"
+        val embedUrl = if (embedPath.startsWith("https")) embedPath else "$baseUrl$embedPath"
 
         return extractViaHttp(embedUrl, watchReferer, embedDto, hoster)
     }
@@ -391,6 +394,7 @@ class Gotaku :
         val html = client.get(embedUrl, apiHeaders(watchReferer)).body.string()
         val attrs = MANIFEST_ATTRS_REGEX.find(html) ?: return emptyList()
         val (base, stamp) = attrs.destructured
+        if (!base.startsWith("https://")) return emptyList()
 
         // Handshake: the nonce salts the response key, so the same
         // object must build the request and decrypt the response.
