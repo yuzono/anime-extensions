@@ -52,8 +52,6 @@ class ProxyServer(
             .connectTimeout(10, TimeUnit.SECONDS)
             .connectionPool(ConnectionPool(30, 2, TimeUnit.MINUTES))
             .retryOnConnectionFailure(true)
-            .followRedirects(false)
-            .followSslRedirects(false)
             .build()
     }
 
