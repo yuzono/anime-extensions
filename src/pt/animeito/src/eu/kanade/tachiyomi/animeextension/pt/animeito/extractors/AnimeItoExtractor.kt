@@ -34,7 +34,13 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
     suspend fun videosFromUrl(url: String, serverName: String, episodeUrl: String): List<Video> {
         val qualityPrefix = if (serverName.isEmpty()) "Animei.to" else "Animei.to $serverName"
         // AniDrive rejects token embeds that are not requested with the episode page as Referer.
-        val playerHeaders = headers.newBuilder().set("Referer", episodeUrl).build()
+        val playerHeaders = headers.newBuilder()
+            .set("Referer", episodeUrl)
+            .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/jxl,image/avif,image/webp,image/apng,*/*;q=0.8'")
+            .set("sec-fetch-dest", "iframe")
+            .set("sec-fetch-mode", "navigate")
+            .build()
+
         val playerDoc = client.get(url, playerHeaders).useAsJsoup()
 
         // AniDrive embeds multiple TextDecoder scripts (service-worker first, player config later).
