@@ -1,37 +1,36 @@
 package eu.kanade.tachiyomi.animeextension.en.anidb
 
+import android.util.LruCache
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import androidx.preference.SwitchPreferenceCompat
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
+import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.awaitSuccess
-import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.AnimeHttpLegacySource
+import keiyoushi.network.get
+import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import java.util.concurrent.TimeUnit
-import kotlin.math.roundToInt
 
 class AniDB :
-    AnimeHttpLegacySource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "AniDB"
 
-    override val baseUrl = "https://anidb.app"
+    override val baseUrl = "https://anilab2.amdapi.click"
 
     override val lang = "en"
 
@@ -41,299 +40,133 @@ class AniDB :
 
     private val preferences by getPreferencesLazy()
 
-    override val client: OkHttpClient = network.client.newBuilder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build()
-
-    override fun headersBuilder() = super.headersBuilder()
-        .set("Referer", "$baseUrl/")
+    private val playHeaders by lazy {
+        headersBuilder()
+            .set("Referer", "https://play.app/")
+            .set("X-Requested-With", "PLAY")
+            .build()
+    }
 
     private val playlistUtils by lazy {
         PlaylistUtils(client, headers)
     }
 
+    private val postCache by lazy { LruCache<Long, PostDto>(POST_CACHE_SIZE) }
+
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/browse?sort=order_top_airing&page=$page", headers)
+    override suspend fun getPopularAnime(page: Int): AnimesPage = getSectionAnime(POPULAR_SECTION)
 
-    override fun popularAnimeParse(response: Response): AnimesPage = parseAnimesPage(response)
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/api/home", headers)
+
+    override fun popularAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException()
 
     // ============================== Latest ================================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/browse?sort=order_updated&page=$page", headers)
+    override suspend fun getLatestUpdates(page: Int): AnimesPage = getPostsPage(latestUpdatesRequest(page))
 
-    override fun latestUpdatesParse(response: Response): AnimesPage = parseAnimesPage(response)
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/api/latest?page=$page", headers)
+
+    override fun latestUpdatesParse(response: Response): AnimesPage = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        if (query.startsWith("http")) {
-            val url = query.toHttpUrlOrNull()
-            if (url != null && (url.host == "anidb.app" || url.host == "anidb.net") && url.pathSegments.contains("anime")) {
-                return GET(url, headers)
-            }
-        }
-
-        var themeId: String? = null
-        var demographicId: String? = null
-        var studioId: String? = null
-
-        val urlBuilder = "$baseUrl/browse".toHttpUrl().newBuilder()
-
-        if (query.isNotBlank()) {
-            urlBuilder.addQueryParameter("q", query)
-        }
-
-        filters.forEach { filter ->
-            when (filter) {
-                is Filters.TypeFilter -> {
-                    if (!filter.isDefault()) urlBuilder.addQueryParameter("type", filter.toUriPart())
-                }
-                is Filters.StatusFilter -> {
-                    if (!filter.isDefault()) urlBuilder.addQueryParameter("status", filter.toUriPart())
-                }
-                is Filters.SeasonFilter -> {
-                    if (!filter.isDefault()) urlBuilder.addQueryParameter("season", filter.toUriPart())
-                }
-                is Filters.YearFilter -> {
-                    if (!filter.isDefault()) urlBuilder.addQueryParameter("year", filter.toUriPart())
-                }
-                is Filters.DemographicFilter -> {
-                    if (!filter.isDefault() && query.isBlank()) demographicId = filter.toUriPart()
-                }
-                is Filters.GenreFilter -> {
-                    if (!filter.isDefault()) urlBuilder.addQueryParameter("genres", filter.toUriPart())
-                }
-                is Filters.ThemeFilter -> {
-                    if (!filter.isDefault() && query.isBlank()) themeId = filter.toUriPart()
-                }
-                is Filters.StudioFilter -> {
-                    if (!filter.isDefault() && query.isBlank()) studioId = filter.toUriPart()
-                }
-                is Filters.SortFilter -> {
-                    if (!filter.isDefault()) urlBuilder.addQueryParameter("sort", filter.toUriPart())
-                }
-                else -> {}
-            }
-        }
-
-        urlBuilder.addQueryParameter("page", page.toString())
-
-        return if (themeId != null) {
-            val themeBuilder = "$baseUrl/themes/$themeId".toHttpUrl().newBuilder()
-            themeBuilder.addQueryParameter("page", page.toString())
-            GET(themeBuilder.build(), headers)
-        } else if (demographicId != null) {
-            val demoBuilder = "$baseUrl/demographics/$demographicId".toHttpUrl().newBuilder()
-            demoBuilder.addQueryParameter("page", page.toString())
-            GET(demoBuilder.build(), headers)
-        } else if (studioId != null) {
-            val studioBuilder = "$baseUrl/studios/$studioId".toHttpUrl().newBuilder()
-            studioBuilder.addQueryParameter("page", page.toString())
-            GET(studioBuilder.build(), headers)
-        } else {
-            GET(urlBuilder.build(), headers)
-        }
-    }
-
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        if (response.request.url.pathSegments.contains("anime")) {
-            val anime = animeDetailsParse(response).apply {
-                setUrlWithoutDomain(response.request.url.toString())
-            }
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        val url = query.toHttpUrlOrNull()
+        if (url != null && url.host == LEGACY_HOST && url.pathSegments.firstOrNull() == "anime") {
+            val anime = fetchPost(url.encodedPath.toPostId()).toSAnime()
             return AnimesPage(listOf(anime), false)
         }
-        return parseAnimesPage(response)
+
+        if (query.isBlank()) {
+            val section = filters.firstInstanceOrNull<Filters.SectionFilter>()
+            if (section != null && !section.isDefault()) return getSectionAnime(section.toUriPart())
+        }
+
+        return getPostsPage(searchAnimeRequest(page, query, filters))
     }
 
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        if (query.isNotBlank()) {
+            val url = "$baseUrl/api/search".toHttpUrl().newBuilder()
+                .addQueryParameter("query", query)
+                .addQueryParameter("page", page.toString())
+                .build()
+            return GET(url, headers)
+        }
+
+        val categoryId = filters.firstInstanceOrNull<Filters.GenreFilter>()?.takeUnless { it.isDefault() }?.toUriPart()
+            ?: filters.firstInstanceOrNull<Filters.ThemeFilter>()?.takeUnless { it.isDefault() }?.toUriPart()
+            ?: return latestUpdatesRequest(page)
+
+        return GET("$baseUrl/api/category?id=$categoryId&page=$page", headers)
+    }
+
+    override fun searchAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException()
+
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
-        Filters.TypeFilter(),
-        Filters.StatusFilter(),
-        Filters.SeasonFilter(),
-        Filters.YearFilter(),
-        Filters.DemographicFilter(),
+        AnimeFilter.Header("Filters are ignored when searching by text"),
+        AnimeFilter.Header("Only one applies: Section, then Genre, then Theme"),
+        Filters.SectionFilter(),
         Filters.GenreFilter(),
         Filters.ThemeFilter(),
-        Filters.StudioFilter(),
-        Filters.SortFilter(),
     )
 
     // =========================== Anime Details ============================
 
-    override fun animeDetailsParse(response: Response): SAnime {
-        val document = response.asJsoup()
-        val dl = document.selectFirst("dl.grid")
+    override fun animeDetailsRequest(anime: SAnime): Request = postRequest(anime.url.toPostId())
 
-        return SAnime.create().apply {
-            title = document.selectFirst("h1")!!.text()
-            thumbnail_url = document.selectFirst("img[src*=poster]")?.attr("abs:src")
-
-            val altTitles = mutableListOf<String>()
-            document.selectFirst("p.text-sm.text-muted.mb-3")?.text()?.takeIf { it.isNotEmpty() }?.let { altTitles.add(it) }
-            dl?.selectFirst("dt:contains(Synonyms) + dd")?.text()?.takeIf { it.isNotEmpty() }?.let { it ->
-                it.split(",").map { s -> s.trim() }.filter { s -> s.isNotEmpty() }.forEach { altTitles.add(it) }
-            }
-
-            val scoreText = dl?.selectFirst("dt:contains(Score) + dd")?.text()
-            val scoreValue = scoreText?.toFloatOrNull()
-            val stars = if (scoreValue != null) {
-                val filled = (scoreValue / 2.0).roundToInt().coerceIn(0, 5)
-                "★".repeat(filled) + "☆".repeat(5 - filled) + " $scoreValue"
-            } else {
-                null
-            }
-
-            val type = dl?.selectFirst("dt:contains(Type) + dd")?.text()
-            val season = dl?.selectFirst("dt:contains(Season) + dd")?.text()
-            val duration = dl?.selectFirst("dt:contains(Duration) + dd")?.text()
-            val rating = dl?.selectFirst("dt:contains(Rating) + dd")?.text()
-            val metaLine1 = listOfNotNull(
-                type?.let { "**Type:** $it" },
-                season?.let { "**Season:** $it" },
-                duration?.let { "**Duration:** $it" },
-                rating?.let { "**Rating:** $it" },
-            ).joinToString(" | ")
-
-            val airedRaw = dl?.selectFirst("dt:contains(Aired) + dd")?.text()
-            val metaLine2 = if (airedRaw != null) {
-                val parts = airedRaw.split(Regex("\\s*[–—-]\\s*"))
-                val dateAired = parts.getOrNull(0)?.trim()
-                val dateEnded = parts.getOrNull(1)?.trim()
-                buildString {
-                    if (dateAired != null) append("**Date Aired:** $dateAired")
-                    if (dateEnded != null) {
-                        if (isNotEmpty()) append("\n")
-                        append("**Date Ended:** $dateEnded")
-                    }
-                }
-            } else {
-                ""
-            }
-
-            val trailerUrl = document.selectFirst("a:contains(Trailer)")?.absUrl("href")
-            val synopsis = document.select("h2:contains(Synopsis) + div p")
-                .joinToString("\n\n") { it.text() }
-
-            val allowedDomains = listOf("myanimelist.net", "anilist.co", "anidb.net", "kitsu.app")
-            val links = document.select("div[class*='gap-2'].mb-4 a[target=_blank]")
-                .filter { a ->
-                    val href = a.attr("href").lowercase()
-                    allowedDomains.any { domain -> href.contains(domain) }
-                }
-                .joinToString(" | ") { a -> "[${a.text()}](${a.absUrl("href")})" }
-
-            description = buildString {
-                if (stars != null) {
-                    append("$stars\n\n")
-                }
-                append(synopsis)
-                if (metaLine1.isNotEmpty()) {
-                    append("\n\n$metaLine1")
-                }
-                if (metaLine2.isNotEmpty()) {
-                    append("\n$metaLine2")
-                }
-                if (altTitles.isNotEmpty()) {
-                    append("\n\n**Alternative Titles:**\n")
-                    altTitles.distinct().forEach { append("- $it\n") }
-                }
-                if (links.isNotEmpty()) {
-                    append("\n\n**Links:** $links")
-                }
-                if (!trailerUrl.isNullOrEmpty()) {
-                    append("\n\n[Trailer]($trailerUrl)")
-                }
-            }.trim()
-
-            author = dl?.selectFirst("dt:contains(Studios) + dd a, dt:contains(Studio) + dd a")?.text()
-            val statusText = dl?.selectFirst("dt:contains(Status) + dd")?.text()?.lowercase()
-            status = when {
-                statusText?.contains("currently airing") == true -> SAnime.ONGOING
-                statusText?.contains("finished airing") == true -> SAnime.COMPLETED
-                else -> SAnime.UNKNOWN
-            }
-
-            val demographic = dl?.selectFirst("dt:contains(Demographic) + dd a")?.text()
-            val genresList = document.select("div[class*='gap-1.5'].mb-4 a").map { it.text() }
-            genre = (listOfNotNull(demographic) + genresList).joinToString()
-        }
-    }
+    override fun animeDetailsParse(response: Response): SAnime = response.parseAs<PostDto>().toSAnime()
 
     // ============================== Episodes ==============================
 
-    override fun episodeListRequest(anime: SAnime): Request {
-        val lastSegment = (baseUrl + anime.url).toHttpUrl().pathSegments.last()
-        val animeId = ANIME_ID_REGEX.find(lastSegment)?.groupValues?.get(1) ?: lastSegment
-        return GET("$baseUrl/api/frontend/anime/$animeId/episodes", headers)
-    }
+    override fun episodeListRequest(anime: SAnime): Request = GET("$PLAY_URL/api/anime/${anime.url.toPostId()}/episodes", headers)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val episodesArr = response.parseAs<EpisodeResponseDto>().episodes
+        val episodes = response.parseAs<EpisodeListDto>().list
 
-        val minEpNumber = episodesArr.minOfOrNull { it.number.toFloat() } ?: 0f
+        val minEpNumber = episodes.mapNotNull { it.number.toFloatOrNull() }.minOrNull() ?: 0f
         val offset = if (minEpNumber > 1f) minEpNumber - 1f else 0f
 
-        val hideFiller = preferences.getBoolean(PREF_FILLER_HIDE_KEY, PREF_FILLER_HIDE_DEFAULT)
-        val showFillerTag = preferences.getBoolean(PREF_FILLER_TAG_KEY, PREF_FILLER_TAG_DEFAULT)
-
-        return episodesArr
-            .filter { !hideFiller || !it.filler }
-            .map { it.toSEpisode(offset, showFillerTag) }
-            .reversed()
+        return episodes.map { it.toSEpisode(offset) }.reversed()
     }
+
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
 
-    override fun videoListRequest(episode: SEpisode): Request = GET("$baseUrl/api/frontend/episode/${episode.url}/languages", headers)
+    override fun hosterListRequest(episode: SEpisode): Request = GET("$PLAY_URL/api/episode/${episode.url}/servers", headers)
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val languages = client.newCall(videoListRequest(episode)).awaitSuccess()
-            .parseAs<LanguageResponseDto>().languages
-
-        return languages.parallelCatchingFlatMap { language ->
-            client.newCall(GET(language.embedUrl, headers)).awaitSuccess().use { embedResponse ->
-                val html = embedResponse.body.string()
-                val m3u8Url = M3U8_REGEX.find(html)?.groupValues?.get(1)
-                    ?: return@parallelCatchingFlatMap emptyList()
-
-                playlistUtils.extractFromHls(
-                    playlistUrl = m3u8Url,
-                    referer = "$baseUrl/",
-                    masterHeaders = headers,
-                    videoHeaders = headers,
-                    videoNameGen = { quality -> "${language.name} - $quality" },
-                )
-            }
+    // Server ids are "<episodeId>/<language code>", and each one is listed twice ("Server #1", "Server #2")
+    override fun hosterListParse(response: Response): List<Hoster> = response.parseAs<ServerListDto>().list
+        .distinctBy { it.id }
+        .map { server ->
+            val langCode = server.id.substringAfterLast('/')
+            Hoster(
+                hosterUrl = "$PLAY_URL/api/episode/${server.id}/iframe",
+                hosterName = LANGUAGES[langCode] ?: langCode.uppercase(),
+                internalData = langCode,
+            )
         }
+
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val langPref = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT)!!
+        return sortedByDescending { it.internalData == langPref }
     }
 
-    override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val link = client.get(hoster.hosterUrl, playHeaders).parseAs<IframeDto>().link
+
+        return playlistUtils.extractFromHls(
+            playlistUrl = link,
+            masterHeaders = headers,
+            videoHeaders = headers,
+        )
+    }
 
     override fun List<Video>.sortVideos(): List<Video> {
         val qualityPref = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-        val langPref = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT)!!
-
-        val primaryLang = if (langPref == "eng") "English" else "Japanese"
-        val secondaryLang = if (langPref == "eng") "Japanese" else "English"
-
-        val qualityOrder = listOfNotNull(
-            qualityPref,
-            "1080p".takeIf { it != qualityPref },
-            "720p".takeIf { it != qualityPref },
-            "360p".takeIf { it != qualityPref },
-        )
-
-        val langOrder = listOf(primaryLang, secondaryLang)
-
-        val idealOrder = qualityOrder.flatMap { res ->
-            langOrder.map { lang -> "$lang - $res" }
-        }
-
-        return this.sortedBy { video ->
-            idealOrder.indexOfFirst { video.videoTitle.startsWith(it) }
-                .let { if (it != -1) it else Int.MAX_VALUE }
-        }
+        return sortedByDescending { it.videoTitle.contains(qualityPref) }
     }
 
     // ============================== Settings ==============================
@@ -358,62 +191,49 @@ class AniDB :
             summary = "%s"
             screen.addPreference(this)
         }
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_FILLER_TAG_KEY
-            title = PREF_FILLER_TAG_TITLE
-            setDefaultValue(PREF_FILLER_TAG_DEFAULT)
-            summary = "Adds '(Filler)' to episode names when available."
-            screen.addPreference(this)
-        }
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_FILLER_HIDE_KEY
-            title = PREF_FILLER_HIDE_TITLE
-            setDefaultValue(PREF_FILLER_HIDE_DEFAULT)
-            summary = "Hides detected filler episodes from episode list."
-            screen.addPreference(this)
-        }
     }
 
     // ============================= Utilities ==============================
 
-    private fun parseAnimesPage(response: Response): AnimesPage {
-        val document = response.asJsoup()
-        val animeMap = linkedMapOf<String, SAnime>()
+    private suspend fun getSectionAnime(name: String): AnimesPage {
+        val posts = client.get(popularAnimeRequest(1).url)
+            .parseAs<HomeDto>().sections
+            .firstOrNull { it.name == name }
+            ?.posts.orEmpty()
+        return AnimesPage(posts.toSAnimeList(), false)
+    }
 
-        // Priority: Seasons
-        document.select("div.overflow-x-auto.snap-x a[href*=/anime/]").forEach { a ->
-            val url = a.absUrl("href")
-            if (url.isNotEmpty()) {
-                animeMap[url] = SAnime.create().apply {
-                    setUrlWithoutDomain(url)
-                    title = a.attr("title").takeIf { it.isNotEmpty() } ?: a.text()
-                    thumbnail_url = a.selectFirst("img")?.absUrl("src")
-                }
-            }
-        }
+    private suspend fun getPostsPage(request: Request): AnimesPage {
+        val posts = client.get(request.url).parseAs<PostListDto>().posts
+        return AnimesPage(posts.toSAnimeList(), posts.size >= PAGE_SIZE)
+    }
 
-        // Standard grid / Relations (skips duplicates already added from seasons)
-        document.select(".anime-grid a.anime-card").forEach { card ->
-            val url = card.absUrl("href")
-            if (url.isNotEmpty() && url !in animeMap) {
-                animeMap[url] = SAnime.create().apply {
-                    setUrlWithoutDomain(url)
-                    title = card.selectFirst("p.text-xs, .card-overlay p")?.text()
-                        ?: card.attr("title")
-                    thumbnail_url = card.selectFirst("img")?.absUrl("src")
-                }
-            }
-        }
+    // List endpoints only return ids and posters, so titles come from each post
+    private suspend fun List<PostItemDto>.toSAnimeList(): List<SAnime> = parallelCatchingMapNotNull { fetchPost(it.id).toSAnime() }
 
-        val hasNextPage = document.select("a").any {
-            it.text().contains("Next") && it.attr("href").contains("page=")
-        }
-        return AnimesPage(animeMap.values.toList(), hasNextPage)
+    private suspend fun fetchPost(id: Long): PostDto = postCache[id]
+        ?: client.get(postRequest(id).url).parseAs<PostDto>()
+            .also { postCache.put(id, it) }
+
+    private fun postRequest(id: Long): Request = GET("$baseUrl/api/post?id=$id", headers)
+
+    // Entries saved from the old site use "/anime/<slug>-<id>", where post id = id + 1e9
+    private fun String.toPostId(): Long {
+        val id = POST_ID_REGEX.find(trimEnd('/'))?.value?.toLong()
+            ?: throw IllegalArgumentException("Invalid AniDB URL: $this")
+        return if (id < POST_ID_OFFSET) id + POST_ID_OFFSET else id
     }
 
     companion object {
+        private const val PLAY_URL = "https://play.anidb.app"
+        private const val LEGACY_HOST = "anidb.app"
+        private const val POPULAR_SECTION = "Most Popular"
+        private const val POST_ID_OFFSET = 1_000_000_000L
+        private const val POST_CACHE_SIZE = 300
+        private const val PAGE_SIZE = 30
+
+        private val POST_ID_REGEX = Regex("""\d+$""")
+
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred Quality"
         private const val PREF_QUALITY_DEFAULT = "1080p"
@@ -422,19 +242,13 @@ class AniDB :
         private const val PREF_LANG_KEY = "preferred_lang"
         private const val PREF_LANG_TITLE = "Preferred Language"
         private const val PREF_LANG_DEFAULT = "jpn"
-        private val PREF_LANG_ENTRIES = listOf("Japanese", "English")
-        private val PREF_LANG_VALUES = listOf("jpn", "eng")
-
-        private const val PREF_FILLER_TAG_KEY = "append_filler_tag"
-        private const val PREF_FILLER_TAG_TITLE = "Filler Detection"
-        private const val PREF_FILLER_TAG_DEFAULT = true
-
-        private const val PREF_FILLER_HIDE_KEY = "hide_filler"
-        private const val PREF_FILLER_HIDE_TITLE = "Hide Filler Episodes"
-        private const val PREF_FILLER_HIDE_DEFAULT = false
-
-        private val ANIME_ID_REGEX = Regex("-(\\d+)$")
-
-        private val M3U8_REGEX = Regex("""file:\s*['"](https?://[^'"]+master\.m3u8)['"]""")
+        private val LANGUAGES = mapOf(
+            "jpn" to "Japanese",
+            "eng" to "English",
+            "chi" to "Chinese",
+            "kor" to "Korean",
+        )
+        private val PREF_LANG_ENTRIES = LANGUAGES.values.toList()
+        private val PREF_LANG_VALUES = LANGUAGES.keys.toList()
     }
 }

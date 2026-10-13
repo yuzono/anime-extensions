@@ -1,0 +1,169 @@
+package eu.kanade.tachiyomi.animeextension.en.mkissa
+
+import eu.kanade.tachiyomi.animesource.model.AnimeFilter
+import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import keiyoushi.utils.firstInstance
+import java.util.Calendar
+
+object Filters {
+
+    open class QueryPartFilter(
+        displayName: String,
+        val vals: Array<Pair<String, String>>,
+    ) : AnimeFilter.Select<String>(
+        displayName,
+        vals.map { it.first }.toTypedArray(),
+    ) {
+        fun toQueryPart() = vals[state].second
+    }
+
+    open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
+
+    private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
+
+    private inline fun <reified R : QueryPartFilter> AnimeFilterList.asQueryPart(): String = firstInstance<R>().toQueryPart()
+
+    private inline fun <reified R : CheckBoxFilterList> AnimeFilterList.parseCheckbox(
+        options: Array<Pair<String, String>>,
+    ): List<String>? = firstInstance<R>().state
+        .filter { it.state }
+        .mapNotNull { checkbox -> options.find { it.first == checkbox.name }?.second }
+        .ifEmpty { null }
+
+    class OriginFilter : QueryPartFilter("Origin", FiltersData.ORIGIN)
+    class SeasonFilter : QueryPartFilter("Season", FiltersData.SEASONS)
+    class ReleaseYearFilter : QueryPartFilter("Released at", FiltersData.YEARS)
+    class SortByFilter : QueryPartFilter("Sort By", FiltersData.SORT_BY)
+
+    class TypesFilter :
+        CheckBoxFilterList(
+            "Types",
+            FiltersData.TYPES.map { CheckBoxVal(it.first, false) },
+        )
+
+    class GenresFilter :
+        CheckBoxFilterList(
+            "Genres",
+            FiltersData.GENRES.map { CheckBoxVal(it.first, false) },
+        )
+
+    val FILTER_LIST get() = AnimeFilterList(
+        OriginFilter(),
+        SeasonFilter(),
+        ReleaseYearFilter(),
+        SortByFilter(),
+        AnimeFilter.Separator(),
+        TypesFilter(),
+        GenresFilter(),
+    )
+
+    class FilterSearchParams(
+        val origin: String = "ALL",
+        val season: String = "",
+        val releaseYear: String = "",
+        val sortBy: String = "",
+        val types: List<String>? = null,
+        val genres: List<String>? = null,
+    )
+
+    internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
+        if (filters.isEmpty()) return FilterSearchParams()
+
+        return FilterSearchParams(
+            filters.asQueryPart<OriginFilter>(),
+            filters.asQueryPart<SeasonFilter>(),
+            filters.asQueryPart<ReleaseYearFilter>(),
+            filters.asQueryPart<SortByFilter>(),
+            filters.parseCheckbox<TypesFilter>(FiltersData.TYPES),
+            filters.parseCheckbox<GenresFilter>(FiltersData.GENRES),
+        )
+    }
+
+    private object FiltersData {
+        val ALL = Pair("All", "all")
+
+        val ORIGIN = arrayOf(
+            Pair("All", "ALL"),
+            Pair("Japan", "JP"),
+            Pair("China", "CN"),
+            Pair("Korea", "KR"),
+        )
+
+        val SEASONS = arrayOf(
+            ALL,
+            Pair("Winter", "Winter"),
+            Pair("Spring", "Spring"),
+            Pair("Summer", "Summer"),
+            Pair("Fall", "Fall"),
+        )
+
+        // current year, but not less than 2026
+        private val currentYear = Calendar.getInstance().get(Calendar.YEAR).coerceAtLeast(2026)
+        val YEARS = arrayOf(ALL) + (currentYear + 1 downTo 1975)
+            .map { Pair(it.toString(), it.toString()) }
+            .toTypedArray()
+
+        val SORT_BY = arrayOf(
+            Pair("Update", "Recent"),
+            Pair("Name Asc", "Name_ASC"),
+            Pair("Name Desc", "Name_DESC"),
+            Pair("Ratings", "Top"),
+        )
+
+        val TYPES = arrayOf(
+            Pair("Movie", "Movie"),
+            Pair("ONA", "ONA"),
+            Pair("OVA", "OVA"),
+            Pair("Special", "Special"),
+            Pair("TV", "TV"),
+            Pair("Unknown", "Unknown"),
+        )
+
+        val GENRES = arrayOf(
+            Pair("Action", "Action"),
+            Pair("Adventure", "Adventure"),
+            Pair("Cars", "Cars"),
+            Pair("Comedy", "Comedy"),
+            Pair("Dementia", "Dementia"),
+            Pair("Demons", "Demons"),
+            Pair("Drama", "Drama"),
+            Pair("Ecchi", "Ecchi"),
+            Pair("Fantasy", "Fantasy"),
+            Pair("Game", "Game"),
+            Pair("Harem", "Harem"),
+            Pair("Historical", "Historical"),
+            Pair("Horror", "Horror"),
+            Pair("Isekai", "Isekai"),
+            Pair("Josei", "Josei"),
+            Pair("Kids", "Kids"),
+            Pair("Magic", "Magic"),
+            Pair("Martial Arts", "Martial Arts"),
+            Pair("Mecha", "Mecha"),
+            Pair("Military", "Military"),
+            Pair("Music", "Music"),
+            Pair("Mystery", "Mystery"),
+            Pair("Parody", "Parody"),
+            Pair("Police", "Police"),
+            Pair("Psychological", "Psychological"),
+            Pair("Romance", "Romance"),
+            Pair("Samurai", "Samurai"),
+            Pair("School", "School"),
+            Pair("Sci-Fi", "Sci-Fi"),
+            Pair("Seinen", "Seinen"),
+            Pair("Shoujo", "Shoujo"),
+            Pair("Shoujo Ai", "Shoujo Ai"),
+            Pair("Shounen", "Shounen"),
+            Pair("Shounen Ai", "Shounen Ai"),
+            Pair("Slice of Life", "Slice of Life"),
+            Pair("Space", "Space"),
+            Pair("Sports", "Sports"),
+            Pair("Super Power", "Super Power"),
+            Pair("Supernatural", "Supernatural"),
+            Pair("Thriller", "Thriller"),
+            Pair("Unknown", "Unknown"),
+            Pair("Vampire", "Vampire"),
+            Pair("Yaoi", "Yaoi"),
+            Pair("Yuri", "Yuri"),
+        )
+    }
+}

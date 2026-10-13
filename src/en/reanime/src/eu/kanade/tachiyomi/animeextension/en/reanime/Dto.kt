@@ -93,6 +93,13 @@ class EpisodeDto(
     @SerialName("is_recap") val isRecap: Boolean = false,
 )
 
+@Serializable
+class ThumbnailsResponseDto(
+    val success: Boolean,
+    val thumbnails: Map<String, String>? = null,
+    val episodeCount: Int? = null,
+)
+
 // ======================== Video Server DTOs ========================
 
 @Serializable

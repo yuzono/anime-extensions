@@ -1,7 +1,7 @@
 ext {
     extName = 'Moflix-Stream'
     extClass = '.MoflixStream'
-    extVersionCode = 29
+    extVersionCode = 30
 }
 
 apply plugin: "kei.plugins.extension.legacy"

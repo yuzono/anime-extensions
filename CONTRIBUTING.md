@@ -43,6 +43,7 @@ or fixing it directly by submitting a Pull Request.
       - [Additional dependencies](#additional-dependencies)
     - [Extension main class](#extension-main-class)
       - [Main class key variables](#main-class-key-variables)
+    - [Extensions lib 16](#extensions-lib-16)
     - [HTML and Video Processing](#html-and-video-processing)
     - [OkHttp and Network](#okhttp-and-network)
     - [Extension call flow](#extension-call-flow)
@@ -52,7 +53,8 @@ or fixing it directly by submitting a Pull Request.
         - [Filters](#filters)
       - [Anime Details](#anime-details)
       - [Episode](#episode)
-      - [Episode Videos](#episode-videos)
+      - [Seasons](#seasons)
+      - [Hosters and Videos](#hosters-and-videos)
     - [Misc notes](#misc-notes)
     - [Advanced Extension features](#advanced-extension-features)
       - [Extension logic and app features](#extension-logic-and-app-features)
@@ -305,8 +307,9 @@ apply plugin: "kei.plugins.extension.legacy"
 | `extClass`       | Points to the class that implements `AnimeSource`. You can use a relative path starting with a dot (the package name is the base path). This is used to find and instantiate the source(s).                          |
 | `extVersionCode` | The extension version code. This must be a positive integer and incremented with any change to the code. Do not bump for changes that do not affect users, such as changing a private function to a public function. |
 | `isNsfw`         | Flag to indicate that a source contains NSFW content. Should always be set explicitly to either `true` or `false`. Falls back to `false` if not set.                                                                 |
+| `libVersion`     | Optional. The extensions-lib API level the extension targets. Falls back to `14` if not set. Set it to `16` once the extension implements the lib 16 API (see [Extensions lib 16](#extensions-lib-16)).               |
 
-The extension's version name is generated automatically by concatenating `14` and the resolved version code. With the example used above, the version would be `14.1`.
+The extension's version name is generated automatically by concatenating the lib version and the resolved version code. With the example used above, the version would be `14.1`; with `libVersion = 16` it would be `16.1`.
 
 ### Core dependencies
 
@@ -332,7 +335,7 @@ use case. Each lib is self-documented via KDoc comments and/or a README in its o
 | [`lib-dataimage`](https://github.com/yuzono/anime-extensions/tree/master/lib/dataimage)                 | Decodes base64 `data:image` strings into mock URLs that OkHttp can handle               |
 | [`lib-i18n`](https://github.com/yuzono/anime-extensions/tree/master/lib/i18n)                           | Internationalization helper (`Intl`) for multi-language UI strings in extensions        |
 | [`lib-lzstring`](https://github.com/yuzono/anime-extensions/tree/master/lib/lzstring)                   | LZ-String decompression and compression                                                 |
-| [`lib-randomua`](https://github.com/yuzono/anime-extensions/tree/master/lib/randomua)                   | Fetches and rotates real-world User-Agent strings (requires overriding `getMangaUrl()`) |
+| [`lib-randomua`](https://github.com/yuzono/anime-extensions/tree/master/lib/randomua)                   | Fetches and rotates real-world User-Agent strings (requires overriding `getAnimeUrl()`) |
 | [`lib-seedrandom`](https://github.com/yuzono/anime-extensions/tree/master/lib/seedrandom)               | Seeded deterministic pseudo-random number generation (ARC4-based)                       |
 | [`lib-synchrony`](https://github.com/yuzono/anime-extensions/tree/master/lib/synchrony)                 | JavaScript deobfuscation via the Synchrony engine (QuickJS sandbox)                     |
 | [`lib-textinterceptor`](https://github.com/yuzono/anime-extensions/tree/master/lib/textinterceptor)     | Renders plain text or HTML as a PNG image page                                          |
@@ -340,7 +343,7 @@ use case. Each lib is self-documented via KDoc comments and/or a README in its o
 | [`lib-zipinterceptor`](https://github.com/yuzono/anime-extensions/tree/master/lib/zipinterceptor)       | Decodes, stitches, and processes multi-page ZIP/AVIF/SVG image archives                 |
 
 > [!IMPORTANT]
-> If your module uses `:lib:randomua`, the Spotless check requires your extension to override the `getMangaUrl()` method in your main class, or the build will fail.
+> If your module uses `:lib:randomua`, the Spotless check requires your extension to override the `getAnimeUrl()` method in your main class, or the build will fail.
 
 > [!NOTE]
 > The table above highlights the most commonly used libraries. Check the `lib/` directory for the full list of available modules and their specific READMEs.
@@ -701,8 +704,9 @@ either `AnimeSourceFactory` or `AnimeHttpSource`.
 | Class                   | Description                                                                                                                           |
 |-------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
 | `AnimeSourceFactory`    | Used to expose multiple `AnimeSource`s. Use this in case of a source that supports multiple languages or mirrors of the same website. |
-| `AnimeHttpSource`       | For online source, where requests are made using HTTP.                                                                                |
-| `ParsedAnimeHttpSource` | Deprecated, use `AnimeHttpSource` instead.                                                                                            |
+| `AnimeHttpSource`       | For online source, where requests are made using HTTP. New extensions should extend it directly and implement the lib 16 API.         |
+| `AnimeHttpLegacySource` | `keiyoushi.utils` shim that keeps the pre-lib 16 `videoListRequest(episode)` / `videoListParse(response)` flow. Do not use for new code. |
+| `ParsedAnimeHttpSource` | Deprecated, use `AnimeHttpSource` instead (`ParsedAnimeHttpLegacySource` is its legacy shim).                                         |
 
 #### Main class key variables
 
@@ -713,17 +717,51 @@ either `AnimeSourceFactory` or `AnimeHttpSource`.
 | `lang`    | An ISO 639-1 compliant language code (two letters in lower case in most cases, but can also include the country/dialect part by using a simple dash character). |
 | `id`      | Identifier of your source, automatically set in `AnimeHttpSource`. It should only be manually overridden if you need to copy an existing autogenerated ID.      |
 
+### Extensions lib 16
+
+The repository compiles against [aniyomi-extensions-lib](https://github.com/komikku-app/aniyomi-extensions-lib)
+16, which adds seasons, hosters and lazily resolved videos. In lib 16, `AnimeHttpSource` declares
+`seasonListParse` and `hosterListParse` as abstract, and the old `getVideoList(episode)` flow is gone.
+
+Most existing extensions still extend the `keiyoushi.utils.AnimeHttpLegacySource` or
+`ParsedAnimeHttpLegacySource` shims. They keep the old `videoListRequest(episode)` /
+`videoListParse(response)` methods and wrap the result into a single hoster with `toHosterList()`.
+Extensions that only use the shims keep the default lib version `14`.
+
+When writing a new extension, or migrating an existing one:
+
+- Extend `AnimeHttpSource` (or a lib 16 theme) directly instead of a legacy shim.
+- Implement the [hoster flow](#hosters-and-videos); implement [seasons](#seasons) only if the site
+  needs them, otherwise throw `UnsupportedOperationException()` from `seasonListParse`.
+- Build videos with the [new `Video` constructor](#hosters-and-videos).
+- Add `libVersion = 16` to the `ext` block in `build.gradle`, and bump the version code as usual.
+  This also applies when only the extension implements the hoster flow on top of a theme that still
+  uses a shim, as `src/pt/animeito` does.
+
+The app reads the lib version from the version name: Anikku accepts versions `12` to `16`
+([`ExtensionLoader`](https://github.com/komikku-app/anikku/blob/master/app/src/main/java/eu/kanade/tachiyomi/extension/util/ExtensionLoader.kt)),
+and treats a higher lib version as an update. Users need an app release that supports lib 16 to install a
+`16.x` extension.
+
+Fully migrated examples: `src/en/reanime` (hosters, `resolveVideo`) and `src/all/jellyfin` (seasons).
+`src/pt/animeito` shows a smaller step: its theme still uses the legacy shim, and the extension
+overrides only the hoster flow.
+
 ### HTML and Video Processing
 
 - **Parsing partial HTML:** If an API returns a JSON response containing an HTML string, use `Jsoup.parseBodyFragment(html, baseUrl)` instead of `Jsoup.parse(html)`. Passing the `baseUrl` ensures that `abs:href` and `absUrl()` can correctly resolve relative links.
 
 - **Formatting Episode Numbers:** Do not write custom `DecimalFormat` logic just to remove trailing zeros from float episode numbers. Simply use `.toString().removeSuffix(".0")`.
 
-- **Generating Video lists:** Return a `List<Video>` from `videoListParse` or `getVideoList`. Each `Video` needs a display name (`quality`), a stream URL, and optionally custom headers. Example:
+- **Generating Video lists:** Return a `List<Video>` from `getVideoList(hoster)` / `videoListParse(response, hoster)`. Each `Video` needs a stream URL, a display title, and optionally custom headers. Example:
 
     ```kotlin
     return document.select("source").map { source ->
-        Video(source.attr("abs:src"), source.attr("label"), source.attr("abs:src"))
+        Video(
+            videoUrl = source.absUrl("src"),
+            videoTitle = source.attr("label"),
+            headers = headers,
+        )
     }
     ```
 
@@ -755,8 +793,8 @@ either `AnimeSourceFactory` or `AnimeHttpSource`.
 - **GraphQL Queries:** If you are sending GraphQL requests, use Kotlin's raw multi-dollar string interpolation (`$$"""..."""`) for your queries. This prevents having to escape every JSON variable `$` symbol manually.
 - **Empty checks on `.text()`:** Because Jsoup's `.text()` automatically trims whitespace, you can use `.isNotEmpty()` instead of `.isNotBlank()` when checking for empty strings. The same applies to `.ownText()`. This also means you should not use `.trim()` with these functions.
 - **Use `network.client` for Cloudflare:** When overriding the client for sources protected by Cloudflare, simply use `override val client = network.client.newBuilder()...`. The default `client` now handles Cloudflare challenges automatically. Do **not** use `network.cloudflareClient`, as it is deprecated.
-- **Never use `Thread.sleep()`:** Do not use `Thread.sleep()` for rate limiting. Use OkHttp's `rateLimitHost` interceptor instead.
-- **Avoid synchronous calls in `parse` methods:** Do not call `client.newCall(...).execute()` inside parsing methods like `videoListParse` or `episodeListParse`. Make the request part of the standard flow by overriding the corresponding request method (e.g., `videoListRequest`) or `getVideoList`.
+- **Never use `Thread.sleep()`:** Do not use `Thread.sleep()` for rate limiting. Use `keiyoushi.network.rateLimit` on the client builder instead.
+- **Avoid synchronous calls in `parse` methods:** Do not call `client.newCall(...).execute()` inside parsing methods like `videoListParse` or `episodeListParse`. Make the request part of the standard flow by overriding the corresponding request method (e.g., `hosterListRequest`) or the suspend function (e.g., `getVideoList(hoster)`).
 - **Pass `HttpUrl` directly:** The `GET()` and `POST()` helpers accept an `HttpUrl` object. Do not call `.toString()` on a built `HttpUrl` before passing it.
 - **Use `HttpUrl` for URL manipulation:** When parsing or extracting parts of a URL, prefer using `HttpUrl` methods (like `pathSegments()` or `queryParameter()`) over manual string splitting or regex. It is safer and handles edge cases better.
 - **Use `addCookie` for custom cookies:** See [Custom cookies - `addCookie`](#custom-cookies---addcookie). Do not manually add `Cookie` headers: doing so can discard unrelated cookies already attached to the request, whereas `addCookie` preserves them and replaces only cookies with matching names.
@@ -839,7 +877,8 @@ will be cached.
   app calls `getAnimeDetails`, so all fields should be (re)filled in if possible.
   - If a `SAnime` is cached, `getAnimeDetails` will be only called when the user does a manual
   update (Swipe-to-Refresh).
-- `getEpisodeList` is called to display the episode list.
+- `getEpisodeList` is called to display the episode list, unless the anime's `fetch_type` is
+`FetchType.Seasons` (see [Seasons](#seasons)).
   - **The list should be sorted descending by the source order**.
 - `getAnimeUrl` is called when the user taps "Open in WebView".
   - If the source uses an API to fetch the data, consider overriding this method to return the anime
@@ -860,8 +899,8 @@ will be cached.
 
     episode.date_upload = dateFormat.tryParse(dateStr)
 
-    private val dateFormat by lazy {
-        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH)
+    private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).apply {
+        timeZone = TimeZone.getTimeZone("UTC") // the site's timezone, if known
     }
     ```
 
@@ -875,16 +914,40 @@ will be cached.
 - `getEpisodeUrl` is called when the user taps "Open in WebView" in the player.
   - If the source uses an API to fetch the data, consider overriding this method to return the
   episode absolute URL in the website instead.
-  - It defaults to the URL provided to the request in `videoListRequest`.
+  - Override it when `episode.url` isn't the episode's web page (e.g. an API ID).
 
-#### Episode Videos
+#### Seasons
 
-- When user opens an episode, `getVideoList` (or `videoListParse`) will be called and it will return
-a list of `Video`s.
-- Each `Video` represents a playable stream (or quality option) for the episode. The constructor is
-`Video(url, quality, videoUrl, headers)`.
-- The `Video.url` and `Video.videoUrl` attributes **should be set as absolute URLs** when possible.
-- Return videos already sorted by quality or server preference when the source provides that order.
+- Some sites split a series into seasons that are separate entries. Set `SAnime.fetch_type` to
+`FetchType.Seasons` and the app calls `getSeasonList` (or `seasonListRequest` / `seasonListParse`)
+instead of `getEpisodeList`. Each season is an `SAnime`; set `season_number` and
+`fetch_type = FetchType.Episodes` on it.
+- The fetch type can't change once the anime is initialized, so set it when the entry is first parsed.
+- Sources without seasons leave `fetch_type` at its default and throw `UnsupportedOperationException()`
+from `seasonListParse`.
+
+#### Hosters and Videos
+
+- When user opens an episode, the app calls `getHosterList` (or `hosterListRequest` /
+`hosterListParse`). A `Hoster` is one server or mirror: `Hoster(hosterUrl, hosterName, internalData)`.
+Use `internalData` to carry whatever the next step needs (an embed URL, an ID, encoded data).
+- When a hoster is loaded, the app calls `getVideoList(hoster)` (or
+`videoListRequest(hoster)` / `videoListParse(response, hoster)`), which returns its `Video`s.
+- If the videos are already known while building the hoster list, pass them in `Hoster.videoList`.
+If a source has no separate servers, return the videos wrapped with `videos.toHosterList()`.
+- Build videos with named parameters: `Video(videoUrl = ..., videoTitle = ..., headers = ...)`, plus
+`subtitleTracks`, `audioTracks`, `resolution`, `bitrate` or `timestamps` when available. The old
+positional `Video(url, quality, videoUrl, headers)` constructor is deprecated.
+- `Video.videoUrl` **should be an absolute URL** once the video is resolved (see below).
+- If a stream URL expires quickly or is expensive to fetch, return the `Video` with
+`initialized = false`, an empty `videoUrl` and the data needed in `internalData`. The app calls `resolveVideo(video)` when
+it plays that video; return the resolved copy with `initialized = true`, or `null` on failure. This
+replaces the deprecated `getVideoUrl` / `videoUrlRequest` / `videoUrlParse`.
+- Order hosters and videos by the user's server and quality preferences, either by sorting them in
+`getHosterList` / `getVideoList(hoster)` before returning, or by overriding `List<Hoster>.sortHosters()`
+/ `List<Video>.sortVideos()`, which the app applies afterwards (their defaults keep the order). Sort
+before returning when your own code relies on the order, such as setting `Video.preferred` on the
+first match.
 - If you need to pass additional data to a custom extractor, it is recommended to pass it as a URL
 fragment (e.g. `url + "#data"`). OkHttp does not send fragments to the server, so there is no need
 to strip it out afterwards.
@@ -894,12 +957,13 @@ to strip it out afterwards.
 - **Use `asJsoup()`:** Instead of manually reading the response body and parsing it with Jsoup (`Jsoup.parse(response.body.string())`), use the app's built-in extension function: `response.asJsoup()` (requires `eu.kanade.tachiyomi.util.asJsoup`).
 - **Jsoup `.text()` is already trimmed:** Calling `element.text().trim()` is redundant because Jsoup automatically normalizes and trims whitespace. Just use `element.text()`.
 - **Omit default `joinToString` separator:** The default separator for `joinToString` is already `", "`. Do not pass it explicitly. Use `joinToString { it.text() }` instead of `joinToString(", ") { it.text() }`, and `joinToString()` instead of `joinToString(", ")`.
-- **Use named parameters for `Video`:** Instantiate `Video` clearly with named parameters. Use the `Video(url, quality, videoUrl, headers)` constructor and pass
-custom headers when the stream requires them.
+- **Use named parameters for `Video`:** Instantiate `Video` with named parameters (`Video(videoUrl = ..., videoTitle = ..., headers = ...)`) and pass
+custom headers when the stream requires them. Don't use the deprecated positional `Video(url, quality, videoUrl, headers)` constructor.
 - **Throw `UnsupportedOperationException`:** If a source uses an API and doesn't need to parse HTML for
 videos in a legacy method, throw `UnsupportedOperationException()` instead of returning an empty
 value. Also use this pattern for unused inherited methods.
 - **Cache Regex instances:** Define `Regex` instances at the class level or in a `companion object` so they aren't recompiled on every method call.
+- **Don't create Android classes when the source is constructed:** To publish the repo, CI instantiates every source on a plain JVM with the [extensions inspector](https://github.com/komikku-app/aniyomi-extensions-inspector). There, `android.*` classes are stubs that throw `RuntimeException: Stub!`. One extension that builds such a class (for example `android.util.LruCache`) in its constructor or in a property initializer stops the publish for every extension. Wrap those properties in `by lazy { ... }`. The PR check runs the same inspector.
 - **Do not hardcode `User-Agent`:** Unless absolutely necessary (e.g., to bypass Cloudflare/protection, or to retrieve a specific mobile layout/different selectors), do not hardcode a specific `User-Agent`. Calling `super.headersBuilder()` already provides the app's default User-Agent.
 - **Use `buildString { }`:** When building descriptions or dynamic strings, use Kotlin's `buildString { ... }` instead of manually instantiating a `StringBuilder()`.
 - **Media Types:** `application/json` is intrinsically UTF-8. Avoid using `application/json; charset=utf-8`. Prefer helper functions like `toJsonRequestBody()` instead of manually specifying media types (e.g., `"application/json".toMediaType()`).
@@ -924,7 +988,7 @@ value. Also use this pattern for unused inherited methods.
 - **When to bump `versionId`:** The `versionId` property dictates how the app tracks the source. **Only override and bump `versionId` if the source's URL structure fundamentally changes** (e.g., old anime URLs no longer work and there is no way to create a redirect). Bumping this forces all users to re-migrate their bookmarks.
 - **Self-hosted sources:** If you are adding a source for a self-hosted server (e.g., StashApp, Komga, Suwayomi), make your class implement the `UnmeteredSource` interface. This tells the app not to apply standard rate-limiting to the user's own local server.
 - **Preference listeners:** When implementing `ConfigurableAnimeSource`, you do not need to manually save values inside `setOnPreferenceChangeListener`. The Android preference framework saves the value to `SharedPreferences` automatically.
-- **Update Strategy:** For gallery sources or sources where entries are completed upon upload, set `update_strategy = UpdateStrategy.ONLY_FETCH_ONCE` to prevent unnecessary update checks.
+- **Update Strategy:** For gallery sources or sources where entries are completed upon upload, set `update_strategy = AnimeUpdateStrategy.ONLY_FETCH_ONCE` to prevent unnecessary update checks.
 - **Preserving Source ID:** If you change a source's `name` or `lang`, its auto-generated `id` will change, which disconnects existing users' libraries. To prevent this, override `id` with the old value (found in the repository's `index.json`).
 - **Avoid hardcoded host checks:** When checking URLs in deep links or search overrides, avoid hardcoding the host string (e.g., `queryUrl.host == "site.com"`). This breaks if mirrors are added. Prefer checking against the source's `baseUrl` dynamically.
 - **Empty Lists vs Exceptions:** If `videoListParse` or `episodeListParse` finds no items (e.g., a locked or empty episode), return `emptyList()` instead of throwing a hardcoded exception. The app will display a properly localized error message to the user.
@@ -944,7 +1008,7 @@ Extensions can define a URL pattern so that these URLs can be opened in Anikku.
 
 To do this, you need two files:
 
-- `AndroidManifest.xml` which must be placed in the root directory of your extension (Example: `src/id/riztranslation/AndroidManifest.xml`)
+- `AndroidManifest.xml` which must be placed in the root directory of your extension (Example: `src/all/nyaatorrent/AndroidManifest.xml`)
 - `UrlActivity.kt` which should be placed next to your main file. (Example: `src/all/nyaatorrent/src/eu/kanade/tachiyomi/animeextension/all/nyaatorrent/NyaaTorrentUrlActivity.kt`)
 
 `AndroidManifest.xml` example :
@@ -955,7 +1019,7 @@ To do this, you need two files:
 
     <application>
         <activity
-            android:name=".id.riztranslation.UrlActivity"
+            android:name=".<lang>.<mysourcename>.UrlActivity"
             android:excludeFromRecents="true"
             android:exported="true"
             android:theme="@android:style/Theme.NoDisplay">
@@ -966,11 +1030,7 @@ To do this, you need two files:
                 <category android:name="android.intent.category.BROWSABLE" />
 
                 <data
-                    android:host="riztranslation.pages.dev"
-                    android:pathPattern="/..*"
-                    android:scheme="https" />
-                <data
-                    android:host="riztranslation.rf.gd"
+                    android:host="mysite.com"
                     android:pathPattern="/..*"
                     android:scheme="https" />
             </intent-filter>
@@ -979,9 +1039,9 @@ To do this, you need two files:
 </manifest>
 ```
 
-The `AndroidManifest.xml` file will contain an `android:name` attribute that refers to the path of your `UrlActivity.kt` file. For example, if the extension is Riztranslation, the `android:name` will be `.id.riztranslation.UrlActivity`.
+The `AndroidManifest.xml` file will contain an `android:name` attribute that refers to the path of your `UrlActivity.kt` file. For example, for NyaaTorrent (`src/all/nyaatorrent`) the `android:name` is `.all.nyaatorrent.NyaaTorrentUrlActivity`.
 
-Next, you have the `<data android:scheme="https" android:host="host" android:pathPattern="/..*" />` element; you can have it multiple times, which allows you to specify the URL that can be opened in Anikku. You can read more about this in Android's [`<data>` documentation](https://developer.android.com/guide/topics/manifest/data-element).
+Next, you have the `<data android:scheme="https" android:host="host" android:pathPattern="/..*" />` element; you can have it multiple times, which allows you to specify the URL that can be opened in Anikku. Every host you add here must also be accepted by the URL check in `getSearchAnime` below. You can read more about this in Android's [`<data>` documentation](https://developer.android.com/guide/topics/manifest/data-element).
 
 Now, as for `UrlActivity`, you can just use the example below.
 
@@ -1009,10 +1069,10 @@ class UrlActivity : Activity() {
             try {
                 startActivity(mainIntent)
             } catch (e: Throwable) {
-                Log.e("RiztranslationUrl", e.toString())
+                Log.e("MySiteUrl", e.toString())
             }
         } else {
-            Log.e("RiztranslationUrl", "could not parse uri from intent $intent")
+            Log.e("MySiteUrl", "could not parse uri from intent $intent")
         }
 
         finish()
@@ -1024,15 +1084,17 @@ class UrlActivity : Activity() {
 Now all you need to do is adapt the search function (`getSearchAnime`) in your extension so that, given a URL, it returns a single anime that matches that URL. For example:
 
 ```kotlin
-if (query.startsWith("https://")) {
+override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
     val url = query.toHttpUrlOrNull()
-    if (url != null && url.host == baseUrl.toHttpUrl().host) {
-        val typeIndex = url.pathSegments.indexOfFirst { it == "detail" || it == "view" }
-        if (typeIndex != -1 && typeIndex + 1 < url.pathSize) {
-            val id = url.pathSegments[typeIndex + 1]
-            return GET("$apiUrl/Book?select=id,judul,cover&type=not.ilike.*novel*&id=eq.$id", apiHeaders)
-        }
+    val segments = url?.pathSegments.orEmpty()
+    val slug = segments.getOrNull(1).takeIf { segments.firstOrNull() == "anime" }
+    if (url?.host == baseUrl.toHttpUrl().host && !slug.isNullOrEmpty()) {
+        val path = "/anime/$slug"
+        val anime = getAnimeDetails(SAnime.create().apply { this.url = path })
+            .apply { this.url = path }
+        return AnimesPage(listOf(anime), false)
     }
+    return super.getSearchAnime(page, query, filters)
 }
 ```
 
@@ -1044,7 +1106,7 @@ you can use the `adb` command below.
 adb shell am start -d "<your-link>" -a android.intent.action.VIEW
 ```
 
-You can find a complete example of how URLs work in the [Riztranslation extension](https://github.com/yuzono/anime-extensions/tree/master/src/all/nyaatorrent).
+You can find a complete example of how URLs work in the [NyaaTorrent extension](https://github.com/yuzono/anime-extensions/tree/master/src/all/nyaatorrent).
 
 #### Update strategy
 
@@ -1053,9 +1115,9 @@ These do not need to be included in global app updates. Excluding them saves a l
 and prevents unnecessary load on the source servers. To change the update strategy of a `SAnime`,
 use the `update_strategy` field. You can find below a description of the current possible values.
 
-- `UpdateStrategy.ALWAYS_UPDATE`: Titles marked as always update will be included in the library
+- `AnimeUpdateStrategy.ALWAYS_UPDATE`: Titles marked as always update will be included in the library
 update if they aren't excluded by additional restrictions.
-- `UpdateStrategy.ONLY_FETCH_ONCE`: Titles marked as only fetch once will be automatically skipped
+- `AnimeUpdateStrategy.ONLY_FETCH_ONCE`: Titles marked as only fetch once will be automatically skipped
 during library updates. Useful for cases where the series is previously known to be finished and have
 only a single episode, for example.
 
@@ -1109,14 +1171,12 @@ $ tree lib-multisrc/<theme_name>/
 lib-multisrc/<theme_name>/
 ├── build.gradle.kts
 └── src
-    └── main
-        └── java
-            └── eu
-                └── kanade
-                    └── tachiyomi
-                        └── multisrc
-                            └── <theme_name>
-                                └── <ThemeName>.kt
+    └── eu
+        └── kanade
+            └── tachiyomi
+                └── multisrc
+                    └── <theme_name>
+                        └── <ThemeName>.kt
 ```
 
 `<theme_name>` should be adapted from the CMS/theme name, and can only contain lowercase ASCII letters and digits. Your theme code must be placed in the package `eu.kanade.tachiyomi.multisrc.<theme_name>`.

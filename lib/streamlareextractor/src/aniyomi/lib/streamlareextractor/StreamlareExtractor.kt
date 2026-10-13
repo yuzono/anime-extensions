@@ -7,6 +7,8 @@ import keiyoushi.utils.toJsonRequestBody
 import okhttp3.OkHttpClient
 
 class StreamlareExtractor(private val client: OkHttpClient) {
+    // Retain the legacy Video constructor for extensions targeting lib 14.
+    @Suppress("DEPRECATION")
     fun videosFromUrl(url: String, prefix: String = "", suffix: String = ""): List<Video> {
         val id = url.split("/").last()
         val playlist = client.newCall(

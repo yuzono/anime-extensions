@@ -2,7 +2,7 @@ ext {
     extName = 'HentaiMama'
     extClass = '.HentaiMama'
     libVersion = 16
-    extVersionCode = 8
+    extVersionCode = 9
     isNsfw = true
 }
 

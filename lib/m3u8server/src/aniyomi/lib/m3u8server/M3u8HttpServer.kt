@@ -211,10 +211,11 @@ class M3u8HttpServer(
     ): Map<String, String> {
         val headers = mutableMapOf<String, String>()
 
+        // Let OkHttp negotiate compression and decode upstream playlists and segments.
         session.headers.forEach { (key, value) ->
             when (key.lowercase()) {
                 "user-agent", "referer", "origin", "accept", "accept-language",
-                "accept-encoding", "connection", "cache-control", "pragma",
+                "connection", "cache-control", "pragma",
                 -> {
                     headers[key.lowercase()] = value
                 }

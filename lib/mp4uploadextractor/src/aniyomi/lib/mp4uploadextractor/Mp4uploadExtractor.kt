@@ -8,6 +8,8 @@ import okhttp3.Headers
 import okhttp3.OkHttpClient
 
 class Mp4uploadExtractor(private val client: OkHttpClient) {
+    // Retain the legacy Video constructor for extensions targeting lib 14.
+    @Suppress("DEPRECATION")
     fun videosFromUrl(url: String, headers: Headers, prefix: String = "", suffix: String = ""): List<Video> {
         val newHeaders = headers.newBuilder()
             .set("referer", REFERER)

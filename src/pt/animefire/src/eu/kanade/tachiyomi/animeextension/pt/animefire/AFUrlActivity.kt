@@ -8,21 +8,21 @@ import android.util.Log
 import kotlin.system.exitProcess
 
 /**
- * Springboard that accepts https://animefire.net/animes/<id> intents
+ * Springboard that accepts https://animefire.one/anime/<id> intents
  * and redirects them to the main Aniyomi process.
  */
 class AFUrlActivity : Activity() {
-
     private val tag = "AFUrlActivity"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val mainIntent = Intent().apply {
-            action = "eu.kanade.tachiyomi.ANIMESEARCH"
-            putExtra("query", intent.data.toString())
-            putExtra("filter", packageName)
-        }
+        val mainIntent =
+            Intent().apply {
+                action = "eu.kanade.tachiyomi.ANIMESEARCH"
+                putExtra("query", intent.data.toString())
+                putExtra("filter", packageName)
+            }
 
         try {
             startActivity(mainIntent)

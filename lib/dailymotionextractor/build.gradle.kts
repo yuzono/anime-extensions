@@ -3,5 +3,6 @@ plugins {
 }
 
 dependencies {
+    implementation(project(":lib:hlsdash"))
     implementation(project(":lib:playlistutils"))
 }

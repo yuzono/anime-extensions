@@ -1,7 +1,8 @@
 ext {
     extName = 'YummyAnime'
     extClass = '.YummyAnime'
-    extVersionCode = 2
+    libVersion = 16
+    extVersionCode = 4
     isNsfw = false
 }
 
@@ -10,4 +11,5 @@ apply plugin: "kei.plugins.extension.legacy"
 dependencies {
     implementation(project(':lib:playlistutils'))
     implementation(project(':lib:sibnetextractor'))
+    implementation(project(':lib:vkextractor'))
 }

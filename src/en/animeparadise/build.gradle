@@ -1,7 +1,12 @@
 ext {
+    libVersion = 16
     extName = 'AnimeParadise'
     extClass = '.AnimeParadise'
-    extVersionCode = 1
+    extVersionCode = 3
 }
 
 apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(':lib:playlistutils'))
+}

@@ -9,25 +9,25 @@ import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.ParsedAnimeHttpLegacySource
+import keiyoushi.network.get
 import keiyoushi.utils.getPreferencesLazy
-import kotlinx.coroutines.runBlocking
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
 
 class ANIMEWORLD :
-    ParsedAnimeHttpLegacySource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "ANIMEWORLD.tv"
@@ -45,26 +45,23 @@ class ANIMEWORLD :
             .build()
     }
 
-    private val json: Json by injectLazy()
-
     private val preferences by getPreferencesLazy()
 
     // Popular Anime - Same Format as Search
 
-    override fun popularAnimeSelector(): String = searchAnimeSelector()
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/filter?sort=6&page=$page")
-    override fun popularAnimeFromElement(element: Element): SAnime = searchAnimeFromElement(element)
-    override fun popularAnimeNextPageSelector(): String = searchAnimeNextPageSelector()
+    override fun popularAnimeParse(response: Response): AnimesPage = searchAnimeParse(response)
 
     // Episodes
 
-    override fun episodeListParse(response: Response): List<SEpisode> = super.episodeListParse(response).reversed()
+    override fun episodeListParse(response: Response): List<SEpisode> = response.asJsoup()
+        .select("div.server.active ul.episodes li.episode a")
+        .map(::episodeFromElement)
+        .reversed()
 
-    override fun episodeListSelector() = "div.server.active ul.episodes li.episode a"
-
-    override fun episodeFromElement(element: Element): SEpisode {
+    private fun episodeFromElement(element: Element): SEpisode {
         val episode = SEpisode.create()
-        episode.setUrlWithoutDomain(element.attr("abs:href"))
+        episode.setUrlWithoutDomain(element.absUrl("href"))
         episode.name = "Episode: " + element.text()
         val epNum = getNumberFromEpsString(element.text())
         episode.episode_number = when {
@@ -78,88 +75,66 @@ class ANIMEWORLD :
 
     // Video urls
 
-    override fun videoListRequest(episode: SEpisode): Request {
-        val iframe = baseUrl + episode.url
-        return GET(iframe)
-    }
+    override fun hosterListRequest(episode: SEpisode): Request = GET(baseUrl + episode.url, headers)
 
-    override fun videoListParse(response: Response): List<Video> {
+    override fun hosterListParse(response: Response): List<Hoster> {
         val document = response.asJsoup()
-        return videosFromElement(document)
-    }
-
-    override fun videoListSelector() = "center a[href*=https://doo]," +
-        "center a[href*=streamtape]," +
-        "center a[href*=animeworld.biz]," +
-        "center a[href*=streamingaw.online][id=alternativeDownloadLink]"
-
-    private fun videosFromElement(document: Document): List<Video> {
-        // afaik this element appears when videos are taken down, in this case instead of
-        // displaying Videolist empty show the element's text
         val copyrightError = document.select("div.alert.alert-primary:contains(Copyright)")
         if (copyrightError.hasText()) throw Exception(copyrightError.text())
 
-        val serverList = mutableListOf<Pair<String, String>>()
-        val epId = document.selectFirst("div#player[data-episode-id]")?.attr("data-episode-id")
+        val episodeId = document.selectFirst("div#player[data-episode-id]")?.attr("data-episode-id")
+            ?: return emptyList()
 
-        val altServers = mutableListOf<Pair<String, String>>()
-        document.select("div.servers > div.widget-title span.server-tab").forEach {
-            val name = it.text()
-            altServers.add(Pair(name, it.attr("data-name")))
+        return document.select("div.servers > div.widget-title span.server-tab").mapNotNull { server ->
+            val serverName = server.attr("data-name")
+            val dataId = document.selectFirst(
+                "div.server[data-name=$serverName] li.episode a[data-episode-id=$episodeId]",
+            )?.attr("data-id")?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+
+            Hoster(
+                hosterUrl = "$baseUrl/api/episode/info?id=$dataId&alt=0",
+                hosterName = server.text(),
+                internalData = document.location(),
+            )
         }
-
-        altServers.forEach { serverPair ->
-            val dataId = document.selectFirst("div.server[data-name=${serverPair.second}] li.episode a[data-episode-id=$epId]")?.attr("data-id")
-            dataId?.let {
-                val apiUrl = "$baseUrl/api/episode/info?id=$it&alt=0"
-                val apiHeaders = headers.newBuilder()
-                    .add("Accept", "application/json, text/javascript, */*; q=0.01")
-                    .add("Content-Type", "application/json")
-                    .add("Host", baseUrl.toHttpUrl().host)
-                    .add("Referer", document.location())
-                    .add("X-Requested-With", "XMLHttpRequest")
-                    .build()
-                val target = json.decodeFromString<ServerResponse>(
-                    client.newCall(GET(apiUrl, headers = apiHeaders)).execute().body.string(),
-                ).grabber
-                serverList.add(Pair(serverPair.first, target))
-            }
-        }
-
-        val videoList = serverList.flatMap { server ->
-            val url = server.second
-            val url2 = server.first
-            when {
-                url2.contains("AnimeWorld Server") -> {
-                    listOf(Video(url, "AnimeWorld Server", url))
-                }
-
-                url.contains("https://doo") -> {
-                    DoodExtractor(client).videoFromUrl(url, redirect = true)
-                        ?.let(::listOf)
-                }
-
-                url.contains("streamtape") -> {
-                    StreamTapeExtractor(client).videoFromUrl(url.replace("/v/", "/e/"))
-                        ?.let(::listOf)
-                }
-
-                url.contains("streamhide") -> {
-                    runBlocking { VidHideExtractor(client, headers).videosFromUrl(url) }
-                }
-
-                url.contains("vidguard") or url.contains("listeamed") -> {
-                    VidGuardExtractor(client).videosFromUrl(url)
-                }
-
-                else -> null
-            } ?: emptyList()
-        }
-
-        return videoList
     }
 
-    override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val apiHeaders = headers.newBuilder()
+            .add("Accept", "application/json, text/javascript, */*; q=0.01")
+            .add("Content-Type", "application/json")
+            .add("Host", baseUrl.toHttpUrl().host)
+            .add("Referer", hoster.internalData)
+            .add("X-Requested-With", "XMLHttpRequest")
+            .build()
+        val url = client.get(hoster.hosterUrl, apiHeaders).parseAs<ServerResponse>().grabber
+
+        return when {
+            hoster.hosterName.contains("AnimeWorld Server", ignoreCase = true) -> {
+                listOf(Video(videoUrl = url, videoTitle = "AnimeWorld Server"))
+            }
+            url.contains("https://doo") -> {
+                DoodExtractor(client).videoFromUrl(url, redirect = true)?.let(::listOf).orEmpty()
+            }
+            url.contains("streamtape") -> {
+                StreamTapeExtractor(client).videoFromUrl(url.replace("/v/", "/e/"))?.let(::listOf).orEmpty()
+            }
+            url.contains("streamhide") -> {
+                VidHideExtractor(client, headers).videosFromUrl(url)
+            }
+            url.contains("vidguard") || url.contains("listeamed") -> {
+                VidGuardExtractor(client).videosFromUrl(url)
+            }
+            else -> emptyList()
+        }.sortVideos()
+    }
+
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val server = preferences.getString("preferred_server", "Animeworld server")!!
+        return sortedByDescending { it.hosterName.contains(server, ignoreCase = true) }
+    }
+
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString("preferred_quality", "1080")!!
@@ -175,23 +150,26 @@ class ANIMEWORLD :
 
     // search
 
-    override fun searchAnimeSelector(): String = "div.film-list div.item div.inner a.poster"
+    override fun searchAnimeParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val anime = document.select("div.film-list div.item div.inner a.poster").map(::searchAnimeFromElement)
+        return AnimesPage(anime, document.selectFirst("div.paging-wrapper a#go-next-page") != null)
+    }
 
-    override fun searchAnimeFromElement(element: Element): SAnime {
+    private fun searchAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
-        anime.setUrlWithoutDomain(element.attr("abs:href"))
+        anime.setUrlWithoutDomain(element.absUrl("href"))
         anime.thumbnail_url = element.select("img").attr("src")
         anime.title = element.select("img").attr("alt")
         return anime
     }
 
-    override fun searchAnimeNextPageSelector(): String = "div.paging-wrapper a#go-next-page"
-
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = GET("$baseUrl/filter?${getSearchParameters(filters)}&keyword=$query&page=$page")
 
     // Details
 
-    override fun animeDetailsParse(document: Document): SAnime {
+    override fun animeDetailsParse(response: Response): SAnime {
+        val document = response.asJsoup()
         val anime = SAnime.create()
         anime.thumbnail_url = document.selectFirst("div.thumb img")!!.attr("src")
         anime.title = document.select("div.c1 h2.title").text()
@@ -212,9 +190,7 @@ class ANIMEWORLD :
     // Latest - Same format as search
 
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/updated?page=$page")
-    override fun latestUpdatesSelector(): String = searchAnimeSelector()
-    override fun latestUpdatesNextPageSelector(): String = searchAnimeNextPageSelector()
-    override fun latestUpdatesFromElement(element: Element): SAnime = searchAnimeFromElement(element)
+    override fun latestUpdatesParse(response: Response): AnimesPage = searchAnimeParse(response)
 
     // Filters
 
@@ -535,8 +511,7 @@ class ANIMEWORLD :
     // Utilities
 
     @Serializable
-    data class ServerResponse(
-        val target: String,
+    class ServerResponse(
         val grabber: String,
     )
 }

@@ -181,11 +181,15 @@ class Goyabu :
         val script = document.selectFirst("script:containsData(const allEpisodes)")
             ?: return emptyList()
 
-        val scriptText = script.data()
-        val jsonString = scriptText
-            .substringAfter("const allEpisodes =")
+        val afterName = script.data()
+            .substringAfter("const allEpisodes", missingDelimiterValue = "")
+            .trimStart()
+        if (!afterName.startsWith("=")) return emptyList()
+
+        val jsonString = afterName.substringAfter("=")
             .substringBefore(";")
             .trim()
+        if (jsonString.isEmpty()) return emptyList()
 
         val episodes = jsonString.parseAs<List<EpisodeDto>>(json)
         return episodes.reversed().map { it.toSEpisode() }

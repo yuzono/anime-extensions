@@ -86,7 +86,7 @@ class SegmentDto(
      * Directory of the stream files, e.g. `https://host/<uid>`.
      * Locked segments have no [signedUrl], so their id stands in as the episode url.
      */
-    private val videoBaseUrl: String?
+    val videoBaseUrl: String?
         get() = signedUrl?.toHttpUrlOrNull()?.let { url ->
             url.newBuilder()
                 .removePathSegment(url.pathSegments.lastIndex)
@@ -122,4 +122,4 @@ private fun createSAnime(
 }
 
 /** Turns a language code such as `zh` into `Chinese`, keeping the code when it is unknown. */
-private fun String.toLanguageName(): String = Locale.forLanguageTag(this).getDisplayLanguage(Locale.ENGLISH).ifEmpty { this }
+fun String.toLanguageName(): String = Locale.forLanguageTag(this).getDisplayLanguage(Locale.ENGLISH).ifEmpty { this }

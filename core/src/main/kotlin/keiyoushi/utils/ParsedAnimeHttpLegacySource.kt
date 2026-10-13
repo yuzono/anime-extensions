@@ -1,3 +1,6 @@
+// This compatibility shim deliberately retains the deprecated parsed-source API.
+@file:Suppress("DEPRECATION")
+
 package keiyoushi.utils
 
 import eu.kanade.tachiyomi.animesource.model.Hoster

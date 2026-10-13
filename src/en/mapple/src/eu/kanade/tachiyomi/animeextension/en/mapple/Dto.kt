@@ -32,7 +32,7 @@ class MediaItemDto(
 
 fun MediaItemDto.toSAnime(): SAnime = SAnime.create().apply {
     title = realTitle
-    val type = mediaType ?: if (title != null) "movie" else "tv"
+    val type = mediaType ?: if (name != null) "tv" else "movie"
     url = "/$type/$id"
     thumbnail_url = posterPath?.let { "$TMDB_IMAGE_BASE/$TMDB_POSTER_SIZE$it" }
 }

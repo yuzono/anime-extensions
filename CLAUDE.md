@@ -20,7 +20,7 @@ via Bash, pass `--exclude-dir=build --exclude-dir=.history`, or use Grep instead
 ## Editing and verifying
 
 - Pick one extension or theme and verify it with its own `:module:compileDebugKotlin`. Gradle
-  configures ~400 modules, so an unscoped invocation is a multi-minute no-op for a one-file change.
+  configures ~330 modules, so an unscoped invocation is a multi-minute no-op for a one-file change.
 - Don't reach for the Android Studio workflow `CONTRIBUTING.md` describes — the Gradle task is the
   headless equivalent and is what belongs in a tool call.
 - `spotlessApply` rewrites files on disk. Re-read anything you have edited before further edits, or

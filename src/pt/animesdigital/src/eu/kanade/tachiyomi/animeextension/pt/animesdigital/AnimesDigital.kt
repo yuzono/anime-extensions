@@ -8,18 +8,20 @@ import eu.kanade.tachiyomi.animeextension.pt.animesdigital.extractors.ScriptExtr
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
-import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.useAsJsoup
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -32,7 +34,7 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class AnimesDigital :
-    ParsedAnimeHttpLegacySource(),
+    ParsedAnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "Animes Digital"
@@ -43,11 +45,11 @@ class AnimesDigital :
 
     override val supportsLatest = true
 
-    override fun headersBuilder() = super.headersBuilder().add("Referer", baseUrl)
+    override fun headersBuilder() = super.headersBuilder().add("Referer", "$baseUrl/")
 
     private val preferences by getPreferencesLazy()
 
-    private val animesDigitalFilters by lazy { AnimesDigitalFilters(baseUrl, client) }
+    private val animesDigitalFilters by lazy { AnimesDigitalFilters(baseUrl, client, headers) }
 
     // ============================== Popular ===============================
     override suspend fun getPopularAnime(page: Int): AnimesPage {
@@ -55,10 +57,12 @@ class AnimesDigital :
         return super.getPopularAnime(page)
     }
 
-    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/home")
+    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/home", headers)
     override fun popularAnimeSelector() = latestUpdatesSelector()
     override fun popularAnimeFromElement(element: Element) = latestUpdatesFromElement(element)
     override fun popularAnimeNextPageSelector() = null
+
+    override fun popularAnimeParse(response: Response) = super.popularAnimeParse(response).distinctByTitle()
 
     // =============================== Latest ===============================
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
@@ -66,7 +70,7 @@ class AnimesDigital :
         return super.getLatestUpdates(page)
     }
 
-    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/lancamentos/page/$page")
+    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/lancamentos01/page/$page/", headers)
 
     override fun latestUpdatesSelector() = "div.b_flex > div.itemE > a"
 
@@ -79,6 +83,11 @@ class AnimesDigital :
     }
 
     override fun latestUpdatesNextPageSelector() = "ul > li.next"
+
+    // Listing cards link to episodes, so an anime with several new episodes shows up once per episode
+    override fun latestUpdatesParse(response: Response) = super.latestUpdatesParse(response).distinctByTitle()
+
+    private fun AnimesPage.distinctByTitle() = AnimesPage(animes.distinctBy { it.title }, hasNextPage)
 
     // =============================== Search ===============================
     override fun getFilterList(): AnimeFilterList = animesDigitalFilters.getFilterList()
@@ -97,7 +106,7 @@ class AnimesDigital :
 
         if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH)
-            return client.newCall(GET("$baseUrl/anime/a/$id"))
+            return client.newCall(GET("$baseUrl/anime/a/$id", headers))
                 .awaitSuccess()
                 .use(::searchAnimeByIdParse)
         }
@@ -115,9 +124,11 @@ class AnimesDigital :
     }
 
     private val searchToken by lazy {
-        client.newCall(GET("$baseUrl/animes-legendados-online")).execute().useAsJsoup()
-            .selectFirst("div.menu_filter_box")!!
-            .attr("data-secury")
+        client.newCall(GET("$baseUrl/animes-legendados-online001", headers)).execute().useAsJsoup()
+            .selectFirst("div.menu_filter_box")
+            ?.attr("data-secury")
+            ?.ifEmpty { null }
+            ?: throw Exception("Token de busca não encontrado")
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
@@ -138,7 +149,7 @@ class AnimesDigital :
             }.build().encodedQuery.orEmpty()
 
             val genres = params.genres.joinToString { "\"$it\"" }
-            val delgenres = params.deleted_genres.joinToString { "\"$it\"" }
+            val delgenres = params.deletedGenres.joinToString { "\"$it\"" }
 
             add(
                 "filters",
@@ -158,15 +169,15 @@ class AnimesDigital :
         val animes = data.results.map(Jsoup::parseBodyFragment)
             .mapNotNull { it.selectFirst(searchAnimeSelector()) }
             .map(::searchAnimeFromElement)
-        val hasNext = data.total_page > data.page
+        val hasNext = data.totalPage > data.page
         AnimesPage(animes, hasNext)
     }.getOrElse { AnimesPage(emptyList(), false) }
 
     @Serializable
-    data class SearchResponseDto(
+    class SearchResponseDto(
         val results: List<String>,
         val page: Int,
-        val total_page: Int,
+        @SerialName("total_page") val totalPage: Int,
     )
 
     override fun searchAnimeNextPageSelector() = throw UnsupportedOperationException()
@@ -175,7 +186,9 @@ class AnimesDigital :
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
         val doc = getRealDoc(document)
         setUrlWithoutDomain(doc.location())
-        thumbnail_url = doc.selectFirst("div.poster > img")?.attr("data-lazy-src")
+        thumbnail_url = doc.selectFirst("div.poster > img")?.let {
+            it.attr("data-lazy-src").ifEmpty { it.attr("src") }
+        }
         status = when (doc.selectFirst("div.clw > div.playon")?.text()) {
             "Em Lançamento" -> SAnime.ONGOING
             "Completo" -> SAnime.COMPLETED
@@ -216,51 +229,66 @@ class AnimesDigital :
     override fun episodeFromElement(element: Element) = SEpisode.create().apply {
         setUrlWithoutDomain(element.attr("href"))
         name = element.selectFirst("div.title_anime")!!.text()
-        element.selectFirst("div.title_anime")!!.text()
         episode_number = name.substringAfterLast(" ").toFloatOrNull() ?: 1F
         date_upload = element.selectFirst("div.date")?.text()?.let { parseDate(it) } ?: 0L
     }
 
     // ============================ Video Links =============================
-    override fun videoListParse(response: Response): List<Video> {
-        val player = response.useAsJsoup().selectFirst("div#player")!!
-        return player.select("div.tab-video").parallelCatchingFlatMapBlocking { div ->
-            div.select(videoListSelector()).parallelCatchingFlatMap { element ->
-                videosFromElement(element)
+    override fun hosterListParse(response: Response): List<Hoster> {
+        val document = response.useAsJsoup()
+        val player = document.selectFirst("div#player") ?: return emptyList()
+        return player.select("div.tab-video").flatMapIndexed { index, tab ->
+            val tabName = document.select("li[data-tab], a[href]")
+                .firstOrNull { (it.attr("data-tab").ifEmpty { it.attr("href") }) == "#${tab.id()}" }?.text()
+                ?.takeIf(String::isNotBlank) ?: "Server ${index + 1}"
+            tab.select(videoSelector).map { element ->
+                Hoster(
+                    hosterUrl = document.location(),
+                    hosterName = tabName,
+                    internalData = element.outerHtml(),
+                )
             }
         }
     }
 
-    private val protectorExtractor by lazy { ProtectorExtractor(client) }
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val element = Jsoup.parse(hoster.internalData, hoster.hosterUrl)
+            .selectFirst(videoSelector) ?: return emptyList()
+        return videosFromElement(element)
+    }
+
+    override fun seasonListSelector() = throw UnsupportedOperationException()
+    override fun seasonFromElement(element: Element) = throw UnsupportedOperationException()
+
+    private val protectorExtractor by lazy { ProtectorExtractor(client, headers) }
     private val bloggerExtractor by lazy { BloggerExtractor(client) }
 
     private suspend fun videosFromElement(element: Element): List<Video> = when (element.tagName()) {
-        "iframe" -> {
-            val url = element.absUrl("data-lazy-src").ifEmpty { element.absUrl("src") }
-            when {
-                "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
-                else -> {
-                    client.newCall(GET(url, headers)).awaitSuccess()
-                        .useAsJsoup()
-                        .select(videoListSelector())
-                        .parallelCatchingFlatMap(::videosFromElement)
-                }
-            }
-        }
+        "iframe" -> videosFromEmbedUrl(element.absUrl("data-lazy-src").ifEmpty { element.absUrl("src") })
 
         "script" -> ScriptExtractor.videosFromScript(element.data(), headers)
 
-        "a" -> protectorExtractor.videosFromUrl(element.attr("href"))
+        "a" -> protectorExtractor.embedUrlFromUrl(element.absUrl("href"))
+            ?.let { videosFromEmbedUrl(it) }
+            .orEmpty()
 
         else -> emptyList()
+    }
+
+    private suspend fun videosFromEmbedUrl(url: String): List<Video> = when {
+        "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
+        else -> {
+            client.newCall(GET(url, headers)).awaitSuccess()
+                .useAsJsoup()
+                .select(videoSelector)
+                .parallelCatchingFlatMap(::videosFromElement)
+        }
     }
 
     private val scriptSelectors = listOf("eval", "player.src", "this.src", "sources:")
         .joinToString { "script:containsData($it):not(:containsData(/bg.mp4))" }
 
-    override fun videoListSelector() = "iframe, $scriptSelectors"
-
-    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
+    private val videoSelector = "iframe, a.ad-protected-cover, $scriptSelectors"
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -283,15 +311,13 @@ class AnimesDigital :
     }
 
     private fun getRealDoc(document: Document): Document = document.selectFirst("div.subitem > a:contains(menu)")?.let { link ->
-        client.newCall(GET(link.attr("href")))
+        client.newCall(GET(link.attr("href"), headers))
             .execute()
             .useAsJsoup()
     } ?: document
 
     private fun Element.getInfo(key: String): String? = selectFirst("div.info:has(span:containsOwn($key))")?.run {
-        ownText()
-            .trim()
-            .takeUnless { it.isBlank() || it == "?" }
+        ownText().takeUnless { it.isEmpty() || it == "?" }
     }
 
     private fun parseDate(date: String): Long {
@@ -299,7 +325,7 @@ class AnimesDigital :
             val normalized = date.lowercase(Locale.ROOT).trim()
 
             // Espera formatos como "2 semanas atrás", "1 dia atrás", etc.
-            val match = Regex("""(\d+)\s+(\S+)""").find(normalized) ?: return 0L
+            val match = RELATIVE_DATE_REGEX.find(normalized) ?: return 0L
 
             val amount = match.groupValues[1].toLongOrNull() ?: return 0L
             val unit = match.groupValues[2]
@@ -321,6 +347,8 @@ class AnimesDigital :
 
     companion object {
         const val PREFIX_SEARCH = "id:"
+
+        private val RELATIVE_DATE_REGEX = Regex("""(\d+)\s+(\S+)""")
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Qualidade preferida"
