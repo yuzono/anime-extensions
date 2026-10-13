@@ -397,7 +397,7 @@ class MoviesMod : Source() {
     companion object {
         private val RESOLUTION_REGEX = Regex("""\d{3,4}p""", RegexOption.IGNORE_CASE)
 
-        private const val MMODLIST_URL = "https://mmodlist.org/?type=bollywood"
+        private const val MMODLIST_URL = "https://mmodlist.org/?type=hollywood"
         private val MMODLIST_REGEX = Regex("""url=(https?://[^"'\s>]+)""", RegexOption.IGNORE_CASE)
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
