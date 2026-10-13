@@ -139,12 +139,18 @@ object Crypto {
         return digest.copyOf(8) + ByteArray(8)
     }
 
-    /** Decrypt bytes assumed to start at keystream position 0 — validation only (proxy oracle). */
-    fun decryptPrefix(data: ByteArray, url: String, key: ByteArray, fullPath: Boolean): ByteArray? = try {
+    /** Decrypt bytes assumed to start at keystream position 0 — validation only
+     *  (proxy oracle). Only the first [encryptedLength] bytes are XORed; the tail
+     *  is plaintext on the wire and must be preserved, or TS syncs outside the
+     *  prefix break and a valid counter gets falsely rejected. */
+    fun decryptPrefix(data: ByteArray, url: String, key: ByteArray, fullPath: Boolean, encryptedLength: Int): ByteArray? = try {
         val cipher = Cipher.getInstance("AES/CTR/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), IvParameterSpec(segmentCounter(url, fullPath)))
-        val ks = cipher.doFinal(ByteArray(data.size))
-        ByteArray(data.size) { i -> (data[i].toInt() xor ks[i].toInt()).toByte() }
+        val n = minOf(data.size, encryptedLength)
+        val ks = cipher.doFinal(ByteArray(n))
+        ByteArray(data.size) { i ->
+            if (i < n) (data[i].toInt() xor ks[i].toInt()).toByte() else data[i]
+        }
     } catch (_: Exception) {
         null
     }

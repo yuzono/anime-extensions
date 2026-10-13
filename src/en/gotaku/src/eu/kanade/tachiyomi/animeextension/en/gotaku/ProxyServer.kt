@@ -73,12 +73,12 @@ class ProxyServer(
             if (isManifest) append("&m3u8=1")
         }
         val path = if (isManifest) "/proxy/playlist.m3u8" else "/proxy/segment.ts"
-        return "http://127.0.0.1:$listeningPort$path?$params"
+        return "http://$hostname:$listeningPort$path?$params"
     }
 
-    fun createPlainProxyUrl(originalUrl: String): String = "http://127.0.0.1:$listeningPort/proxy/key.bin?url=${URLEncoder.encode(originalUrl, "UTF-8")}&plain=1"
+    fun createPlainProxyUrl(originalUrl: String): String = "http://$hostname:$listeningPort/proxy/key.bin?url=${URLEncoder.encode(originalUrl, "UTF-8")}&plain=1"
 
-    fun createSubtitleProxyUrl(originalUrl: String): String = "http://127.0.0.1:$listeningPort/proxy/subtitles.vtt?url=${URLEncoder.encode(originalUrl, "UTF-8")}&sub=1"
+    fun createSubtitleProxyUrl(originalUrl: String): String = "http://$hostname:$listeningPort/proxy/subtitles.vtt?url=${URLEncoder.encode(originalUrl, "UTF-8")}&sub=1"
 
     // ============================== Dispatch ==============================
     override fun handle(session: IHTTPSession): Response {
@@ -278,7 +278,7 @@ class ProxyServer(
         // an 8-byte peek can't distinguish a right answer from a 1/256 coincidence.
         if (!isPlaintext && actualStart == 0L && head.size >= 189 && counterFullPath == null) {
             for (candidate in booleanArrayOf(true, false)) {
-                val decrypted = Crypto.decryptPrefix(head, url, key, candidate) ?: continue
+                val decrypted = Crypto.decryptPrefix(head, url, key, candidate, segmentBytes) ?: continue
                 if (Crypto.looksLikeMedia(decrypted)) {
                     counterFullPath = candidate
                     Log.i(TAG, "Counter interpretation: ${if (candidate) "full URL" else "path only"}")

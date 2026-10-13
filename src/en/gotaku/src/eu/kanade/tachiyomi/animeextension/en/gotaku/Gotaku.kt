@@ -86,19 +86,31 @@ class Gotaku :
         .set("Sec-Fetch-Site", "same-origin")
         .build()
 
+    /** Reads at most [limit] bytes; null if the body is larger (never buffers an oversized response). */
+    private fun Response.readBodyBounded(limit: Int): ByteArray? = try {
+        use {
+            val source = it.body.source()
+            source.request((limit + 1).toLong())
+            if (source.buffer.size > limit) {
+                Log.w("Gotaku", "Oversized body (${it.body.contentLength()}B) — refusing")
+                return@use null
+            }
+            source.readByteArray()
+        }
+    } catch (_: Exception) {
+        null
+    }
+
     /** GET + native decrypt of a ?k=1 endpoint. Returns inflated JSON text or null. */
     private suspend fun decryptApiCall(url: String, referer: String = baseUrl): String? = try {
-        val bytes = client.get(url, apiHeaders(referer)).body.bytes()
-        if (bytes.size > 8 * 1024 * 1024) { // ciphertext cap; compressed bodies are tiny
-            Log.w("Gotaku", "Oversized ?k=1 body (${bytes.size}B) — refusing")
-            return null
-        }
-        Crypto.decryptInfo(bytes) ?: run {
-            Log.w("Gotaku", "decryptInfo=null len=${bytes.size} head=${bytes.take(4).joinToString(" ") { "%02x".format(it) }} url=$url")
-            null
-        }
+        client.get(url, apiHeaders(referer)).readBodyBounded(MAX_API_BODY_BYTES)
+            ?.let(Crypto::decryptInfo)
+            ?: run {
+                Log.w(TAG, "decryptInfo failed url=$url")
+                null
+            }
     } catch (e: Exception) {
-        Log.w("Gotaku", "decryptApiCall threw: $url", e)
+        Log.w(TAG, "decryptApiCall threw: $url", e)
         null
     }
 
@@ -281,7 +293,9 @@ class Gotaku :
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val json = try {
-            Crypto.decryptInfo(client.newCall(episodeListRequest(anime)).awaitSuccess().body.bytes())
+            client.newCall(episodeListRequest(anime)).awaitSuccess()
+                .readBodyBounded(MAX_API_BODY_BYTES)
+                ?.let(Crypto::decryptInfo)
         } catch (_: Exception) {
             null
         } ?: throw Exception("Failed to load or decrypt episode list. Try again or check the site in WebView.")
@@ -546,6 +560,10 @@ class Gotaku :
             "anisearch" to "Anisearch", "simkl" to "Simkl",
             "tmdb" to "TMDB", "tvdb" to "TVDB", "imdb" to "IMDB",
         )
+
+        private const val MAX_API_BODY_BYTES = 8 * 1024 * 1024
+
+        private const val TAG = "Gotaku"
 
         private val MANIFEST_ATTRS_REGEX =
             Regex("""data-manifest-base="([^"]+)"\s+data-manifest-stamp="([^"]+)"""")
