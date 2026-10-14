@@ -30,40 +30,18 @@ object CatalogFilters {
         contentType: String = "all",
     ) : AnimeFilter.Select<String>(
         "Platform",
-        when (contentType) {
-            "anime" -> {
-
-                arrayOf("Crunchyroll")
-            }
-            "all" -> {
-                arrayOf(
-                    "Netflix",
-                    "Disney+",
-                    "Apple TV+",
-                    "Amazon Prime",
-                    "HBO Max",
-                    "Paramount+",
-                    "Hulu",
-                    "Peacock",
-                    "Crunchyroll",
-                )
-            }
-            else -> {
-                arrayOf(
-                    "Netflix",
-                    "Disney+",
-                    "Apple TV+",
-                    "Amazon Prime",
-                    "HBO Max",
-                    "Paramount+",
-                    "Hulu",
-                    "Peacock",
-                )
-            }
-        },
+        arrayOf(
+            "Netflix",
+            "Disney+",
+            "Apple TV+",
+            "Amazon Prime",
+            "HBO Max",
+            "Paramount+",
+            "Hulu",
+            "Peacock",
+        ),
     ) {
         fun toCatalogId(): String {
-            // Get the actual selected service name
             val selectedService = values.getOrNull(state) ?: return "nfx"
 
             return when (selectedService) {
@@ -75,7 +53,6 @@ object CatalogFilters {
                 "Paramount+" -> "pmp"
                 "Hulu" -> "hlu"
                 "Peacock" -> "pcp"
-                "Crunchyroll" -> "cru"
                 else -> "nfx"
             }
         }
