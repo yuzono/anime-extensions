@@ -1,10 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.all.missav
 
 import android.util.Log
-import kotlinx.serialization.json.JsonObjectBuilder
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonObject
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 import javax.crypto.Mac
@@ -40,53 +36,34 @@ object MissAvApi {
         return "$API_URL$signedPath"
     }
 
-    fun searchData(query: String): String = kotlinx.serialization.json.buildJsonObject {
-        addRequestParams(scenario = "search", searchQuery = query)
-    }.toString()
+    fun searchData(query: String) = SearchRequest(
+        searchQuery = query,
+        scenario = "search",
+        count = RESULT_COUNT,
+        returnProperties = true,
+        includedProperties = INCLUDED_PROPERTIES,
+        cascadeCreate = true,
+    )
 
-    val recommData
-        get() = """{"count":$RESULT_COUNT,"cascadeCreate":true}"""
+    val recommData = NextRecommsRequest(count = RESULT_COUNT, cascadeCreate = true)
 
-    fun relatedData(uuid: String, entryId: String): String {
-        fun buildRequestObject(scenario: String) = kotlinx.serialization.json.buildJsonObject {
-            put("method", "POST")
-            put("path", "/recomms/items/$entryId/items/")
-            putJsonObject("params") {
-                addRequestParams(scenario = scenario, targetUserId = uuid)
-            }
-        }
-
-        return kotlinx.serialization.json.buildJsonObject {
-            put(
-                "requests",
-                kotlinx.serialization.json.buildJsonArray {
-                    add(buildRequestObject("desktop-watch-next-side"))
-                    add(buildRequestObject("desktop-watch-next-bottom"))
-                },
+    fun relatedData(uuid: String, entryId: String) = BatchRequest(
+        requests = RELATED_SCENARIOS.map { scenario ->
+            BatchItem(
+                method = "POST",
+                path = "/recomms/items/$entryId/items/",
+                params = RelatedParams(
+                    targetUserId = uuid,
+                    scenario = scenario,
+                    count = RESULT_COUNT,
+                    returnProperties = true,
+                    includedProperties = INCLUDED_PROPERTIES,
+                    cascadeCreate = true,
+                ),
             )
-            put("distinctRecomms", true)
-        }.toString()
-    }
-
-    private fun JsonObjectBuilder.addRequestParams(
-        scenario: String,
-        targetUserId: String? = null,
-        searchQuery: String? = null,
-    ) {
-        targetUserId?.let { put("targetUserId", it) }
-        searchQuery?.let { put("searchQuery", it) }
-        put("count", RESULT_COUNT)
-        put("scenario", scenario)
-        put("returnProperties", true)
-        put(
-            "includedProperties",
-            kotlinx.serialization.json.buildJsonArray {
-                add("title_en")
-                add("dm")
-            },
-        )
-        put("cascadeCreate", true)
-    }
+        },
+        distinctRecomms = true,
+    )
 
     private fun generateHMACSignature(data: String, @Suppress("SameParameterValue") key: String): String = try {
         val secretKeySpec = SecretKeySpec(key.toByteArray(StandardCharsets.UTF_8), "HmacSHA1")
@@ -104,6 +81,8 @@ object MissAvApi {
     }
 
     const val RESULT_COUNT = 24
+    private val INCLUDED_PROPERTIES = listOf("title_en", "dm")
+    private val RELATED_SCENARIOS = listOf("desktop-watch-next-side", "desktop-watch-next-bottom")
     private const val API_URL = "https://client-rapi-missav.recombee.com"
     private const val PUBLIC_TOKEN = "Ikkg568nlM51RHvldlPvc2GzZPE9R4XGzaH9Qj4zK9npbbbTly1gj9K4mgRn0QlV"
 }
