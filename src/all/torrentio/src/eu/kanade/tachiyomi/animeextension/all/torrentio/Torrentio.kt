@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.CinemetaMeta
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.CinemetaMetaDetail
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.CinemetaMetaDetailResponse
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.CinemetaSearchResponse
+import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.EpisodeVideo
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.StreamDataTorrent
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -87,7 +88,7 @@ class Torrentio :
         val movieResults = movieDeferred.await()
         val seriesResults = seriesDeferred.await()
 
-        val combined = (movieResults + seriesResults).distinctBy { id }
+        val combined = (movieResults + seriesResults).distinctBy { it.id }
         AnimesPage(combined.map { it.toSAnime() }, false)
     }
 
@@ -98,28 +99,18 @@ class Torrentio :
     override fun latestUpdatesParse(response: Response): AnimesPage = throw UnsupportedOperationException()
 
     override suspend fun getLatestUpdates(page: Int): AnimesPage = coroutineScope {
-        val skip = (page - 1) * CINEMETA_PAGE_SIZE
-
         val seriesDeferred = async(Dispatchers.IO) {
             runCatching {
-                val url = if (skip > 0) {
-                    "$cinemetaUrl/catalog/series/top/skip=$skip.json"
-                } else {
-                    "$cinemetaUrl/catalog/series/top.json"
-                }
-                val response = client.get(url)
+                val url = buildCinemetaTopUrl("series", page)
+                val response = client.get(url.toString())
                 json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
             }.getOrDefault(emptyList())
         }
 
         val movieDeferred = async(Dispatchers.IO) {
             runCatching {
-                val url = if (skip > 0) {
-                    "$cinemetaUrl/catalog/movie/top/skip=$skip.json"
-                } else {
-                    "$cinemetaUrl/catalog/movie/top.json"
-                }
-                val response = client.get(url)
+                val url = buildCinemetaTopUrl("movie", page)
+                val response = client.get(url.toString())
                 json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
             }.getOrDefault(emptyList())
         }
@@ -127,11 +118,20 @@ class Torrentio :
         val seriesResults = seriesDeferred.await()
         val movieResults = movieDeferred.await()
 
-        val combined = (seriesResults + movieResults).distinctBy { id }.sortedByDescending { it.popularity ?: 0.0 }
+        val combined = (seriesResults + movieResults).distinctBy { it.id }.sortedByDescending { it.popularity ?: 0.0 }
         val hasNextPage = seriesResults.size == CINEMETA_PAGE_SIZE || movieResults.size == CINEMETA_PAGE_SIZE
 
         AnimesPage(combined.map { it.toSAnime() }, hasNextPage)
     }
+
+    fun buildCinemetaTopUrl(type: String, page: Int) = cinemetaUrl.toHttpUrl().newBuilder()
+        .addPathSegment("catalog")
+        .addPathSegment(type)
+        .let {
+            val skip = (page - 1) * CINEMETA_PAGE_SIZE
+            if (skip > 0) it.addPathSegments("top/skip=$skip.json") else it.addPathSegment("top.json")
+        }
+        .build()
 
     // =============================== Search =================================
 
@@ -163,7 +163,19 @@ class Torrentio :
                 listOf(
                     SAnime.create().apply {
                         url = "$imdbId,$resolvedType"
-                        applyMeta(meta)
+                        meta.name?.let { title = it }
+                        meta.poster?.takeIf { it.isNotBlank() }?.let { thumbnail_url = it }
+                        meta.background?.takeIf { it.isNotBlank() }?.let { background_url = it }
+                        meta.description?.takeIf { it.isNotBlank() }?.let { description = it.trim() }
+                        (meta.genres ?: meta.genre)?.takeIf { it.isNotEmpty() }?.let { genre = it.joinToString() }
+                        (meta.writer ?: meta.director)?.takeIf { it.isNotEmpty() }?.let { author = it.joinToString() }
+                        (meta.appExtras?.cast?.mapNotNull { it.name }?.take(4) ?: meta.cast?.take(4))
+                            ?.takeIf { it.isNotEmpty() }?.let { artist = it.joinToString() }
+                        status = when (meta.status?.trim()?.lowercase()) {
+                            "continuing" -> SAnime.ONGOING
+                            "ended" -> SAnime.COMPLETED
+                            else -> SAnime.UNKNOWN
+                        }
                     },
                 ),
                 false,
@@ -189,7 +201,7 @@ class Torrentio :
                 }
             }
 
-            val combined = deferredResults.awaitAll().flatten().distinctBy { id }
+            val combined = deferredResults.awaitAll().flatten().distinctBy { it.id }
             AnimesPage(combined.map { it.toSAnime() }, false)
         }
     }
@@ -201,31 +213,6 @@ class Torrentio :
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = throw UnsupportedOperationException()
 
     override fun searchAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException()
-
-    // ============================== Metadata Helpers ========================
-
-    fun SAnime.applyMeta(meta: CinemetaMetaDetail) {
-        meta.name?.let { title = it }
-        meta.poster?.takeIf { it.isNotBlank() }?.let { thumbnail_url = it }
-        meta.background?.takeIf { it.isNotBlank() }?.let { background_url = it }
-        meta.description?.takeIf { it.isNotBlank() }?.let { description = it.trim() }
-        (meta.genres ?: meta.genre)?.takeIf { it.isNotEmpty() }?.let { genre = it.joinToString() }
-        (meta.writer ?: meta.director)?.takeIf { it.isNotEmpty() }?.let { author = it.joinToString() }
-        meta.cast?.take(4)?.takeIf { it.isNotEmpty() }?.let { artist = it.joinToString() }
-        status = when (meta.status?.trim()?.lowercase()) {
-            "continuing" -> SAnime.ONGOING
-            "ended" -> SAnime.COMPLETED
-            else -> SAnime.UNKNOWN
-        }
-    }
-
-    fun parseReleaseTime(raw: String?): Long {
-        val value = raw?.trim().orEmpty()
-        if (value.isEmpty()) return 0L
-        return runCatching { DATE_FORMATTER.parse(value)?.time }.getOrNull()
-            ?: runCatching { SIMPLE_DATE_FORMATTER.parse(value)?.time }.getOrNull()
-            ?: 0L
-    }
 
     // =========================== Anime Details ==============================
 
@@ -248,13 +235,25 @@ class Torrentio :
 
         if (meta == null) return anime
 
-        anime.applyMeta(meta)
-        anime.fetch_type = FetchType.Episodes
+        meta.name?.let { anime.title = it }
+        meta.poster?.takeIf { it.isNotBlank() }?.let { anime.thumbnail_url = it }
+        meta.background?.takeIf { it.isNotBlank() }?.let { anime.background_url = it }
+        meta.description?.takeIf { it.isNotBlank() }?.let { anime.description = it.trim() }
+        (meta.genres ?: meta.genre)?.takeIf { it.isNotEmpty() }?.let { anime.genre = it.joinToString() }
+        (meta.writer ?: meta.director)?.takeIf { it.isNotEmpty() }?.let { anime.author = it.joinToString() }
+        (meta.appExtras?.cast?.mapNotNull { it.name }?.take(4) ?: meta.cast?.take(4))
+            ?.takeIf { it.isNotEmpty() }?.let { anime.artist = it.joinToString() }
+        anime.status = when (meta.status?.trim()?.lowercase()) {
+            "continuing" -> SAnime.ONGOING
+            "ended" -> SAnime.COMPLETED
+            else -> SAnime.UNKNOWN
+        }
+
         return anime
     }
 
     // =============================== Seasons ================================
- /// cant seem to make it work though will try next month
+
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     override suspend fun getSeasonList(anime: SAnime): List<SAnime> = throw UnsupportedOperationException()
@@ -290,14 +289,24 @@ class Torrentio :
 
                 meta.videos.orEmpty()
                     .filter { video -> showSeasonZero || (video.season ?: 0) > 0 }
-                    .map { video -> video to parseReleaseTime(video.firstAired ?: video.released) }
+                    .map { video ->
+                        val raw = video.firstAired ?: video.released
+                        val value = raw?.trim().orEmpty()
+                        val releaseTime = if (value.isEmpty()) {
+                            0L
+                        } else {
+                            runCatching { DATE_FORMATTER.parse(value)?.time }.getOrNull()
+                                ?: runCatching { SIMPLE_DATE_FORMATTER.parse(value)?.time }.getOrNull()
+                                ?: 0L
+                        }
+                        video to releaseTime
+                    }
                     .filter { (_, releaseTime) -> showUpcoming || releaseTime in 1L..now }
                     .sortedWith(
-                        compareByDescending<Pair<eu.kanade.tachiyomi.animeextension.all.torrentio.dto.EpisodeVideo, Long>> { it.first.season ?: 1 }
+                        compareByDescending<Pair<EpisodeVideo, Long>> { it.first.season ?: 1 }
                             .thenByDescending { it.first.number ?: it.first.episode ?: 0 },
                     )
                     .map { (video, releaseTime) ->
-                        val isReleased = releaseTime in 1L..now
                         val season = video.season ?: 1
                         val number = video.number ?: video.episode ?: 0
 
@@ -318,18 +327,20 @@ class Torrentio :
 
                             summary = video.overview ?: video.description ?: ""
                             preview_url = video.thumbnail
-
-                            scanlator = buildString {
-                                if (!isReleased && releaseTime > 0L) {
-                                    append("Upcoming")
-                                }
-                            }.takeIf { it.isNotEmpty() }
                         }
                     }
             }
 
             "movie" -> {
-                val releaseTime = parseReleaseTime(meta.released)
+                val raw = meta.released
+                val value = raw?.trim().orEmpty()
+                val releaseTime = if (value.isEmpty()) {
+                    0L
+                } else {
+                    runCatching { DATE_FORMATTER.parse(value)?.time }.getOrNull()
+                        ?: runCatching { SIMPLE_DATE_FORMATTER.parse(value)?.time }.getOrNull()
+                        ?: 0L
+                }
                 listOf(
                     SEpisode.create().apply {
                         episode_number = 1f
@@ -620,6 +631,7 @@ class Torrentio :
         )
         private val PREF_PROVIDERS_DEFAULT = PREF_DEFAULT_PROVIDERS_VALUE.toSet()
 
+        // Maps a provider's internal preference value to its display label for Hoster naming.
         private val PROVIDER_DISPLAY_NAMES: Map<String, String> = PREF_PROVIDERS_VALUE.zip(PREF_PROVIDERS).toMap()
 
         private const val PREF_QUALITY_KEY = "quality_selection"
