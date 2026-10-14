@@ -2,17 +2,19 @@ package eu.kanade.tachiyomi.animeextension.en.gotaku
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import keiyoushi.utils.applicationContext
 import keiyoushi.utils.parseAs
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 object Filters {
     private const val GENRE_PARAM = "genre"
     private const val THEME_PARAM = "tag"
 
-    private var filterData: FilterData? = null
+    private val cacheFile = File(applicationContext.filesDir, "gotaku_filters.json")
 
     class FilterData(
         val genres: List<Pair<String, String>>, // label -> numeric id
@@ -24,34 +26,45 @@ object Filters {
         val years: List<Pair<String, String>>,
     )
 
-    fun getFilterList(client: OkHttpClient, headers: Headers, apiUrl: String): AnimeFilterList {
-        val data = filterData ?: fetchFilters(client, headers, apiUrl)
-            ?: return AnimeFilterList(AnimeFilter.Header("Press 'Reset' to load filters"))
+    fun hasCache(): Boolean = cacheFile.exists()
+
+    fun getFilterList(): AnimeFilterList {
+        val data = loadCachedFilters() ?: return AnimeFilterList(AnimeFilter.Header("Press 'Reset' to load filters"))
         return buildList(data)
     }
 
-    private fun fetchFilters(client: OkHttpClient, headers: Headers, apiUrl: String): FilterData? = try {
-        val filterClient = client.newBuilder()
-            .connectTimeout(3, TimeUnit.SECONDS)
-            .readTimeout(5, TimeUnit.SECONDS)
-            .build()
+    fun fetchAndCacheFilters(client: OkHttpClient, headers: Headers, apiUrl: String) {
+        try {
+            val filterClient = client.newBuilder()
+                .connectTimeout(3, TimeUnit.SECONDS)
+                .readTimeout(5, TimeUnit.SECONDS)
+                .build()
 
-        filterClient.newCall(Request.Builder().url("$apiUrl/filters").headers(headers).build())
-            .execute().use { res ->
-                if (!res.isSuccessful) return null
-                val dto = res.body.string().parseAs<FiltersResponseDto>().data
-                FilterData(
-                    genres = dto.genres.map { it.name to it.id.toString() },
-                    themes = dto.themes.map { it.name to it.id.toString() },
-                    types = dto.types.map { it.label to it.value },
-                    statuses = dto.statuses.map { it.label to it.value },
-                    seasons = dto.seasons.map { it.label to it.value },
-                    ratings = dto.ratings.map { it.label to it.value },
-                    years = dto.years.map { it.label to it.value },
-                ).also { filterData = it }
+            val response = filterClient.newCall(Request.Builder().url("$apiUrl/filters").headers(headers).build()).execute()
+            if (!response.isSuccessful) return
+            val jsonString = response.body.string()
+            if (!cacheFile.exists() || cacheFile.readText() != jsonString) {
+                cacheFile.writeText(jsonString)
             }
-    } catch (_: Exception) {
-        null
+        } catch (_: Exception) {}
+    }
+
+    private fun loadCachedFilters(): FilterData? {
+        if (!cacheFile.exists()) return null
+        return try {
+            val dto = cacheFile.readText().parseAs<FiltersResponseDto>().data
+            FilterData(
+                genres = dto.genres.map { it.name to it.id.toString() }.distinct(),
+                themes = dto.themes.map { it.name to it.id.toString() }.distinct(),
+                types = dto.types.map { it.label to it.value }.distinct(),
+                statuses = dto.statuses.map { it.label to it.value }.distinct(),
+                seasons = dto.seasons.map { it.label to it.value }.distinct(),
+                ratings = dto.ratings.map { it.label to it.value }.distinct(),
+                years = dto.years.map { it.label to it.value }.distinct(),
+            )
+        } catch (_: Exception) {
+            null
+        }
     }
 
     // ============================== Filters ===============================
@@ -110,7 +123,7 @@ object Filters {
         ) {
         fun getValue(): String? = when (state) {
             0 -> "any"
-            1 -> ""
+            1 -> null
             else -> null
         }
     }

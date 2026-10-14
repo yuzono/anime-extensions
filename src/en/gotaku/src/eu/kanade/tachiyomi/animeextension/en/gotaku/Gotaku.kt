@@ -135,6 +135,9 @@ class Gotaku :
     override fun latestUpdatesRequest(page: Int): Request = titlesRequest(page, "latest", latestTrack)
 
     private fun parseTitles(response: Response): AnimesPage {
+        if (!Filters.hasCache()) {
+            Filters.fetchAndCacheFilters(client, headers, apiUrl)
+        }
         val dto = response.parseAs<TitlesResponseDto>()
         return AnimesPage(dto.data.map { it.toSAnime() }, dto.meta?.hasMore ?: false)
     }
@@ -143,7 +146,7 @@ class Gotaku :
     override fun latestUpdatesParse(response: Response): AnimesPage = parseTitles(response)
 
     // =============================== Search ===============================
-    override fun getFilterList(): AnimeFilterList = Filters.getFilterList(client, headers, apiUrl)
+    override fun getFilterList(): AnimeFilterList = Filters.getFilterList()
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val params = mutableListOf<Pair<String, String>>()
@@ -206,7 +209,7 @@ class Gotaku :
         detailCache.get(slug)?.let { return it }
         return try {
             client.get("$apiUrl/titles/$slug", apiHeaders("$baseUrl/title/$slug"))
-                .use { it.parseAs<DetailsResponseDto>().data }
+                .parseAs<DetailsResponseDto>().data
                 .also { detailCache.put(slug, it) }
         } catch (_: Exception) {
             null
@@ -380,7 +383,7 @@ class Gotaku :
 
     // ============================== Videos ================================
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
-        val parts = hoster.internalData.split("::")
+        val parts = hoster.internalData.split("::", limit = 4)
         if (parts.size < 4) return emptyList()
         val (_, slug, epId, type) = parts
         val watchReferer = "$baseUrl/title/$slug?ep=$epId"
