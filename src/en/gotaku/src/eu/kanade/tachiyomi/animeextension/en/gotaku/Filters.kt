@@ -40,11 +40,13 @@ object Filters {
                 .readTimeout(5, TimeUnit.SECONDS)
                 .build()
 
-            val response = filterClient.newCall(Request.Builder().url("$apiUrl/filters").headers(headers).build()).execute()
-            if (!response.isSuccessful) return
-            val jsonString = response.body.string()
-            if (!cacheFile.exists() || cacheFile.readText() != jsonString) {
-                cacheFile.writeText(jsonString)
+            filterClient.newCall(Request.Builder().url("$apiUrl/filters").headers(headers).build()).execute().use { response ->
+                if (!response.isSuccessful) return
+                val jsonString = response.body.string()
+                runCatching { jsonString.parseAs<FiltersResponseDto>() }.getOrNull()?.data ?: return
+                if (!cacheFile.exists() || cacheFile.readText() != jsonString) {
+                    cacheFile.writeText(jsonString)
+                }
             }
         } catch (_: Exception) {}
     }
@@ -63,6 +65,7 @@ object Filters {
                 years = dto.years.map { it.label to it.value }.distinct(),
             )
         } catch (_: Exception) {
+            cacheFile.delete()
             null
         }
     }
