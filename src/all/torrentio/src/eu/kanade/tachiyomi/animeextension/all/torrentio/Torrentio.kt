@@ -51,7 +51,7 @@ class Torrentio :
     override val supportsLatest = true
 
     override val supportsRelatedAnimes = false
-    
+
     override val client: OkHttpClient = network.client
 
     private val json: Json by injectLazy()
@@ -482,13 +482,11 @@ class Torrentio :
     // ============================ Sorting / Helpers ==========================
 
     override fun List<Video>.sortVideos(): List<Video> {
-        val isDub = preferences.getBoolean(IS_DUB_KEY, IS_DUB_DEFAULT)
         val isEfficient = preferences.getBoolean(IS_EFFICIENT_KEY, IS_EFFICIENT_DEFAULT)
 
         return sortedWith(
             compareBy(
                 { Regex("\\[(.+?) download]").containsMatchIn(it.videoTitle) },
-                { isDub && !it.videoTitle.contains("dubbed", true) },
                 { isEfficient && !arrayOf("hevc", "265", "av1").any { q -> it.videoTitle.contains(q, true) } },
             ),
         )
@@ -570,12 +568,6 @@ class Torrentio :
             key = SHOW_SEASON_ZERO_KEY
             title = "Show Season 0 Entries"
             setDefaultValue(SHOW_SEASON_ZERO_DEFAULT)
-        }.also(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = IS_DUB_KEY
-            title = "Dubbed Video Priority"
-            setDefaultValue(IS_DUB_DEFAULT)
         }.also(screen::addPreference)
 
         SwitchPreferenceCompat(screen.context).apply {
@@ -678,9 +670,6 @@ class Torrentio :
 
         private const val SHOW_SEASON_ZERO_KEY = "show_season_zero"
         private const val SHOW_SEASON_ZERO_DEFAULT = false
-
-        private const val IS_DUB_KEY = "dubbed"
-        private const val IS_DUB_DEFAULT = false
 
         private const val IS_EFFICIENT_KEY = "efficient"
         private const val IS_EFFICIENT_DEFAULT = false
