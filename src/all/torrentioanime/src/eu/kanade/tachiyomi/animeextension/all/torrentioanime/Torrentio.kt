@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.AioMeta
 import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.AioMetaResponse
 import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.AnilistMeta
 import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.AnilistMetaLatest
+import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.AnilistRelationsDto
 import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.StreamDataTorrent
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -51,6 +52,10 @@ class Torrentio :
     override val lang = "all"
 
     override val supportsLatest = true
+
+    override val disableRelatedAnimesBySearch = true
+
+    override val supportsRelatedAnimes = true
 
     override val client: OkHttpClient = network.client
 
@@ -252,6 +257,33 @@ class Torrentio :
                 else -> if (meta.stability?.ongoing == true) SAnime.ONGOING else SAnime.UNKNOWN
             }
         }
+    }
+    // ============================== Related Anime  ==========================
+
+    override fun relatedAnimeListRequest(anime: SAnime): Request {
+        val variables = buildJsonObject {
+            put("id", anime.url.toIntOrNull() ?: 0)
+        }.toString()
+
+        return makeGraphQLRequest(anilistRelationsQuery(), variables)
+    }
+
+    override fun relatedAnimeListParse(response: Response): List<SAnime> {
+        val jsonData = response.bodyString()
+        val data = runCatching { json.decodeFromString<AnilistRelationsDto>(jsonData) }.getOrNull()
+
+        return data?.data?.media?.relations?.edges
+            ?.mapNotNull { edge ->
+                val node = edge.node ?: return@mapNotNull null
+                if (node.type != "ANIME") return@mapNotNull null
+
+                SAnime.create().apply {
+                    url = node.id.toString()
+                    title = pickTitle(node.title?.romaji, node.title?.english, node.title?.native)
+                    thumbnail_url = node.coverImage?.extraLarge ?: node.coverImage?.large
+                    status = anilistStatus(node.status)
+                }
+            }.orEmpty()
     }
 
     // =============================== Seasons ===============================

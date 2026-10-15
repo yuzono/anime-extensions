@@ -104,3 +104,28 @@ fun anilistLatestQuery() = """
         }
     }
 """.toQuery()
+fun anilistRelationsQuery() = """
+    query (%id: Int) {
+        Media(id: %id) {
+            relations {
+                edges {
+                    relationType
+                    node {
+                        id
+                        type
+                        title {
+                            romaji
+                            english
+                            native
+                        }
+                        coverImage {
+                            extraLarge
+                            large
+                        }
+                        status
+                    }
+                }
+            }
+        }
+    }
+""".toQuery()

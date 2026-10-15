@@ -50,6 +50,8 @@ class Torrentio :
 
     override val supportsLatest = true
 
+    override val supportsRelatedAnimes = false
+    
     override val client: OkHttpClient = network.client
 
     private val json: Json by injectLazy()

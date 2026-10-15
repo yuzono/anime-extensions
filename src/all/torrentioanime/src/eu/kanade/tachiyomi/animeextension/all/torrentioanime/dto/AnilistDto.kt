@@ -97,3 +97,38 @@ data class AnilistNode(
 data class AnilistTag(
     val name: String? = null,
 )
+
+@Serializable
+data class AnilistRelationsDto(
+    val data: AnilistRelationsData? = null,
+)
+
+@Serializable
+data class AnilistRelationsData(
+    val media: AnilistMediaRelations? = null,
+)
+
+@Serializable
+data class AnilistMediaRelations(
+    val relations: AnilistRelationsEdges? = null,
+)
+
+@Serializable
+data class AnilistRelationsEdges(
+    val edges: List<AnilistRelationEdge>? = null,
+)
+
+@Serializable
+data class AnilistRelationEdge(
+    val relationType: String? = null,
+    val node: AnilistRelationNode? = null,
+)
+
+@Serializable
+data class AnilistRelationNode(
+    val id: Int,
+    val type: String? = null,
+    val title: AnilistTitle? = null,
+    val coverImage: AnilistCoverImage? = null,
+    val status: String? = null,
+)
