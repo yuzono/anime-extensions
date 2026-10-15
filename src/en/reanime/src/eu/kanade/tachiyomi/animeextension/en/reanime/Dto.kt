@@ -100,8 +100,7 @@ class ThumbnailsResponseDto(
     val episodeCount: Int? = null,
 )
 
-// ======================== Video Server DTOs ========================
-
+// =========================== Video Server DTOs ============================
 @Serializable
 class VideoResponseDto(
     val success: Boolean,
@@ -116,8 +115,7 @@ class VideoServerDto(
     val softsub: Boolean = false,
 )
 
-// ======================== Anime Detail DTOs ========================
-
+// ============================ Anime Detail DTOs ===========================
 @Serializable
 class FuzzyDateDto(
     val year: Int? = null,
@@ -188,6 +186,8 @@ class AnimeDetailDto(
             }
         }
 
+        background_url = bannerImage
+
         val combinedGenres = buildList {
             genres?.filter { it.isNotBlank() }?.let { addAll(it) }
             tags?.mapNotNull { it.name }?.filter { it.isNotBlank() }?.sorted()?.let { addAll(it) }
@@ -229,8 +229,7 @@ class RelationDto(
     @SerialName("season_year") val seasonYear: Int? = null,
 )
 
-// ======================== Recommendations DTOs ========================
-
+// ========================== Recommendations DTOs ==========================
 @Serializable
 class RecommendationsDto(
     val recommendations: List<RecommendationDto>,
@@ -262,8 +261,7 @@ class RecTitleDto(
     }
 }
 
-// ======================== FlixCloud Embed Data DTOs ========================
-
+// ======================== FlixCloud Embed Data DTO ========================
 @Serializable
 class FlixcloudChapterDto(
     val start: Long? = null,
@@ -298,8 +296,7 @@ class SkipTimes(
     val outroEnd: Long? = null,
 )
 
-// ======================== FlixCloud Decryption DTOs ========================
-
+// ======================== FlixCloud Decryption DTO ========================
 @Serializable
 class DecFlixCloudTokenResponseDto(
     val status: Int,

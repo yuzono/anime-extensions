@@ -245,7 +245,6 @@ class ReAnime :
     }
 
     // =========================== Anime Details ============================
-
     private val detailsUrl = "$baseUrl/anime"
     override fun getAnimeUrl(anime: SAnime): String = "$detailsUrl/${anime.url}"
 
@@ -435,11 +434,6 @@ class ReAnime :
             append("**Trailer**: [YouTube](https://www.youtube.com/watch?v=${it.id})")
             append("\n")
         }
-
-        dto.bannerImage?.takeIf { it.isNotBlank() }?.let {
-            append("\n")
-            append("![Banner]($it)")
-        }
     }
 
     private fun getFancyScore(score: Int): String {
@@ -448,7 +442,7 @@ class ReAnime :
         return "${"★".repeat(stars)}${"☆".repeat(5 - stars)} $score"
     }
 
-    // ============================== Related Anime ==============================
+    // ========================== Related Anime =============================
     override val disableRelatedAnimesBySearch = true
 
     override suspend fun fetchRelatedAnimeList(anime: SAnime): List<SAnime> {
@@ -512,7 +506,6 @@ class ReAnime :
     }
 
     // ============================== Episodes ==============================
-
     override fun seasonListParse(response: Response) = throw UnsupportedOperationException()
 
     override fun episodeListRequest(anime: SAnime): Request {
@@ -613,7 +606,7 @@ class ReAnime :
 
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
 
-    // ============================== Video Links ==============================
+    // ============================ Video Links =============================
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val bits = episode.url.split("/")
         val slug = bits.getOrNull(0) ?: ""
