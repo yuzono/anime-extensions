@@ -148,19 +148,7 @@ class FlixProxyServer(
             }
 
             val headerSize = detectHeader(headerBytes)
-            val hasPayload = headerBytes.size > headerSize
-            val firstPayloadByte = if (hasPayload) headerBytes[headerSize].toInt() and 0xFF else -1
-
-            // Check if payload is already plaintext media (0x47 MPEG-TS, 0xFF ADTS AAC, 0x49 ID3)
-            val isPlaintext = firstPayloadByte == 0x47 || firstPayloadByte == 0xFF || firstPayloadByte == 0x49
-            val shouldXor = headerSize > 0 && hasPayload && !isPlaintext
-
-            if (shouldXor) {
-                val decryptedByte = firstPayloadByte xor (segmentMask[0].toInt() and 0xFF)
-                if (decryptedByte != 0x47 && decryptedByte != 0xFF && decryptedByte != 0x49) {
-                    Log.w("ReAnime", "Warning: Decrypted byte (0x${decryptedByte.toString(16)}) does not match expected sync markers. XOR mask may be stale.")
-                }
-            }
+            val shouldXor = headerSize > 0
 
             // Output length = original length minus the stripped image header.
             val originalLength = body.contentLength()
