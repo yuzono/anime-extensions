@@ -1,38 +1,43 @@
 package eu.kanade.tachiyomi.animeextension.en.anilist
 
-import eu.kanade.tachiyomi.network.GET
+import keiyoushi.network.get
 import keiyoushi.utils.parseAs
+import kotlinx.coroutines.CancellationException
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 
 class CoverProviders(private val client: OkHttpClient, private val headers: Headers) {
-    fun getMALCovers(malId: String): List<String> {
-        return client.newCall(
-            GET("https://api.tenrai.org/v1/anime/$malId/pictures", headers),
-        ).execute().use { response ->
-            if (!response.isSuccessful) return@use emptyList()
-
+    suspend fun getMALCovers(malId: String): List<String> {
+        for (baseUrl in MAL_API_URLS) {
             try {
-                response.parseAs<MALPicturesDto>().data?.mapNotNull { imgs ->
-                    imgs.jpg?.let { it.largeImageUrl ?: it.imageUrl ?: it.smallImageUrl }
-                } ?: emptyList()
+                val covers = client.get("$baseUrl/anime/$malId/pictures", headers).use { response ->
+                    response.parseAs<MALPicturesDto>().data?.mapNotNull { imgs ->
+                        imgs.jpg?.let { it.largeImageUrl ?: it.imageUrl ?: it.smallImageUrl }
+                    }
+                }
+                if (!covers.isNullOrEmpty()) return covers
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) {
-                emptyList()
+                // Try next fallback mirror
             }
         }
+        return emptyList()
     }
 
-    fun getFanartCovers(tvdbId: String, type: String): List<String> {
-        return client.newCall(
-            GET("https://webservice.fanart.tv/v3/$type/$tvdbId?api_key=184e1a2b1fe3b94935365411f919f638", headers),
-        ).execute().use { response ->
-            if (!response.isSuccessful) return@use emptyList()
-
-            try {
-                response.parseAs<FanartDto>().tvposter?.map { it.url } ?: emptyList()
-            } catch (_: Exception) {
-                emptyList()
+    suspend fun getFanartCovers(tvdbId: String, type: String): List<String> = try {
+        client.get("https://webservice.fanart.tv/v3/$type/$tvdbId?api_key=184e1a2b1fe3b94935365411f919f638", headers).use { response ->
+            val fanart = response.parseAs<FanartDto>()
+            val posters = if (type == "movies") {
+                fanart.movieposter ?: fanart.tvposter
+            } else {
+                fanart.tvposter ?: fanart.movieposter
             }
+            posters?.map { it.url } ?: emptyList()
         }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        emptyList()
     }
 }

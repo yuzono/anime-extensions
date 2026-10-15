@@ -11,6 +11,7 @@ import android.webkit.WebViewClient
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.decodeHex
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -105,8 +106,8 @@ class VidGuardExtractor(private val client: OkHttpClient) {
     private fun fixUrl(url: String): String {
         val httpUrl = url.toHttpUrl()
         val originalSign = httpUrl.queryParameter("sig")!!
-        val newSign = originalSign.chunked(2).joinToString("") {
-            Char(it.toInt(16) xor 2).toString()
+        val newSign = originalSign.decodeHex().joinToString("") {
+            Char((it.toInt() and 0xFF) xor 2).toString()
         }
             .let { String(Base64.decode(it, Base64.DEFAULT)) }
             .substring(5)

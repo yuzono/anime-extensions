@@ -33,6 +33,7 @@ import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -356,24 +357,22 @@ class StreamingCommunity(override val lang: String, private val showType: String
         // double the work. Resolve all mirrors concurrently for resilience — a
         // failing edge (expired token / 5xx / empty result) falls through to the
         // next one — but consume ONLY the first successful extraction. Fall back
-        // to the plain master playlist when the array isn't there. Subtitle/audio
-        // renditions are regex-parsed out of each master playlist and are never
-        // fetched here, so nothing per-track needs parallelizing.
-        val serverPlaylists = SERVERS_REGEX.findAll(script)
-            .map { match ->
-                val active = match.groupValues[2]
-                Triple(
-                    match.groupValues[1],
-                    buildMasterPlaylistUrl(match.groupValues[3].unescapeJs(), token, expires, canPlayFhd),
-                    active == "true" || active == "1",
-                )
+        // to the plain master playlist when the array is missing or unparsable.
+        // Subtitle/audio renditions are regex-parsed out of each master playlist
+        // and are never fetched here, so nothing per-track needs parallelizing.
+        val serverPlaylists = STREAMS_REGEX.find(script)?.groupValues?.get(1)
+            ?.let { streams ->
+                runCatching { streams.parseAs<List<StreamServer>>() }
+                    .onFailure { Log.w(TAG, "Could not parse window.streams: $it") }
+                    .getOrNull()
             }
-            .sortedByDescending(Triple<String, String, Boolean>::third)
-            .toList()
-            .ifEmpty { listOf(Triple("", masterPlUrl, true)) }
+            .orEmpty()
+            .sortedByDescending(StreamServer::isActive)
+            .map { buildMasterPlaylistUrl(it.url, token, expires, canPlayFhd) }
+            .ifEmpty { listOf(masterPlUrl) }
 
         return coroutineScope {
-            serverPlaylists.map { (_, serverPlaylistUrl, _) ->
+            serverPlaylists.map { serverPlaylistUrl ->
                 async {
                     runCatching {
                         playlistUtils.extractFromHls(playlistUrl = serverPlaylistUrl)
@@ -404,8 +403,6 @@ class StreamingCommunity(override val lang: String, private val showType: String
     }
 
     private fun buildMasterPlaylistUrl(base: String, token: String, expires: String, canPlayFhd: Boolean) = base + (if ('?' in base) '&' else '?') + (if (canPlayFhd) "h=1&" else "") + "token=$token&expires=$expires&lang=$lang"
-
-    private fun String.unescapeJs() = replace("\\/", "/").replace("\\u0026", "&")
 
     override fun videoListRequest(episode: SEpisode): Request = throw Exception("Not used")
 
@@ -466,9 +463,7 @@ class StreamingCommunity(override val lang: String, private val showType: String
 
         // window.streams = [{"name":"Server1","active":false,"url":"...playlist/594985?b=1\\u0026ub=1"},
         //                   {"name":"Server2","active":1,"url":"...playlist/594985?b=1\\u0026ab=1"}]
-        // `active` is not always a keyword - live pages emit the number 1 for the
-        // selected mirror - so accept any value and read it out separately.
-        private val SERVERS_REGEX = Regex("""\{"name":"([^"]+)","active":([^,]+),"url":"([^"]+)"\}""")
+        private val STREAMS_REGEX = Regex("""window\.streams\s*=\s*(\[.*?\}\s*\])""", RegexOption.DOT_MATCHES_ALL)
         private val CAN_PLAY_FHD_REGEX = Regex("""window\.canPlayFHD\s*=\s*(\w+)""")
         private val QUALITY_REGEX = Regex("""(\d+)p""")
 

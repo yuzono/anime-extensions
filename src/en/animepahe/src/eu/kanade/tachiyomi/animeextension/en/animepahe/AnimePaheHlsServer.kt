@@ -1,6 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.en.animepahe
 
+import aniyomi.lib.hlssegment.openHlsSegment
 import eu.kanade.tachiyomi.animesource.model.Video
+import keiyoushi.utils.decodeHex
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -12,7 +14,6 @@ import org.nanohttpd.protocols.http.response.Response
 import org.nanohttpd.protocols.http.response.Response.newChunkedResponse
 import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
 import org.nanohttpd.protocols.http.response.Status
-import java.io.ByteArrayInputStream
 import java.io.FilterInputStream
 import java.io.IOException
 import java.net.URLEncoder
@@ -103,8 +104,18 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
             val headers = extractHeadersFromSession(session)
             val keyUrl = session.parameters["key"]?.first()
             val iv = session.parameters["iv"]?.first()
-            val data = fetchSegment(url, headers, keyUrl, iv)
-            newChunkedResponse(Status.OK, "video/mp2t", ByteArrayInputStream(data))
+            val cipher = if (keyUrl.isNullOrBlank()) {
+                null
+            } else {
+                val ivHex = iv ?: throw IOException("Missing AES-128 IV for encrypted segment")
+                aes128CbcCipher(fetchBytes(keyUrl, headers), ivHex)
+            }
+            val segment = requireClient().openHlsSegment(Request.Builder().url(url).headers(headers).build(), cipher)
+            if (segment.length >= 0) {
+                newFixedLengthResponse(Status.OK, "video/mp2t", segment.stream, segment.length)
+            } else {
+                newChunkedResponse(Status.OK, "video/mp2t", segment.stream)
+            }
         } catch (e: Exception) {
             newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
         }
@@ -229,21 +240,6 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
         response.body.string()
     }
 
-    private fun fetchSegment(
-        url: String,
-        headers: Headers,
-        keyUrl: String?,
-        iv: String?,
-    ): ByteArray {
-        val rawData = fetchBytes(url, headers)
-        return if (keyUrl.isNullOrBlank()) {
-            rawData
-        } else {
-            val ivHex = iv ?: throw IOException("Missing AES-128 IV for encrypted segment")
-            decryptAes128Cbc(rawData, fetchBytes(keyUrl, headers), ivHex)
-        }
-    }
-
     private fun fetchBytes(url: String, headers: Headers): ByteArray = requireClient().newCall(Request.Builder().url(url).headers(headers).build()).execute().use { response ->
         if (!response.isSuccessful) {
             throw IOException("Failed to fetch resource: ${response.code}")
@@ -329,7 +325,7 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
         }
     }
 
-    private fun decryptAes128Cbc(data: ByteArray, key: ByteArray, iv: String): ByteArray {
+    private fun aes128CbcCipher(key: ByteArray, iv: String): Cipher {
         if (key.size != 16) {
             throw IOException("Invalid AES-128 key length: ${key.size}")
         }
@@ -339,18 +335,22 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
             throw IOException("Invalid AES-128 IV length: ${normalizedIv.length}")
         }
 
-        return try {
-            val cipher = Cipher.getInstance("AES/CBC/NoPadding")
-            cipher.init(
-                Cipher.DECRYPT_MODE,
-                SecretKeySpec(key, "AES"),
-                IvParameterSpec(normalizedIv.hexToByteArray()),
-            )
-            cipher.doFinal(data)
-        } catch (e: GeneralSecurityException) {
-            throw IOException("Failed to decrypt AES-128 segment", e)
-        } catch (e: NumberFormatException) {
+        val ivBytes = try {
+            normalizedIv.decodeHex()
+        } catch (e: IllegalArgumentException) {
             throw IOException("Invalid AES-128 IV", e)
+        }
+
+        return try {
+            Cipher.getInstance("AES/CBC/NoPadding").apply {
+                init(
+                    Cipher.DECRYPT_MODE,
+                    SecretKeySpec(key, "AES"),
+                    IvParameterSpec(ivBytes),
+                )
+            }
+        } catch (e: GeneralSecurityException) {
+            throw IOException("Failed to init AES-128 cipher", e)
         }
     }
 
@@ -359,8 +359,4 @@ object AnimePaheHlsServer : NanoHTTPD(0) {
     private fun String.normalizeHlsIv(): String = removePrefix("0x")
         .removePrefix("0X")
         .padStart(32, '0')
-
-    private fun String.hexToByteArray(): ByteArray = ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
-    }
 }

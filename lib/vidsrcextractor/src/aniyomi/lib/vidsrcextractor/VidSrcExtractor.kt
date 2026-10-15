@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.rc4
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -15,8 +16,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import uy.kohesive.injekt.injectLazy
 import java.net.URLDecoder
-import javax.crypto.Cipher
-import javax.crypto.spec.SecretKeySpec
 
 @OptIn(ExperimentalSerializationApi::class)
 class VidsrcExtractor(private val client: OkHttpClient, private val headers: Headers) {
@@ -76,10 +75,8 @@ class VidsrcExtractor(private val client: OkHttpClient, private val headers: Hea
     }
 
     private fun encodeID(videoID: String, key: String): String {
-        val rc4Key = SecretKeySpec(key.toByteArray(), "RC4")
-        val cipher = Cipher.getInstance("RC4")
-        cipher.init(Cipher.DECRYPT_MODE, rc4Key, cipher.parameters)
-        return Base64.encode(cipher.doFinal(videoID.toByteArray()), Base64.DEFAULT)
+        val encrypted = rc4(key.toByteArray(), videoID.toByteArray())
+        return Base64.encode(encrypted, Base64.DEFAULT)
             .toString(Charsets.UTF_8)
             .replace("+", "-")
             .replace("/", "_")
@@ -98,11 +95,7 @@ class VidsrcExtractor(private val client: OkHttpClient, private val headers: Hea
     }
 
     private fun vrfDecrypt(input: String): String {
-        var vrf = Base64.decode(input.toByteArray(), Base64.URL_SAFE)
-        val rc4Key = SecretKeySpec(DECRYPTION_KEY.toByteArray(), "RC4")
-        val cipher = Cipher.getInstance("RC4")
-        cipher.init(Cipher.DECRYPT_MODE, rc4Key, cipher.parameters)
-        vrf = cipher.doFinal(vrf)
+        val vrf = rc4(DECRYPTION_KEY.toByteArray(), Base64.decode(input.toByteArray(), Base64.URL_SAFE))
         return URLDecoder.decode(vrf.toString(Charsets.UTF_8), "utf-8")
     }
 

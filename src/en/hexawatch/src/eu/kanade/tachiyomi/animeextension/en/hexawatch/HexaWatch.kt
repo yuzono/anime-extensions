@@ -24,6 +24,7 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelFlatMap
 import keiyoushi.utils.parallelMapNotNull
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toHex
 import keiyoushi.utils.toJsonRequestBody
 import keiyoushi.utils.toJsonString
 import kotlinx.coroutines.CancellationException
@@ -516,7 +517,7 @@ class HexaWatch :
     private class HosterData(val requestUrl: String, val server: String, val key: String, val url: String?)
 
     private fun randomHex(bytes: Int) = ByteArray(bytes).also(SECURE_RANDOM::nextBytes)
-        .joinToString("") { "%02x".format(it) }
+        .toHex()
 
     // Stands in for the site's hashed screen/UA/canvas fingerprint; only needs to be stable.
     private val clientFingerprint by lazy { randomHex(4).toLong(16).toString(36) }

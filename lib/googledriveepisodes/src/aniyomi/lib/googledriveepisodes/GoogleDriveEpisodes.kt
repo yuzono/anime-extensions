@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.formatBytes
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toHex
 import kotlinx.serialization.Serializable
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -118,7 +119,7 @@ class GoogleDriveEpisodes(private val client: OkHttpClient, private val headers:
         val sapisidhash = MessageDigest
             .getInstance("SHA-1")
             .digest("$timeNow $SAPISID $origin".toByteArray())
-            .joinToString("") { "%02x".format(it) }
+            .toHex()
         return "SAPISIDHASH ${timeNow}_$sapisidhash"
     }
 

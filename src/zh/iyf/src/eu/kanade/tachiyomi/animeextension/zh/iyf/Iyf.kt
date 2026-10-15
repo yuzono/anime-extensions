@@ -10,6 +10,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toHex
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonArray
@@ -237,7 +238,7 @@ class Iyf : AnimeHttpLegacySource() {
     private fun signature(query: String, pConfig: PConfig): String {
         val s = "${pConfig.publicKey}&${query.lowercase()}&${pConfig.privateKey}"
         return MessageDigest.getInstance("MD5").digest(s.toByteArray())
-            .joinToString(separator = "") { "%02x".format(it) }
+            .toHex()
     }
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(

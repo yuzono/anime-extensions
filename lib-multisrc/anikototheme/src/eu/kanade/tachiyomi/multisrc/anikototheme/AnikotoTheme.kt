@@ -26,6 +26,7 @@ import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.rc4
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
 import okhttp3.CacheControl
@@ -41,8 +42,6 @@ import java.math.RoundingMode
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
-import javax.crypto.Cipher
-import javax.crypto.spec.SecretKeySpec
 import kotlin.time.Duration.Companion.hours
 
 abstract class AnikotoTheme(
@@ -1079,10 +1078,7 @@ private object AnikotoUtils {
     }
 
     private fun rc4Encrypt(key: String, input: String): String {
-        val rc4Key = SecretKeySpec(key.toByteArray(), "RC4")
-        val cipher = Cipher.getInstance("RC4")
-        cipher.init(Cipher.ENCRYPT_MODE, rc4Key, cipher.parameters)
-        val output = cipher.doFinal(input.toByteArray())
+        val output = rc4(key.toByteArray(), input.toByteArray())
         return Base64.encode(output, Base64.URL_SAFE or Base64.NO_WRAP).toString(Charsets.UTF_8)
     }
 

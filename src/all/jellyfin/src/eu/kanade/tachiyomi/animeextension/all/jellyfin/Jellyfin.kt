@@ -7,12 +7,14 @@ import android.provider.Settings
 import android.text.InputType
 import android.util.Log
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.hlsdash.HlsDashServer
 import eu.kanade.tachiyomi.animeextension.BuildConfig
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.FiltersDto
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.ItemDto
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.ItemListDto
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.ItemType
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.LoginDto
+import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.LoginRequestDto
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.MediaLibraryDto
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.PlaybackInfoDto
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.SessionDto
@@ -21,7 +23,6 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.Hoster
-import eu.kanade.tachiyomi.animesource.model.Hoster.Companion.toHosterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
@@ -34,6 +35,7 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.delegate
+import keiyoushi.utils.firstInstance
 import keiyoushi.utils.formatBytes
 import keiyoushi.utils.get
 import keiyoushi.utils.getListPreference
@@ -49,8 +51,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import okhttp3.Dns
 import okhttp3.Headers
 import okhttp3.HttpUrl
@@ -158,7 +158,7 @@ class Jellyfin(private val suffix: String) :
     ): AnimesPage {
         checkPreferences()
         val filterList = filters.ifEmpty { getFilterList() }
-        filterList.filterIsInstance<TypeFilter>().first().let {
+        filterList.firstInstance<TypeFilter>().let {
             itemTypes = it.state.filter { s -> s.state }.map { s -> s.id }
             if (preferences.saveTypes) {
                 preferences.saveTypesValue = itemTypes.toJsonString(json)
@@ -425,17 +425,19 @@ class Jellyfin(private val suffix: String) :
         return infoData.toSAnime(baseUrl, preferences.userId, preferences.concatNames)
     }
 
+    override fun getAnimeUrl(anime: SAnime): String = getWebUrl(anime.url)
+
     // ============================== Episodes ==============================
 
     override suspend fun getSeasonList(anime: SAnime): List<SAnime> {
         val httpUrl = anime.url.toHttpUrl()
-        val itemId = httpUrl.pathSegments[3]
+        val itemId = httpUrl.pathSegments.last()
         val fragment = httpUrl.fragment!!
 
         val url = when {
             fragment.startsWith("boxSet") -> {
                 httpUrl.newBuilder().apply {
-                    removePathSegment(3)
+                    removePathSegment(httpUrl.pathSize - 1)
                     addQueryParameter("SortBy", "SortName")
                     addQueryParameter("SortOrder", "Ascending")
                     addQueryParameter("IncludeItemTypes", "Movie,Season,BoxSet,Series")
@@ -445,8 +447,7 @@ class Jellyfin(private val suffix: String) :
             }
 
             fragment.startsWith("series") -> {
-                httpUrl.newBuilder().apply {
-                    encodedPath("/")
+                baseUrl.toHttpUrl().newBuilder().apply {
                     addPathSegment("Shows")
                     addPathSegment(itemId)
                     addPathSegment("Seasons")
@@ -470,13 +471,22 @@ class Jellyfin(private val suffix: String) :
         val fragment = url.fragment!!
         val itemList = if (fragment == "movie") {
             listOf(client.get(url).parseAs<ItemDto>(json))
+        } else if (fragment.startsWith("boxSet")) {
+            return emptyList()
         } else {
-            val episodesUrl = url.newBuilder().apply {
-                encodedPath("/")
+            val itemId = url.pathSegments.last()
+            val episodesUrl = baseUrl.toHttpUrl().newBuilder().apply {
                 addPathSegment("Shows")
-                addPathSegment(fragment.split(",").last())
-                addPathSegment("Episodes")
-                addQueryParameter("seasonId", url.pathSegments.last())
+                if (fragment.startsWith("season,")) {
+                    // Jellyfin ignores the series segment when seasonId is set, so fall back to the season id
+                    val seriesId = fragment.substringAfter(",").takeUnless { it.isBlank() || it == "null" }
+                    addPathSegment(seriesId ?: itemId)
+                    addPathSegment("Episodes")
+                    addQueryParameter("seasonId", itemId)
+                } else {
+                    addPathSegment(itemId)
+                    addPathSegment("Episodes")
+                }
                 addQueryParameter("userId", preferences.userId)
                 addQueryParameter("Fields", "Overview,MediaSources,DateCreated,OriginalTitle,SortName")
             }.build()
@@ -494,13 +504,30 @@ class Jellyfin(private val suffix: String) :
         }.reversed()
     }
 
+    override fun getEpisodeUrl(episode: SEpisode): String = getWebUrl(episode.url)
+
     // ============================ Video Links =============================
 
-    override suspend fun getHosterList(episode: SEpisode): List<Hoster> = getVideoList(episode).toHosterList()
-
-    private suspend fun getVideoList(episode: SEpisode): List<Video> {
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val item = client.get(episode.url).parseAs<ItemDto>(json)
-        val mediaSource = item.mediaSources?.firstOrNull() ?: return emptyList()
+        val mediaSources = item.mediaSources.orEmpty().filter { !it.id.isNullOrBlank() }
+        return mediaSources.mapIndexed { index, source ->
+            Hoster(
+                // Without alternate versions, the media source is just named after the item
+                hosterName = when {
+                    mediaSources.size == 1 -> "Source"
+                    else -> source.name?.takeIf(String::isNotBlank) ?: "Version ${index + 1}"
+                },
+                hosterUrl = episode.url,
+                internalData = source.id!!,
+            )
+        }
+    }
+
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val item = client.get(hoster.hosterUrl).parseAs<ItemDto>(json)
+        val mediaSource = item.mediaSources?.firstOrNull { it.id == hoster.internalData }
+            ?: return emptyList()
         val itemId = item.id
 
         val videoList = mutableListOf<Video>()
@@ -555,8 +582,7 @@ class Jellyfin(private val suffix: String) :
             return listOf(
                 Video(
                     videoTitle = buildString {
-                        append("Source (Remote)")
-                        mediaSource.name?.let { append("\n$it") }
+                        append("Remote")
                         append("\n${mediaSource.path}")
                     },
                     videoUrl = mediaSource.path,
@@ -583,11 +609,12 @@ class Jellyfin(private val suffix: String) :
             addPathSegment(itemId)
             addPathSegment("stream")
             addQueryParameter("static", "True")
+            addQueryParameter("MediaSourceId", mediaSource.id)
             addQueryParameter("PlaySessionId", sessionData.playSessionId)
         }.build().toString()
 
         val staticVideo = Video(
-            videoTitle = "Source - ${videoBitrate}ps",
+            videoTitle = "${videoBitrate}ps",
             videoUrl = staticUrl,
             bitrate = Int.MAX_VALUE,
             headers = videoHeaders,
@@ -596,10 +623,9 @@ class Jellyfin(private val suffix: String) :
             initialized = true,
         )
 
-        val sessionMediaSource = sessionData.mediaSources.firstOrNull()
+        val sessionMediaSource = sessionData.mediaSources.firstOrNull { it.id == mediaSource.id }
             ?: return emptyList()
 
-        // Build video list
         if (sessionMediaSource.supportsDirectStream) {
             videoList.add(staticVideo)
         }
@@ -625,7 +651,7 @@ class Jellyfin(private val suffix: String) :
                         itemId = itemId,
                         audioStreamIndex = audioTrackIndex?.toString(),
                         subtitleStreamIndex = subtitleTrackIndex?.toString(),
-                    ).toJsonString(),
+                    ).toJsonString(json),
                 ),
             )
         }
@@ -634,7 +660,7 @@ class Jellyfin(private val suffix: String) :
     }
 
     @Serializable
-    data class TranscodingInfo(
+    class TranscodingInfo(
         val videoBitrate: Int,
         val audioBitrate: Int,
         val mediaId: String,
@@ -692,11 +718,24 @@ class Jellyfin(private val suffix: String) :
             subtitleStreamIndex = transcodingInfo.subtitleStreamIndex,
         )
 
-        return sessionData.mediaSources.firstOrNull()?.transcodingUrl?.let {
-            video.copy(
-                videoUrl = baseUrl + it,
-            )
+        val mediaSource = sessionData.mediaSources.firstOrNull { it.id == transcodingInfo.mediaId }
+            ?: return null
+        val transcodingUrl = baseUrl + (mediaSource.transcodingUrl ?: return null)
+        if (mediaSource.transcodingContainer != "mp4") {
+            return video.copy(videoUrl = transcodingUrl)
         }
+
+        // fMP4 segments, served as DASH over loopback so that seeking works
+        val videoHeaders = video.headers ?: headers
+        val masterPlaylist = client.get(transcodingUrl, videoHeaders).use { it.body.string() }
+        val mediaPlaylist = masterPlaylist.lineSequence()
+            .map(String::trim)
+            .first { it.isNotEmpty() && !it.startsWith("#") }
+        val mediaPlaylistUrl = transcodingUrl.toHttpUrl().resolve(mediaPlaylist)!!.toString()
+
+        return video.copy(
+            videoUrl = HlsDashServer.register(client, videoHeaders, mediaPlaylistUrl, null),
+        )
     }
 
     override fun List<Video>.sortVideos(): List<Video> = sortedWith(
@@ -748,10 +787,7 @@ class Jellyfin(private val suffix: String) :
     private suspend fun authenticate(username: String, password: String): LoginDto {
         val authHeaders = Headers.headersOf("Authorization", getAuthHeader(deviceInfo))
 
-        val body = buildJsonObject {
-            put("Username", username)
-            put("Pw", password)
-        }.toJsonRequestBody(json)
+        val body = LoginRequestDto(username, password).toJsonRequestBody(json)
 
         return try {
             val resp = client.post(
@@ -768,6 +804,12 @@ class Jellyfin(private val suffix: String) :
     }
 
     // ============================= Utilities ==============================
+
+    // Anime and episode urls point to the API, so open the item's page in the web client instead
+    private fun getWebUrl(apiUrl: String): String {
+        val itemId = apiUrl.toHttpUrl().pathSegments.last()
+        return "$baseUrl/web/#/details?id=$itemId"
+    }
 
     private fun getItemsUrl(startIndex: Int): HttpUrl = baseUrl.toHttpUrl().newBuilder().apply {
         addPathSegment("Users")
@@ -953,14 +995,13 @@ class Jellyfin(private val suffix: String) :
                 mediaLibraryPref.entries = libraryList.map { it.name }.toTypedArray()
                 mediaLibraryPref.entryValues = libraryList.map { it.id }.toTypedArray()
 
-                // Only enable the preference if login succeeded
                 mediaLibraryPref.setEnabled(true)
             } else {
                 clearCredentials()
             }
         }
 
-        fun logIn() {
+        fun logIn(username: String = preferences.username, password: String = preferences.password) {
             mediaLibraryPref.setEnabled(false)
             mediaLibraryPref.summary = "Loading..."
             clearCredentials()
@@ -968,7 +1009,7 @@ class Jellyfin(private val suffix: String) :
             loginJob?.cancel()
             loginJob = scope.launch {
                 try {
-                    val loginDto = authenticate(preferences.username, preferences.password)
+                    val loginDto = authenticate(username, password)
 
                     preferences.userId = loginDto.sessionInfo.userId
                     preferences.apiKey = loginDto.accessToken
@@ -1044,7 +1085,7 @@ class Jellyfin(private val suffix: String) :
             if (it.isBlank()) {
                 onCompleteLogin(false)
             } else {
-                if (preferences.username.isNotBlank() && preferences.password.isNotBlank()) {
+                if (preferences.username.isNotBlank()) {
                     logIn()
                 }
             }
@@ -1061,8 +1102,8 @@ class Jellyfin(private val suffix: String) :
             if (it.isBlank()) {
                 onCompleteLogin(false)
             } else {
-                if (baseUrl.isNotBlank() && preferences.password.isNotBlank()) {
-                    logIn()
+                if (baseUrl.isNotBlank()) {
+                    logIn(username = it)
                 }
             }
         }
@@ -1078,12 +1119,9 @@ class Jellyfin(private val suffix: String) :
             getSummary = passwordSummary,
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD,
         ) {
-            if (it.isBlank()) {
-                onCompleteLogin(false)
-            } else {
-                if (baseUrl.isNotBlank() && preferences.username.isNotBlank()) {
-                    logIn()
-                }
+            // Jellyfin accounts can have an empty password
+            if (baseUrl.isNotBlank() && preferences.username.isNotBlank()) {
+                logIn(password = it)
             }
         }
 

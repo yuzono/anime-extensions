@@ -22,18 +22,13 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import keiyoushi.network.get
 import keiyoushi.network.post
-import keiyoushi.utils.appendGraphQLParams
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.graphQLBody
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.toJsonElement
 import keiyoushi.utils.toJsonString
 import kotlinx.coroutines.delay
-import okhttp3.CacheControl
-import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.RequestBody
@@ -117,8 +112,15 @@ class MKissa :
     // A throttled or failed query comes back as `{"errors": [...], "data": {"show": null}}`; surface
     // the server's message instead of a JSON decoding error or silently missing fields.
     private inline fun <reified T> String.parseResult(): T {
-        keyManager.apiErrorMessage(this)?.let { throw Exception(it) }
+        apiErrorMessage()?.let { throw Exception(it) }
         return parseAs<T>()
+    }
+
+    private fun String.apiErrorMessage(): String? {
+        val message = runCatching { parseAs<ApiError>().errors }.getOrNull()
+            ?.firstNotNullOfOrNull { it.message }
+            ?: return null
+        return "MKissa: $message"
     }
 
     // ============================== Popular ===============================
@@ -253,29 +255,29 @@ class MKissa :
 
     // ============================== Hosters ===============================
 
-    private val keyManager by lazy {
-        MKissaKeyManager(client, headers, preferences, preferences.siteUrl, apiUrl)
+    private val streamResolver by lazy {
+        StreamResolver(preferences.siteUrl, apiUrl.toHttpUrl().host, headers["User-Agent"])
     }
 
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val hosterSelection = preferences.getHosters
         val altHosterSelection = preferences.getAltHosters
 
-        val servers = fetchSourceUrls(episode).mapNotNull { source ->
+        val servers = streamResolver.sourceUrls(episode.url.parseAs<EpisodeVariables>().variables).mapNotNull { source ->
             val videoUrl = source.sourceUrl.decryptSource()
             val sourceName = source.sourceName.lowercase()
 
-            val internalName = if (videoUrl.startsWith("/apivtwo/")) {
-                INTERNAL_HOSTER_MATCHERS
-                    .filter { (name, pattern) -> name in hosterSelection && pattern.containsMatchIn(sourceName) }
-                    .maxByOrNull { (name, _) -> name.length }
-                    ?.first
-            } else {
-                null
-            }
+            val hosterName = HOSTER_MATCHERS
+                .filter { (_, pattern) -> pattern.containsMatchIn(sourceName) }
+                .maxByOrNull { (name, _) -> name.length }
+                ?.first
+
+            // Check the named host before falling back to a generic player or URL extractor.
+            if (hosterName != null && hosterName !in hosterSelection) return@mapNotNull null
 
             val data = when {
-                internalName != null -> HosterData(videoUrl, EXTRACTOR_INTERNAL, internalName, source.priority)
+                hosterName != null && videoUrl.startsWith("/apivtwo/") ->
+                    HosterData(videoUrl, EXTRACTOR_INTERNAL, hosterName, source.priority)
 
                 "player" in altHosterSelection && source.type == "player" ->
                     HosterData(videoUrl, EXTRACTOR_PLAYER, "player", source.priority)
@@ -314,86 +316,6 @@ class MKissa :
             )
             .map { (hoster, _) -> hoster }
     }
-
-    private suspend fun fetchSourceUrls(episode: SEpisode): List<Episode.SourceUrl> {
-        val encryptionChangedError = Exception("MKissa changed its stream encryption; update the extension")
-        // Kept non-null with a single final `throw`: an elvis fallback here compiled to an athrow of a
-        // register R8 had reused for an Object, which the repo inspector's JVM verifier rejects.
-        var lastError: Throwable = encryptionChangedError
-        var buildHealed = false
-
-        repeat(MAX_KEY_ATTEMPTS) { attempt ->
-            val material = runCatching { keyManager.material(forceRefresh = attempt > 0) }
-                .getOrElse {
-                    lastError = it
-                    return@repeat
-                }
-
-            val responseBody = runCatching {
-                retryRateLimited {
-                    client.get(streamUrl(episode, material), streamHeaders(material), CacheControl.FORCE_NETWORK).bodyString()
-                }
-            }.getOrElse {
-                lastError = it
-                null
-            }
-
-            if (responseBody != null) {
-                val tobeparsed = runCatching {
-                    responseBody.parseAs<EncryptedEpisodeResult>().data.tobeparsed
-                }.getOrNull()
-
-                if (tobeparsed.isNullOrBlank()) {
-                    keyManager.apiErrorMessage(responseBody)?.let { throw Exception(it) }
-                }
-
-                when {
-                    !tobeparsed.isNullOrBlank() -> {
-                        runCatching { keyManager.decrypt(tobeparsed, material)?.parseAs<DecryptedEpisodeResult>() }
-                            .getOrNull()
-                            ?.let { return it.episode?.sourceUrls.orEmpty() }
-                    }
-
-                    !keyManager.isCryptoError(responseBody) -> {
-                        runCatching { responseBody.parseAs<EpisodeResult>().data.episode?.sourceUrls.orEmpty() }
-                            .getOrNull()
-                            ?.let { return it }
-                    }
-                }
-
-                lastError = encryptionChangedError
-
-                if (attempt >= 1 && !buildHealed && keyManager.isCryptoError(responseBody)) {
-                    keyManager.invalidateBuild()
-                    buildHealed = true
-                }
-            }
-            keyManager.invalidate()
-        }
-
-        throw lastError
-    }
-
-    private fun streamUrl(episode: SEpisode, material: MKissaKeyManager.Material): HttpUrl {
-        val extensions = StreamExtensions(
-            persistedQuery = StreamExtensions.PersistedQuery(version = 1, sha256Hash = STREAM_HASH),
-            k = ANIME_LANE,
-            aaReq = keyManager.aaReq(material),
-        )
-
-        return apiUrl.toHttpUrl().newBuilder()
-            .addPathSegment("api")
-            .appendGraphQLParams(
-                query = STREAM_QUERY,
-                variables = episode.url.parseAs<EpisodeVariables>().variables,
-                extensions = extensions.toJsonElement(),
-            )
-            .build()
-    }
-
-    private fun streamHeaders(material: MKissaKeyManager.Material) = headers.newBuilder()
-        .set("x-build-id", material.buildId)
-        .build()
 
     // =============================== Videos ===============================
 
@@ -526,7 +448,8 @@ class MKissa :
             "Si-Hls", "S-mp4", "Ac-Hls", "Uv-mp4", "Pn-Hls",
         )
 
-        private val INTERNAL_HOSTER_MATCHERS = INTERAL_HOSTER_NAMES.map {
+        private val HOSTER_NAMES = INTERAL_HOSTER_NAMES + "Fm-Hls"
+        private val HOSTER_MATCHERS = HOSTER_NAMES.map {
             it.lowercase() to Regex("""\b${Regex.escape(it.lowercase())}\b""")
         }
 
@@ -581,7 +504,6 @@ class MKissa :
 
         private const val PREF_HOSTER_KEY = "hoster_selection"
 
-        private val HOSTER_NAMES = INTERAL_HOSTER_NAMES + "Fm-Hls"
         private val PREF_HOSTER_ENTRY_VALUES = HOSTER_NAMES.map {
             it.lowercase()
         }.toTypedArray()
@@ -612,8 +534,6 @@ class MKissa :
 
         private const val PREF_SUB_KEY = "preferred_sub"
         private const val PREF_SUB_DEFAULT = "sub"
-
-        private const val MAX_KEY_ATTEMPTS = 3
 
         private const val MAX_RATE_LIMIT_RETRIES = 3
         private const val MAX_RATE_LIMIT_WAIT_SECONDS = 10L

@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.hanime
 
+import keiyoushi.utils.toHex
 import java.security.MessageDigest
 
 /**
@@ -68,7 +69,7 @@ open class NativeSignatureProvider : SignatureProvider {
         val input = "$timestamp,$SALT_1,$ORIGIN,$SALT_2,$timestamp"
         val digest = MessageDigest.getInstance("SHA-256")
         val hashBytes = digest.digest(input.toByteArray(Charsets.UTF_8))
-        val hex = hashBytes.joinToString("") { "%02x".format(it) }
+        val hex = hashBytes.toHex()
         return Signature(signature = hex, time = timestamp.toString())
     }
 

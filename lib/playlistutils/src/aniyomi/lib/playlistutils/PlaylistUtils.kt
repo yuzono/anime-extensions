@@ -16,7 +16,12 @@ import okhttp3.OkHttpClient
 import java.io.File
 import kotlin.math.abs
 
-class PlaylistUtils(private val client: OkHttpClient, private val headers: Headers = commonEmptyHeaders) {
+class PlaylistUtils(
+    private val client: OkHttpClient,
+    // Keep the compatibility helper for apps using older OkHttp versions.
+    @Suppress("DEPRECATION")
+    private val headers: Headers = commonEmptyHeaders,
+) {
 
     // ================================ M3U8 ================================
 
@@ -77,6 +82,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
      * @param audioList a list of audio tracks associated with the HLS playlist, will append to audio tracks present in the m3u8 playlist (default: empty list)
      * @return a list of Video objects
      */
+    @Suppress("DEPRECATION") // Retain the legacy Video ABI for extensions targeting lib 14.
     fun extractFromHls(
         playlistUrl: String,
         referer: String = playlistUrl.toDefaultReferer(),
@@ -296,7 +302,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
      * @param audioList a list of audio tracks associated with the DASH file, will append to audio tracks present in the dash file (default: empty list)
      * @return a list of Video objects
      */
-    @Suppress("MemberVisibilityCanBePrivate")
+    @Suppress("MemberVisibilityCanBePrivate", "DEPRECATION") // Retain the legacy Video ABI for extensions targeting lib 14.
     fun extractFromDash(
         mpdUrl: String,
         videoNameGen: (String, String) -> String,

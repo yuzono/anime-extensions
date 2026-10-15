@@ -98,81 +98,23 @@ class SeriesResult(
 }
 
 @Serializable
-class EpisodeResult(
-    val data: DataEpisode,
-) {
-    @Serializable
-    class DataEpisode(
-        val episode: Episode? = null,
-    )
-}
-
-@Serializable
-class Episode(
-    val sourceUrls: List<SourceUrl>,
-) {
-    @Serializable
-    class SourceUrl(
-        val sourceUrl: String,
-        val type: String,
-        val sourceName: String,
-        val priority: Float = 0F,
-    )
-}
-
-@Serializable
-class EncryptedEpisodeResult(
-    val data: EncryptedData,
-) {
-    @Serializable
-    class EncryptedData(
-        val tobeparsed: String? = null,
-    )
-}
-
-@Serializable
-class DecryptedEpisodeResult(
-    val episode: Episode? = null,
+class SourceUrl(
+    val sourceUrl: String,
+    val type: String,
+    val sourceName: String,
+    val priority: Float = 0F,
 )
 
-// GraphQL error envelope. The streams API returns `AA_CRYPTO_*` codes (e.g.
-// AA_CRYPTO_STALE when the epoch has rotated) instead of an encrypted payload.
+// GraphQL error envelope; a throttled or failed query carries its reason here.
 @Serializable
-class AaApiError(
+class ApiError(
     val errors: List<GraphQlError>? = null,
 ) {
     @Serializable
     class GraphQlError(
         val message: String? = null,
-        val extensions: Extensions? = null,
-    ) {
-        @Serializable
-        class Extensions(
-            val code: String? = null,
-        )
-    }
+    )
 }
-
-// Response of `/client-crypto/v1/bootstrap`. `k` echoes back the content lane the partB is
-// scoped to; a mismatch means the server answered for a different lane than we asked for.
-// `switchAt` is the epoch boundary the server rotates keys at; material must be refreshed then.
-@Serializable
-class AaCryptoBootstrap(
-    val epoch: Long,
-    val partB: String,
-    val k: String? = null,
-    val switchAt: Long? = null,
-)
-
-@Serializable
-class AaReqPayload(
-    private val v: Int,
-    private val ts: Long,
-    private val epoch: Long,
-    private val buildId: String,
-    private val qh: String,
-    private val k: String,
-)
 
 // Stored as `SEpisode.url`, so the shape must stay stable for existing library entries.
 @Serializable
@@ -223,19 +165,6 @@ class SearchInput(
 class ShowIdVariables(
     @SerialName("_id") private val id: String,
 )
-
-@Serializable
-class StreamExtensions(
-    private val persistedQuery: PersistedQuery,
-    private val k: String,
-    private val aaReq: String,
-) {
-    @Serializable
-    class PersistedQuery(
-        private val version: Int,
-        private val sha256Hash: String,
-    )
-}
 
 // ============================== Hosters ===============================
 

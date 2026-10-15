@@ -21,6 +21,7 @@ import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parallelMapNotNullBlocking
+import keiyoushi.utils.toHex
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -443,7 +444,7 @@ class Serienstream :
         }
         for (i in 0..maxnumber) {
             val hash = md.digest((salt + i.toString()).toByteArray())
-            val hex = hash.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+            val hex = hash.toHex()
             if (hex == challenge) return i
             md.reset()
         }

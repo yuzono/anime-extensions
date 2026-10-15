@@ -25,6 +25,7 @@ import keiyoushi.utils.commonEmptyRequestBody
 import keiyoushi.utils.formatBytes
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toHex
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -510,7 +511,7 @@ class GoogleDrive :
         val sapisidhash = MessageDigest
             .getInstance("SHA-1")
             .digest("$timeNow $SAPISID $origin".toByteArray())
-            .joinToString("") { "%02x".format(it) }
+            .toHex()
         return "SAPISIDHASH ${timeNow}_$sapisidhash"
     }
 

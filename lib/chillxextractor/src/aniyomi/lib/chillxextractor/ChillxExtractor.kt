@@ -3,6 +3,7 @@ package aniyomi.lib.chillxextractor
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
+import keiyoushi.utils.unescapeUnicode
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 
@@ -28,7 +29,7 @@ class ChillxExtractor(private val client: OkHttpClient, private val headers: Hea
         val subtitleList = buildList {
             val subtitles = REGEX_SUBS.findAll(data)
             subtitles.forEach {
-                add(Track(it.groupValues[1], decodeUnicodeEscape(it.groupValues[2])))
+                add(Track(it.groupValues[1], it.groupValues[2].unescapeUnicode()))
             }
         }
 
@@ -43,13 +44,6 @@ class ChillxExtractor(private val client: OkHttpClient, private val headers: Hea
             it.copy(
                 subtitleTracks = playlistUtils.fixSubtitles(it.subtitleTracks),
             )
-        }
-    }
-
-    private fun decodeUnicodeEscape(input: String): String {
-        val regex = Regex("u([0-9a-fA-F]{4})")
-        return regex.replace(input) {
-            it.groupValues[1].toInt(16).toChar().toString()
         }
     }
 }

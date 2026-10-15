@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.lib.jsunpacker.JsUnpacker
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
+import keiyoushi.utils.chunkedPairs
 import keiyoushi.utils.parallelFlatMapBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -232,15 +233,9 @@ class NimeGami : ParsedAnimeHttpLegacySource() {
             .body.string()
             .let(Synchrony::deobfuscateScript)
             ?.let(urlPartRegex::findAll)
-            ?.map { it.groupValues.drop(1) }
-            ?.flatten()
-            ?.chunked(2)
-            ?.mapNotNull { videoPair ->
-                runCatching {
-                    val (part, videoUrl) = videoPair
-                    Video(videoUrl, "$quality - $part", videoUrl, headers)
-                }.getOrNull()
-            }
+            ?.map { it.groupValues[1] }
+            ?.chunkedPairs()
+            ?.map { (part, videoUrl) -> Video(videoUrl, "$quality - $part", videoUrl, headers) }
             ?.toList()
             ?: emptyList()
     }

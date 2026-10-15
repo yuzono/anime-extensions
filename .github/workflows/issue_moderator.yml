@@ -59,7 +59,7 @@ jobs:
                 "regex": "\\b(crunchyroll\\.com)\\b",
                 "ignoreCase": true,
                 "labels": ["invalid"],
-                "message": "{match} will not be added back as it is too difficult to maintain.\nThis was also mentioned in #14260, which is pinned on the Issues page. Search the existing requests first & don't acknowledge that you searched when you clearly didn't."
+                "message": "{match} will not be added back as it is too difficult to maintain.\nSearch the existing requests first & don't acknowledge that you searched when you clearly didn't."
               }
             ]
           auto-close-ignore-label: do-not-autoclose

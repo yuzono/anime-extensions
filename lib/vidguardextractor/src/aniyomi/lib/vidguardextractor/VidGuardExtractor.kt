@@ -5,6 +5,7 @@ import android.util.Log
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.decodeHex
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
@@ -37,8 +38,8 @@ class VidGuardExtractor(private val client: OkHttpClient) {
 
     private fun sigDecode(url: String): String {
         val sig = url.split("sig=")[1].split("&")[0]
-        val t = sig.chunked(2)
-            .joinToString("") { (Integer.parseInt(it, 16) xor 2).toChar().toString() }
+        val t = sig.decodeHex()
+            .joinToString("") { ((it.toInt() and 0xFF) xor 2).toChar().toString() }
             .let {
                 val padding = when (it.length % 4) {
                     2 -> "=="

@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.es.veranime
 
 import eu.kanade.tachiyomi.animesource.model.Video
 import keiyoushi.utils.decodeHex
+import keiyoushi.utils.unescapeUnicode
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -43,10 +44,7 @@ class UnsBioExtractor(private val client: OkHttpClient, private val headers: Hea
             val strRegex = """"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|`((?:[^`\\]|\\.)*)`""".toRegex()
             val strings = strRegex.findAll(arrContent).map { match ->
                 val raw = match.groupValues.firstOrNull { it.isNotEmpty() }?.drop(1)?.dropLast(1) ?: ""
-                // Simple unicode unescape
-                raw.replace("""\\u([0-9a-fA-F]{4})""".toRegex()) {
-                    it.groupValues[1].toInt(16).toChar().toString()
-                }
+                raw.unescapeUnicode()
             }.toList()
 
             if (strings.size < 500) return emptyList()

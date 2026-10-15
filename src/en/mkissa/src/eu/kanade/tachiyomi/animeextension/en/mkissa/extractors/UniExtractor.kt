@@ -40,23 +40,34 @@ class UniExtractor(private val client: OkHttpClient, private val headers: Header
         val payload = client.get(apiUrl, playerHeaders).bodyString().trim()
         val streams = decrypt(payload).parseAs<UniStreams>()
 
+        // `cf` is a `.txt` master that only the player's own loader can sign; fetched directly it
+        // answers 403. `cfNative` is the same stream with the token already in its URLs.
         return listOf(
             "Tiktok" to streams.hlsVideoTiktok,
             "Google" to streams.hlsVideoGoogle,
-            "Cloudflare" to (streams.cf ?: streams.cfNative),
+            "Cloudflare" to streams.cfNative,
             "In-House" to streams.source,
         ).parallelCatchingFlatMap { (network, path) ->
             val playlistUrl = path?.takeIf(String::isNotBlank)?.let { resolve(origin, it) }
                 ?: return@parallelCatchingFlatMap emptyList()
-            playlistUtils.extractFromHls(
+            val videos = playlistUtils.extractFromHls(
                 playlistUrl,
                 referer = "$origin/",
                 masterHeaders = playerHeaders,
                 videoHeaders = playerHeaders,
                 videoNameGen = { quality -> "Uni $network - $quality" },
             )
+            if (network == "Tiktok") videos.map(::forceMpegTs) else videos
         }
     }
+
+    // Segments from the TikTok network only play with the container forced to MPEG-TS.
+    private fun forceMpegTs(video: Video): Video = video.copy(
+        mpvArgs = video.mpvArgs.filterNot { it.first == "demuxer-lavf-o" } +
+            ("demuxer-lavf-o" to "force_mpegts=1"),
+        ffmpegStreamArgs = video.ffmpegStreamArgs.filterNot { it.first == "force_mpegts" } +
+            ("force_mpegts" to "1"),
+    )
 
     private fun resolve(origin: String, path: String): String = when {
         path.startsWith("//") -> "https:$path"
@@ -74,7 +85,6 @@ class UniExtractor(private val client: OkHttpClient, private val headers: Header
     class UniStreams(
         val hlsVideoTiktok: String? = null,
         val hlsVideoGoogle: String? = null,
-        val cf: String? = null,
         val cfNative: String? = null,
         val source: String? = null,
     )

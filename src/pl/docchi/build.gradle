@@ -1,7 +1,7 @@
 ext {
     extName = 'Docchi'
     extClass = '.Docchi'
-    extVersionCode = 16
+    extVersionCode = 17
     libVersion = 16
     isNsfw = true
 }

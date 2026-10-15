@@ -19,6 +19,7 @@ import keiyoushi.network.rateLimit
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toHex
 import keiyoushi.utils.toJsonString
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
@@ -334,7 +335,7 @@ class FunAnimeTV :
     fun md5(input: String): String {
         val md = MessageDigest.getInstance("MD5")
         val digest = md.digest(input.toByteArray(Charsets.UTF_8))
-        return digest.joinToString(separator = "") { "%02x".format(it) }
+        return digest.toHex()
     }
 
     private fun createRequestJson(

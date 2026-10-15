@@ -20,6 +20,7 @@ import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.post
+import keiyoushi.utils.unescapeUnicode
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -456,13 +457,8 @@ class Rezka :
     // ("subtitle":false, "subtitle_lns":false), so those are read as raw JSON.
     private fun JsonElement?.stringOrNull(): String? = (this as? JsonPrimitive)?.takeIf { it.isString }?.content
 
-    private fun String.unescapeJsString(): String {
-        // \uXXXX escapes first, then any leftover backslashes (e.g. escaped "\/").
-        val unescaped = JSON_UNICODE_ESCAPE_REGEX.replace(this) { match ->
-            match.groupValues[1].toInt(16).toChar().toString()
-        }
-        return unescaped.replace("\\", "")
-    }
+    // \uXXXX escapes first, then any leftover backslashes (e.g. escaped "\/").
+    private fun String.unescapeJsString(): String = unescapeUnicode().replace("\\", "")
 
     // Parse "[360p]url or url2,[480p]url,..." into Video objects.
     // A comma only separates entries when it is followed by "[" — labels and URLs
@@ -686,7 +682,6 @@ class Rezka :
         private val STREAM_ENTRY_REGEX = Regex("""^\[([^\]]+)\](.+)$""", RegexOption.DOT_MATCHES_ALL)
         private val HTML_TAG_REGEX = Regex("""<[^>]+>""")
         private val WHITESPACE_REGEX = Regex("""\s+""")
-        private val JSON_UNICODE_ESCAPE_REGEX = Regex("""\\u([0-9a-fA-F]{4})""")
         private const val PREF_DOMAIN_KEY = "pref_domain_v2"
         private const val PREF_DOMAIN_DEFAULT = "https://hdrezka.me"
         private const val PREF_CUSTOM_DOMAIN_KEY = "pref_custom_domain"

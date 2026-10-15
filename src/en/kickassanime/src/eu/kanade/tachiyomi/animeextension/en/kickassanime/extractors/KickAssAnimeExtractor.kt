@@ -9,6 +9,7 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.lib.cryptoaes.CryptoAES
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.decodeHex
+import keiyoushi.utils.toHex
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -254,7 +255,7 @@ class KickAssAnimeExtractor(
     private fun sha1sum(value: String): String = try {
         val md = MessageDigest.getInstance("SHA-1")
         val bytes = md.digest(value.toByteArray())
-        bytes.joinToString("") { "%02x".format(it) }
+        bytes.toHex()
     } catch (_: Exception) {
         throw Exception("Attempt to create the signature failed.")
     }
