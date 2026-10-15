@@ -29,12 +29,9 @@ Extensions have none – they are verified by compiling and running against the 
 (`CONTRIBUTING.md#submitting-the-changes` ~ `1369`).
 
 ```bash
+./gradlew --continue :core:testDebugUnitTest :lib:unpacker:testDebugUnitTest :lib:megaextractor:testDebugUnitTest
 ./gradlew :core:testDebugUnitTest --tests 'keiyoushi.utils.UrlUtilsTest'
 ```
-
-Known-broken: `:core:compileDebugUnitTestKotlin` fails – the tests import `kotlin.test.*` but
-`core/build.gradle.kts` only declares `testImplementation(libs.junit)`. Adding a `kotlin-test`
-dependency fixes it; until then the test task cannot run.
 
 ### Loading a subset of modules
 

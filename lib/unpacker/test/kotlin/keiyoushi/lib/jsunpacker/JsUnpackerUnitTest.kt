@@ -1,8 +1,8 @@
 package keiyoushi.lib.jsunpacker
 
-import kotlin.test.Test
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import org.junit.Test
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 
 /**
  * Taken from https://github.com/DatL4g/JsUnpacker/blob/master/src/commonTest/kotlin/dev/datlag/jsunpacker/UnpackUnitTest.kt
@@ -11,28 +11,28 @@ class JsUnpackerUnitTest {
 
     @Test
     fun callIsNotPacked() {
-        assertFalse(JsUnpacker.detect(NOT_PACKED_CALL), "JsUnpacker detected not packed call as packed")
+        assertFalse("JsUnpacker detected not packed call as packed", JsUnpacker.detect(NOT_PACKED_CALL))
     }
 
     @Test
     fun functionIsNotPacked() {
-        assertFalse(JsUnpacker.detect(NOT_PACKED_FUNCTION), "JsUnpacker detected not packed function as packed")
+        assertFalse("JsUnpacker detected not packed function as packed", JsUnpacker.detect(NOT_PACKED_FUNCTION))
     }
 
     @Test
     fun callIsPacked() {
-        assertTrue(JsUnpacker.detect(PACKED_CALL), "JsUnpacker did not detect packed call as packed")
+        assertTrue("JsUnpacker did not detect packed call as packed", JsUnpacker.detect(PACKED_CALL))
     }
 
     @Test
     fun functionIsPacked() {
-        assertTrue(JsUnpacker.detect(PACKED_FUNCTION), "JsUnpacker did not detect packed function as packed")
+        assertTrue("JsUnpacker did not detect packed function as packed", JsUnpacker.detect(PACKED_FUNCTION))
     }
 
     @Test
     fun callUnpackedCorrectly() {
         val unpacked = JsUnpacker.unpackAndCombine(PACKED_CALL)
-        assertTrue(callUnpackCheck(unpacked), "JsUnpacker did not unpack call correctly")
+        assertTrue("JsUnpacker did not unpack call correctly", callUnpackCheck(unpacked))
     }
 
     private fun callUnpackCheck(unpacked: String?): Boolean = unpacked == UNPACKED_CALL || unpacked == UNPACKED_CALL_ALLOWED
@@ -40,7 +40,7 @@ class JsUnpackerUnitTest {
     @Test
     fun functionUnpackedCorrectly() {
         val unpacked = JsUnpacker.unpackAndCombine(PACKED_FUNCTION)
-        assertTrue(functionUnpackCheck(unpacked), "JsUnpacker did not unpack function correctly")
+        assertTrue("JsUnpacker did not unpack function correctly", functionUnpackCheck(unpacked))
     }
 
     private fun functionUnpackCheck(unpacked: String?): Boolean = unpacked == UNPACKED_FUNCTION || unpacked == UNPACKED_FUNCTION_ALLOWED
@@ -48,7 +48,7 @@ class JsUnpackerUnitTest {
     @Test
     fun unpackMultipleCorrectly() {
         val (unpackedCall, unpackedFunction) = JsUnpacker.unpack(PACKED_CALL, PACKED_FUNCTION)
-        assertTrue(callUnpackCheck(unpackedCall) && functionUnpackCheck(unpackedFunction), "JsUnpacker did not unpack call and function together correctly")
+        assertTrue("JsUnpacker did not unpack call and function together correctly", callUnpackCheck(unpackedCall) && functionUnpackCheck(unpackedFunction))
     }
 
     companion object {
