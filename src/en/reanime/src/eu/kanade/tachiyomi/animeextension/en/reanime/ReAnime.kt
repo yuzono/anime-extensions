@@ -843,8 +843,10 @@ class ReAnime :
             }
 
             val subtitleTracks = embedDataDto.subtitles
-                ?.map { Track(it.url, it.language ?: "Unknown") }
-                ?: emptyList()
+                ?.mapNotNull { sub ->
+                    if (!sub.url.startsWith("https://")) return@mapNotNull null
+                    Track(sub.url, sub.language ?: "Unknown")
+                } ?: emptyList()
 
             val skipTimes = embedDataDto.toSkipTimes()
 
@@ -937,8 +939,8 @@ class ReAnime :
             val videos = playlistUtils.extractFromHls(
                 playlistUrl = localManifestUrl,
                 referer = flixCloudUrl,
-                masterHeaders = headers,
-                videoHeaders = headers,
+                masterHeaders = flixHeaders,
+                videoHeaders = flixHeaders,
                 videoNameGen = { quality -> quality },
                 subtitleList = subtitleTracks,
             ).map { video ->
