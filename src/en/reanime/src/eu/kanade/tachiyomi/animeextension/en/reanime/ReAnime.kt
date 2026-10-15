@@ -926,9 +926,6 @@ class ReAnime :
             // Cache skip times for this episode (keyed by the local proxy URL)
             skipTimesCache.put(localManifestUrl, skipTimes)
 
-            // Subtitles need to be routed through proxy server so that servers like HD-2 load its subtitles
-            val proxiedSubtitles = subtitleTracks.map { Track(server.createSubtitleProxyUrl(it.url), it.lang) }
-
             // Step 6: Pass to PlaylistUtils
             // Build TimeStamps for Aniyomi's skip button
             val skipTimeStamps = buildList {
@@ -950,7 +947,7 @@ class ReAnime :
                 masterHeaders = headers,
                 videoHeaders = headers,
                 videoNameGen = { quality -> quality },
-                subtitleList = proxiedSubtitles,
+                subtitleList = subtitleTracks,
             ).map { video ->
                 if (skipTimeStamps.isNotEmpty()) video.copy(timestamps = skipTimeStamps) else video
             }
