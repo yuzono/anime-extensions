@@ -66,12 +66,15 @@ fun anilistLatestQuery() = """
             pageInfo {
                 currentPage
                 hasNextPage
+                total
             }
             airingSchedules(
-                airingAt_greater: 0,
-                airingAt_lesser: ${System.currentTimeMillis() / 1000 - 10000},
+                airingAt_greater: 0
+                airingAt_lesser: ${System.currentTimeMillis() / 1000 - 10000}
                 sort: %sort
             ) {
+                episode
+                airingAt
                 media {
                     id
                     title {
@@ -100,41 +103,4 @@ fun anilistLatestQuery() = """
             }
         }
     }
-""".toQuery()
-
-fun getDetailsQuery() = """
-query media(%id: Int) {
-  Media(id: %id, isAdult: false) {
-    id
-    title {
-        romaji
-        english
-        native
-    }
-    coverImage {
-        extraLarge
-        large
-        medium
-    }
-    description
-    season
-    seasonYear
-    format
-    status
-    genres
-    episodes
-    format
-    countryOfOrigin
-    isAdult
-    tags{
-        name
-    }
-    studios {
-        nodes {
-          id
-          name
-        }
-    }
-  }
-}
 """.toQuery()
