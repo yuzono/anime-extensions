@@ -278,10 +278,17 @@ class Torrentio :
 
         if (kitsuId.isBlank()) return emptyList()
 
+        val currentTime = System.currentTimeMillis()
+        val futureTolerance = currentTime + (7L * 24 * 60 * 60 * 1000)
+
         if (isMovie) {
             val video = meta.videos?.firstOrNull()
-            if (video?.available == false) return emptyList()
             val dateUpload = parseDate(video?.released ?: meta.released) ?: return emptyList()
+
+            if (dateUpload > futureTolerance) return emptyList()
+
+            val isFuture = dateUpload > currentTime
+            if (!isFuture && video?.available == false) return emptyList()
 
             return listOf(
                 SEpisode.create().apply {
@@ -296,7 +303,17 @@ class Torrentio :
         }
 
         return meta.videos.orEmpty()
-            .filter { it.episode != null && it.available != false }
+            .filter { video ->
+                val epNum = video.episode ?: return@filter false
+                val dateUpload = parseDate(video.released) ?: return@filter false
+
+                if (dateUpload > futureTolerance) return@filter false
+
+                val isFuture = dateUpload > currentTime
+                if (!isFuture && video.available == false) return@filter false
+
+                true
+            }
             .sortedByDescending { it.episode }
             .mapNotNull { video ->
                 val epNum = video.episode ?: return@mapNotNull null

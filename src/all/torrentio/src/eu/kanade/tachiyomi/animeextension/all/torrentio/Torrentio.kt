@@ -87,8 +87,14 @@ class Torrentio :
         val movieResults = movieDeferred.await()
         val seriesResults = seriesDeferred.await()
 
-        val combined = (movieResults + seriesResults).distinctBy { it.id }
-        AnimesPage(combined.map { it.toSAnime() }, false)
+        val combined = mutableListOf<CinemetaMeta>()
+        val maxsize = maxOf(movieResults.size, seriesResults.size)
+        for (i in 0 until maxsize) {
+            if (i < movieResults.size) combined.add(movieResults[i])
+            if (i < seriesResults.size) combined.add(seriesResults[i])
+        }
+
+        AnimesPage(combined.distinctBy { it.id }.map { it.toSAnime() }, false)
     }
 
     // =============================== Latest / Trending =====================
