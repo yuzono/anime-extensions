@@ -42,6 +42,20 @@ class UrlUtilsTest {
     }
 
     @Test
+    fun `fixUrl two parameters with missing protocol prefix removes redundant prefix`() {
+        val url = "http://example.comhttps://example.com/path"
+        assertEquals("https://example.com/path", UrlUtils.fixUrl(url, "https://example.com/"))
+    }
+
+    @Test
+    fun `fixUrl keeps a URL embedded in the path or query`() {
+        val inQuery = "https://example.com/redirect?url=https://other.com/path"
+        val inPath = "https://web.archive.org/web/2020/https://example.com/path"
+        assertEquals(inQuery, UrlUtils.fixUrl(inQuery))
+        assertEquals(inPath, UrlUtils.fixUrl(inPath))
+    }
+
+    @Test
     fun `fixUrl strips non-url prefix before first http URL`() {
         val url = "prefix text https://example.com/path"
         assertEquals("https://example.com/path", UrlUtils.fixUrl(url))
