@@ -4,6 +4,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import keiyoushi.lib.i18n.Intl
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.math.roundToInt
 
 @Suppress("PropertyName")
@@ -209,4 +210,13 @@ data class SingleShowResponse(
             )
         }
     }
+}
+
+@Serializable
+class StreamServer(
+    val url: String,
+    private val active: JsonPrimitive? = null,
+) {
+    // `active` is not always a keyword - live pages emit the number 1 for the selected mirror.
+    val isActive get() = active?.content == "true" || active?.content == "1"
 }
