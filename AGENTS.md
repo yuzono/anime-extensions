@@ -24,9 +24,9 @@ Module paths are colon-separated and mirror the directory layout: `:src:en:mirur
 
 ### Tests
 
-`core/src/test/kotlin/keiyoushi/utils/` holds the repo's only unit tests (`NextJsTest`, `UrlUtilsTest`).
-Extensions have none – they are verified by compiling and running against the live site
-(`CONTRIBUTING.md#submitting-the-changes` ~ `1369`).
+The repo's only unit tests are in `core/src/test/kotlin/keiyoushi/utils/`, `lib/unpacker/test/kotlin/`
+and `lib/megaextractor/test/`. Extensions have none – they are verified by compiling and running
+against the live site (`CONTRIBUTING.md#submitting-the-changes` ~ `1369`).
 
 ```bash
 ./gradlew --continue :core:testDebugUnitTest :lib:unpacker:testDebugUnitTest :lib:megaextractor:testDebugUnitTest
