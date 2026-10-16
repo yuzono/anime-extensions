@@ -6,16 +6,19 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import keiyoushi.network.get
 import keiyoushi.utils.Source
 import keiyoushi.utils.addListPreference
-import keiyoushi.utils.bodyString
 import keiyoushi.utils.delegate
-import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parallelFlatMap
 import keiyoushi.utils.parseAs
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import kotlin.math.ceil
 
@@ -95,6 +98,7 @@ class UniqueStream : Source() {
                 details.seasons == null -> SAnime.COMPLETED // movies
                 else -> SAnime.UNKNOWN // details API exposes no airing status
             }
+            initialized = true
         }
     }
 
@@ -121,7 +125,7 @@ class UniqueStream : Source() {
                 (1..ceil(season.episodeCount / PAGE_SIZE.toDouble()).toInt()).map { season to it }
             }
 
-        return seasonPages.parallelCatchingFlatMap { (season, page) ->
+        return seasonPages.parallelFlatMap { (season, page) ->
             client.get("$apiUrl/season/${season.contentId}/episodes?page=$page&limit=$PAGE_SIZE")
                 .parseAs<List<EpisodeDto>>()
                 .map { it.toEpisode(season.displayNumber) }
@@ -147,6 +151,10 @@ class UniqueStream : Source() {
         val mediaId = media.mediaId
         val hosters = mutableListOf<Hoster>()
 
+        fun encodeData(subs: List<SubtitleDto>?): String = Json.encodeToString(
+            HosterData(mediaId, subs.orEmpty()),
+        )
+
         // Hard subs (e.g. English Hard Sub)
         hls.hardSubs.orEmpty().forEach { sub ->
             sub.playlist?.let { playlist ->
@@ -154,7 +162,7 @@ class UniqueStream : Source() {
                     Hoster(
                         hosterName = hardSubLabel(sub.locale),
                         hosterUrl = playlist,
-                        internalData = mediaId,
+                        internalData = encodeData(sub.subtitles),
                     ),
                 )
             }
@@ -167,7 +175,7 @@ class UniqueStream : Source() {
                 Hoster(
                     hosterName = label,
                     hosterUrl = playlist,
-                    internalData = mediaId,
+                    internalData = encodeData(hls.subtitles),
                 ),
             )
         }
@@ -180,7 +188,7 @@ class UniqueStream : Source() {
                     Hoster(
                         hosterName = "$langName (Dub)",
                         hosterUrl = playlist,
-                        internalData = mediaId,
+                        internalData = encodeData(version.subtitles),
                     ),
                 )
             }
@@ -192,7 +200,7 @@ class UniqueStream : Source() {
                         Hoster(
                             hosterName = "$langName Dub ($subLang Sub)",
                             hosterUrl = playlist,
-                            internalData = mediaId,
+                            internalData = encodeData(sub.subtitles),
                         ),
                     )
                 }
@@ -210,7 +218,7 @@ class UniqueStream : Source() {
                 if (isDub) {
                     it.hosterName.contains("Dub", ignoreCase = true)
                 } else {
-                    it.hosterName.contains("Sub", ignoreCase = true)
+                    !it.hosterName.contains("Dub", ignoreCase = true)
                 }
             }.thenByDescending {
                 it.hosterName.contains("English", ignoreCase = true)
@@ -220,11 +228,15 @@ class UniqueStream : Source() {
 
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
         val masterUrl = hoster.hosterUrl
-        val mediaId = hoster.internalData
+        val (mediaId, subtitleTracks) = runCatching {
+            val data = hoster.internalData.parseAs<HosterData>()
+            data.mediaId to data.subtitles.map { Track(it.url, localeNames[it.language] ?: it.language) }
+        }.getOrDefault(hoster.internalData to emptyList())
+
         UniqueStreamHlsServer.setUp(client)
 
         val videos = runCatching {
-            val master = client.get(masterUrl).bodyString()
+            val master = UniqueStreamHlsServer.fetchString(masterUrl)
             VARIANT_REGEX.findAll(master).mapNotNull { match ->
                 val height = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
                 val variantUrl = masterUrl.toHttpUrl().resolve(match.groupValues[2])?.toString()
@@ -232,9 +244,10 @@ class UniqueStream : Source() {
                 Video(
                     videoUrl = UniqueStreamHlsServer.localPlaylistUrl(masterUrl, mediaId, height),
                     videoTitle = "${hoster.hosterName} - ${height}p",
+                    subtitleTracks = subtitleTracks,
                 )
             }.toList()
-        }.getOrNull().orEmpty()
+        }.onFailure { if (it is CancellationException) throw it }.getOrNull().orEmpty()
 
         val result = if (videos.isNotEmpty()) {
             videos
@@ -243,6 +256,7 @@ class UniqueStream : Source() {
                 Video(
                     videoUrl = UniqueStreamHlsServer.localPlaylistUrl(masterUrl, mediaId),
                     videoTitle = hoster.hosterName,
+                    subtitleTracks = subtitleTracks,
                 ),
             )
         }
@@ -369,6 +383,18 @@ class UniqueStream : Source() {
     }
 
     @Serializable
+    data class SubtitleDto(
+        val language: String,
+        val url: String,
+    )
+
+    @Serializable
+    data class HosterData(
+        val mediaId: String,
+        val subtitles: List<SubtitleDto> = emptyList(),
+    )
+
+    @Serializable
     data class MediaResponse(
         @SerialName("media_id") val mediaId: String,
         val hls: HlsDto? = null,
@@ -384,6 +410,7 @@ class UniqueStream : Source() {
         data class HlsDto(
             val locale: String? = null,
             val playlist: String? = null,
+            val subtitles: List<SubtitleDto>? = null,
             @SerialName("hard_subs") val hardSubs: List<HlsDto>? = null,
         )
     }
