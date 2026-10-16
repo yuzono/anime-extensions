@@ -1,0 +1,9 @@
+ext {
+    extName = 'Tokianime'
+    extClass = '.Tokianime'
+    libVersion = 16
+    extVersionCode = 1
+    isNsfw = false
+}
+
+apply plugin: "kei.plugins.extension.legacy"
