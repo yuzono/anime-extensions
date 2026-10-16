@@ -3,13 +3,13 @@ package eu.kanade.tachiyomi.animeextension.id.minioppai
 import aniyomi.lib.gdriveplayerextractor.GdrivePlayerExtractor
 import eu.kanade.tachiyomi.animeextension.id.minioppai.extractors.MiniOppaiExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
-import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.tryParse
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -24,7 +24,7 @@ class MiniOppai :
     ) {
     override fun headersBuilder() = super.headersBuilder().add("Referer", baseUrl)
 
-    override val animeListUrl = "$baseUrl/advanced-search"
+    override val animeListUrl = "$baseUrl/anime"
 
     override val dateFormatter by lazy {
         SimpleDateFormat("MMMM d, yyyy", Locale(lang))
@@ -37,8 +37,6 @@ class MiniOppai :
     override fun latestUpdatesRequest(page: Int) = GET("$animeListUrl/page/$page/?order=update")
 
     // ============================== Episodes ==============================
-    override fun episodeListSelector() = "div.epsdlist > ul > li > a"
-
     override fun episodeFromElement(element: Element): SEpisode = SEpisode.create().apply {
         setUrlWithoutDomain(element.attr("href"))
         element.selectFirst(".epl-num")!!.text().let {
@@ -66,7 +64,7 @@ class MiniOppai :
                 GdrivePlayerExtractor(client).videosFromUrl(playerUrl, name, headers)
             }
 
-            "paistream.my.id" in url ->
+            url.toHttpUrlOrNull()?.host in PLAYER_HOSTS ->
                 MiniOppaiExtractor(client).videosFromUrl(url, headers)
 
             else -> emptyList()
@@ -81,14 +79,6 @@ class MiniOppai :
     }
 
     // =============================== Search ===============================
-    override fun searchAnimeSelector() = "div.latest article a.tip"
-
-    override fun searchAnimeFromElement(element: Element): SAnime = SAnime.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
-        title = element.selectFirst("h2.entry-title")!!.ownText()
-        thumbnail_url = element.selectFirst("img")!!.getImageUrl()
-    }
-
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val params = MiniOppaiFilters.getSearchParameters(filters)
         return if (query.isNotEmpty()) {
@@ -115,8 +105,7 @@ class MiniOppai :
     override val fetchFilters = false
     override fun getFilterList() = MiniOppaiFilters.FILTER_LIST
 
-    // ============================= Utilities ==============================
-    override fun Element.getInfo(text: String): String? = selectFirst("li:has(b:contains($text))")
-        ?.selectFirst("span.colspan")
-        ?.text()
+    companion object {
+        private val PLAYER_HOSTS = setOf("paistream.my.id", "streampai.my.id")
+    }
 }
