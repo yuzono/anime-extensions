@@ -16,7 +16,8 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.toJsonRequestBody
+import keiyoushi.utils.toJsonBody
+import keiyoushi.utils.toJsonString
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.HttpUrl
@@ -49,12 +50,10 @@ class AnimeUnity :
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val parsed =
-            response.parseAs<AnimeResponse> {
-                it
-                    .substringAfter("top-anime animes=\"")
-                    .substringBefore("\"></top-anime>")
-                    .replace("&quot;", "\"")
-            }
+            response.asJsoup()
+                .selectFirst("top-anime[animes]")!!
+                .attr("animes")
+                .parseAs<AnimeResponse>()
 
         val animeList =
             parsed.data.map { ani ->
@@ -125,7 +124,7 @@ class AnimeUnity :
         val document = archivioResponse.asJsoup()
 
         val crsfToken = document.select("meta[name=csrf-token]").attr("content")
-        var newHeadersBuilder = headers.newBuilder()
+        val newHeadersBuilder = headers.newBuilder()
         for (cookie in archivioResponse.headers) {
             if (cookie.first == "set-cookie" && cookie.second.startsWith("XSRF-TOKEN")) {
                 newHeadersBuilder.add(
@@ -143,17 +142,19 @@ class AnimeUnity :
             }
         }
         newHeadersBuilder
-            .add("X-CSRF-TOKEN", crsfToken)
-            .add("Accept-Language", "en-US,en;q=0.5")
-            .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0")
+            .set("X-CSRF-TOKEN", crsfToken)
+            .set("Accept-Language", "en-US,en;q=0.5")
+            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0")
 
         if (filters.top.isNotEmpty()) {
             val topHeaders =
                 newHeadersBuilder
-                    .add("X-CSRF-TOKEN", crsfToken)
                     .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
                     .add("Referer", "$baseUrl/${filters.top}")
-            return GET("$baseUrl/${filters.top}", headers = topHeaders.build())
+            val topUrl = "$baseUrl/${filters.top}".toHttpUrl().newBuilder()
+                .setQueryParameter("page", page.toString())
+                .build()
+            return GET(topUrl, headers = topHeaders.build())
         }
 
         val searchHeaders =
@@ -178,7 +179,7 @@ class AnimeUnity :
                 "dubbed": ${if (filters.dub.isEmpty()) "false" else "true"},
                 "season": ${filters.season.falseIfEmpty()}
             }
-            """.trimIndent().toJsonRequestBody()
+            """.trimIndent().toJsonBody()
 
         return POST("$baseUrl/archivio/get-animes", body = body, headers = searchHeaders)
     }
@@ -200,7 +201,7 @@ class AnimeUnity :
                 }
             }
 
-        AnimesPage(animeList, data.tot - page * 30 >= 30 && data.tot > 30)
+        AnimesPage(animeList, page * 30 < data.tot)
     } else {
         popularAnimeParse(response)
     }
@@ -445,11 +446,7 @@ class AnimeUnity :
             }
     }
 
-    private fun String.falseIfEmpty(): String = if (this.isEmpty()) {
-        "false"
-    } else {
-        "\"${this}\""
-    }
+    private fun String.falseIfEmpty(): String = if (isEmpty()) "false" else toJsonString()
 
     @SuppressLint("SimpleDateFormat")
     private fun parseDate(date: String): Long {
