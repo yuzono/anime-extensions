@@ -1,0 +1,15 @@
+ext {
+    extName = 'AnimeCube'
+    extClass = '.AnimeCube'
+    libVersion = 16
+    extVersionCode = 1
+    isNsfw = false
+}
+
+apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(":lib:dailymotionextractor"))
+    implementation(project(":lib:rumbleextractor"))
+    implementation(project(":lib:youtubeextractor"))
+}
