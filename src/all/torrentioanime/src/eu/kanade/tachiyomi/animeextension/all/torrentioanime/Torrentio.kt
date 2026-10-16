@@ -28,17 +28,15 @@ import keiyoushi.network.get
 import keiyoushi.utils.applicationContext
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
-import kotlinx.serialization.json.Json
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import okhttp3.FormBody
 import okhttp3.Headers
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -56,12 +54,6 @@ class Torrentio :
     override val supportsLatest = true
 
     override val disableRelatedAnimesBySearch = true
-
-    override val supportsRelatedAnimes = true
-
-    override val client: OkHttpClient = network.client
-
-    private val json: Json by injectLazy()
 
     private val preferences by getPreferencesLazy()
 
@@ -104,11 +96,16 @@ class Torrentio :
 
     private fun parseSearchJson(jsonData: String, isLatestQuery: Boolean = false): AnimesPage {
         val (mediaList, hasNextPage) = if (isLatestQuery) {
-            val page = json.decodeFromString<AnilistMetaLatest>(jsonData).data?.page
-            page?.airingSchedules?.mapNotNull { it.media }.orEmpty() to (page?.pageInfo?.hasNextPage == true)
+            val page = jsonData.parseAs<AnilistMetaLatest>().data?.page
+            val list = page?.airingSchedules?.mapNotNull { it.media }
+                ?.filter { media -> media.isAdult != true }
+                .orEmpty()
+            list to (page?.pageInfo?.hasNextPage == true)
         } else {
-            val page = json.decodeFromString<AnilistMeta>(jsonData).data?.page
-            page?.media.orEmpty() to (page?.pageInfo?.hasNextPage == true)
+            val page = jsonData.parseAs<AnilistMeta>().data?.page
+            val list = page?.media.orEmpty()
+                .filter { media -> media.isAdult != true }
+            list to (page?.pageInfo?.hasNextPage == true)
         }
 
         val animeList = mediaList
@@ -133,6 +130,10 @@ class Torrentio :
             put("page", page)
             put("perPage", ANILIST_PER_PAGE)
             putJsonArray("sort") { add("POPULARITY_DESC") }
+            putJsonArray("status") {
+                add("FINISHED")
+                add("RELEASING")
+            }
         }.toString()
 
         return makeGraphQLRequest(anilistQuery(), variables)
@@ -221,7 +222,7 @@ class Torrentio :
 
     private suspend fun fetchAioMeta(anilistId: String): AioMeta? = runCatching {
         val response = client.get("$aioMetadataurl/meta/anime/anilist:$anilistId.json")
-        json.decodeFromString<AioMetaResponse>(response.bodyString()).meta
+        response.parseAs<AioMetaResponse>().meta
     }.getOrNull()
 
     private fun parseDate(value: String?): Long? {
@@ -245,7 +246,7 @@ class Torrentio :
         .build()
 
     override fun animeDetailsParse(response: Response): SAnime {
-        val meta = json.decodeFromString<AioMetaResponse>(response.bodyString()).meta
+        val meta = response.parseAs<AioMetaResponse>().meta
 
         return SAnime.create().apply {
             if (meta == null) return@apply
@@ -272,8 +273,7 @@ class Torrentio :
     }
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> {
-        val jsonData = response.bodyString()
-        val data = runCatching { json.decodeFromString<AnilistRelationsDto>(jsonData) }.getOrNull()
+        val data = runCatching { response.parseAs<AnilistRelationsDto>() }.getOrNull()
 
         return data?.data?.media?.relations?.edges
             ?.mapNotNull { edge ->
@@ -368,7 +368,7 @@ class Torrentio :
         }
         val episodeResponse = runCatching {
             val res = client.get("https://kenjitsu.vercel.app/api/anilist/anime/$anilistId/episodes")
-            json.decodeFromString<BackUpEpisodeResponse>(res.body.string())
+            res.parseAs<BackUpEpisodeResponse>()
         }.getOrNull()
 
         val videos = episodeResponse?.data.orEmpty()
@@ -417,12 +417,15 @@ class Torrentio :
             }
     }
 
-    // ============================== Hosters ================================
+// ============================== Hosters ================================
 
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
-        val path = episode.url.takeIf { it.isNotBlank() } ?: return emptyList()
+        val streamData = runCatching {
+            val url = buildUrl(episode.url)
+            val response = client.get(url)
+            response.parseAs<StreamDataTorrent>()
+        }.getOrNull()
 
-        val streamData = fetchStreamData(path)
         val streams = streamData?.streams.orEmpty()
         if (streams.isEmpty()) return emptyList()
 
@@ -431,7 +434,7 @@ class Torrentio :
 
         return streams
             .groupBy { getProviderName(it.title) }
-            .map { (provider, providerStreams) ->
+            .mapNotNull { (provider, providerStreams) ->
                 val videoList = providerStreams.map { stream ->
                     val urlOrHash = if (debridProvider == "none") {
                         buildString {
@@ -441,7 +444,7 @@ class Torrentio :
                             stream.fileIdx?.let { append("&index=$it") }
                         }
                     } else {
-                        stream.url ?: ""
+                        stream.url?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
                     }
 
                     Video(
@@ -456,15 +459,9 @@ class Torrentio :
 
     override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
 
-    // ============================ Video Links ==============================
+// ============================ Video Links ==============================
 
     override suspend fun getVideoList(hoster: Hoster): List<Video> = hoster.videoList.orEmpty()
-
-    private suspend fun fetchStreamData(streamPath: String): StreamDataTorrent? = runCatching {
-        val res = client.get(buildUrl(streamPath), headers)
-        if (!res.isSuccessful) return@runCatching null
-        json.decodeFromString<StreamDataTorrent>(res.body.string())
-    }.getOrNull()
 
     private fun buildUrl(streamPath: String): String {
         val configSegments = mutableListOf<String>()
@@ -500,11 +497,17 @@ class Torrentio :
             !token.isNullOrBlank() && debridProvider != "none" -> configSegments += "$debridProvider=$token"
         }
 
+        val configString = configSegments.joinToString("|")
+        val formattedPath = streamPath.removePrefix("/")
+
         return buildString {
             append(baseUrl)
             append("/")
-            append(configSegments.joinToString("|"))
-            append(streamPath)
+            if (configString.isNotEmpty()) {
+                append(configString)
+                append("/")
+            }
+            append(formattedPath)
         }
     }
 

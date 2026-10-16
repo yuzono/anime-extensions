@@ -33,6 +33,7 @@ fun anilistQuery() = """
                 isAdult: false
             ) {
                 id
+                isAdult
                 title {
                     romaji
                     english
@@ -77,6 +78,7 @@ fun anilistLatestQuery() = """
                 airingAt
                 media {
                     id
+                    isAdult
                     title {
                         romaji
                         english

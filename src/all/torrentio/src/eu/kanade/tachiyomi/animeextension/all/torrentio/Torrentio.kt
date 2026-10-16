@@ -25,16 +25,14 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import keiyoushi.network.get
 import keiyoushi.utils.applicationContext
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
-import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -51,10 +49,6 @@ class Torrentio :
     override val supportsLatest = true
 
     override val supportsRelatedAnimes = false
-
-    override val client: OkHttpClient = network.client
-
-    private val json: Json by injectLazy()
 
     private val preferences by getPreferencesLazy()
 
@@ -74,7 +68,7 @@ class Torrentio :
             runCatching {
                 val url = "$streamingCatalogUrl/catalog/movie/$DEFAULT_STREAMING_SERVICE.json"
                 val response = client.get(url)
-                json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
+                response.parseAs<CinemetaSearchResponse>().metas.orEmpty()
             }.getOrDefault(emptyList())
         }
 
@@ -82,7 +76,7 @@ class Torrentio :
             runCatching {
                 val url = "$streamingCatalogUrl/catalog/series/$DEFAULT_STREAMING_SERVICE.json"
                 val response = client.get(url)
-                json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
+                response.parseAs<CinemetaSearchResponse>().metas.orEmpty()
             }.getOrDefault(emptyList())
         }
 
@@ -90,8 +84,8 @@ class Torrentio :
         val seriesResults = seriesDeferred.await()
 
         val combined = mutableListOf<CinemetaMeta>()
-        val maxsize = maxOf(movieResults.size, seriesResults.size)
-        for (i in 0 until maxsize) {
+        val maxSize = maxOf(movieResults.size, seriesResults.size)
+        for (i in 0 until maxSize) {
             if (i < movieResults.size) combined.add(movieResults[i])
             if (i < seriesResults.size) combined.add(seriesResults[i])
         }
@@ -110,7 +104,7 @@ class Torrentio :
             runCatching {
                 val url = buildCinemetaTopUrl("series", page)
                 val response = client.get(url.toString())
-                json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
+                response.parseAs<CinemetaSearchResponse>().metas.orEmpty()
             }.getOrDefault(emptyList())
         }
 
@@ -118,7 +112,7 @@ class Torrentio :
             runCatching {
                 val url = buildCinemetaTopUrl("movie", page)
                 val response = client.get(url.toString())
-                json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
+                response.parseAs<CinemetaSearchResponse>().metas.orEmpty()
             }.getOrDefault(emptyList())
         }
 
@@ -159,7 +153,7 @@ class Torrentio :
             for (t in types) {
                 meta = runCatching {
                     val res = client.get("$aioMetadataurl/meta/$t/$imdbId.json")
-                    json.decodeFromString<CinemetaMetaDetailResponse>(res.body.string()).meta
+                    res.parseAs<CinemetaMetaDetailResponse>().meta
                 }.getOrNull()
                 if (meta != null) break
             }
@@ -209,7 +203,7 @@ class Torrentio :
                                 .toString()
                         }
                         val response = client.get(url)
-                        json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
+                        response.parseAs<CinemetaSearchResponse>().metas.orEmpty()
                     }.getOrDefault(emptyList())
                 }
             }
@@ -241,7 +235,7 @@ class Torrentio :
         for (t in types) {
             meta = runCatching {
                 val res = client.get("$aioMetadataurl/meta/$t/$id.json")
-                json.decodeFromString<CinemetaMetaDetailResponse>(res.body.string()).meta
+                res.parseAs<CinemetaMetaDetailResponse>().meta
             }.getOrNull()
             if (meta != null) break
         }
@@ -287,7 +281,7 @@ class Torrentio :
         for (t in types) {
             meta = runCatching {
                 val res = client.get("$aioMetadataurl/meta/$t/$id.json")
-                json.decodeFromString<CinemetaMetaDetailResponse>(res.body.string()).meta
+                res.parseAs<CinemetaMetaDetailResponse>().meta
             }.getOrNull()
             if (meta != null) break
         }
@@ -374,8 +368,9 @@ class Torrentio :
 
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val streamData = runCatching {
-            val response = client.get(buildUrl(episode.url))
-            json.decodeFromString<StreamDataTorrent>(response.body.string())
+            val url = buildUrl(episode.url)
+            val response = client.get(url)
+            response.parseAs<StreamDataTorrent>()
         }.getOrNull()
 
         val streams = streamData?.streams.orEmpty()
@@ -386,7 +381,7 @@ class Torrentio :
 
         return streams
             .groupBy { getProviderName(it.title, it.name) }
-            .map { (provider, providerStreams) ->
+            .mapNotNull { (provider, providerStreams) ->
                 val videoList = providerStreams.map { stream ->
                     val urlOrHash = if (debridProvider == "none") {
                         buildString {
@@ -396,7 +391,7 @@ class Torrentio :
                             stream.fileIdx?.let { append("&index=$it") }
                         }
                     } else {
-                        stream.url ?: ""
+                        stream.url?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
                     }
 
                     Video(
@@ -416,7 +411,7 @@ class Torrentio :
 
     override suspend fun getVideoList(hoster: Hoster): List<Video> = hoster.videoList.orEmpty()
 
-    fun buildUrl(streamPath: String): String {
+    private fun buildUrl(streamPath: String): String {
         val configSegments = mutableListOf<String>()
 
         val addConfigParam: (String, Set<String>?) -> Unit = { key, values ->
@@ -451,12 +446,16 @@ class Torrentio :
         }
 
         val configString = configSegments.joinToString("|")
+        val formattedPath = streamPath.removePrefix("/")
 
         return buildString {
             append(baseUrl)
             append("/")
-            append(configString)
-            append(streamPath)
+            if (configString.isNotEmpty()) {
+                append(configString)
+                append("/")
+            }
+            append(formattedPath)
         }
     }
 
@@ -638,7 +637,6 @@ class Torrentio :
         )
         private val PREF_PROVIDERS_DEFAULT = PREF_DEFAULT_PROVIDERS_VALUE.toSet()
 
-        // Maps a provider's internal preference value to its display label for Hoster naming.
         private val PROVIDER_DISPLAY_NAMES: Map<String, String> = PREF_PROVIDERS_VALUE.zip(PREF_PROVIDERS).toMap()
 
         private const val PREF_QUALITY_KEY = "quality_selection"
