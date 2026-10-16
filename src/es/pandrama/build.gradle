@@ -1,5 +1,6 @@
 ext {
     extName = 'Pandrama'
+    libVersion = '16'
     extClass = '.Pandrama'
     extVersionCode = 12
 }
