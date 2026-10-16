@@ -243,6 +243,8 @@ class AnimeQ :
     }
 
     // ============================= Utilities ==============================
+    override val animeMenuSelector = ".pag_episodes .aq-nav-icon:has(.fa-list)"
+
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!
 
