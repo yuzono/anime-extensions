@@ -49,8 +49,27 @@ data class AioVideo(
     val season: Int? = null,
     val episode: Int? = null,
     val available: Boolean? = null,
-    // Optional, only present on some AIO / Kitsu addon responses
     val imdbId: String? = null,
     val imdbSeason: Int? = null,
     val imdbEpisode: Int? = null,
+)
+
+@Serializable
+data class BackUpEpisodeResponse(
+    val data: List<BackUpEpisodeVideo>? = null,
+)
+
+@Serializable
+data class BackUpEpisodeVideo(
+    val title: String? = null,
+    val airDate: String? = null,
+    val seasonNumber: Int? = null,
+    val seasonEpisodeNumber: Int? = null,
+    val thumbnail: String? = null,
+    val id: String? = null,
+    val imdbId: String? = null,
+    val summary: String? = null,
+    val type: String? = null,
+    val episodeNumber: Int? = null,
+    val kitsuId: Int? = null,
 )

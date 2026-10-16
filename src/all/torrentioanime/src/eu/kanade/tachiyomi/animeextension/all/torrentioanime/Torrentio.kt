@@ -13,6 +13,8 @@ import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.AioMetaResponse
 import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.AnilistMeta
 import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.AnilistMetaLatest
 import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.AnilistRelationsDto
+import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.BackUpEpisodeResponse
+import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.BackUpEpisodeVideo
 import eu.kanade.tachiyomi.animeextension.all.torrentioanime.dto.StreamDataTorrent
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -297,71 +299,117 @@ class Torrentio :
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        val meta = fetchAioMeta(anime.url) ?: return emptyList()
-
-        val type = meta.type ?: "series"
-        val isMovie = type == "movie"
-        val kitsuId = meta.kitsuId?.takeIf { it.isNotBlank() }
-            ?: meta.videos.orEmpty()
-                .firstNotNullOfOrNull { v ->
-                    v.id?.takeIf { it.startsWith("kitsu:") }?.split(":")?.getOrNull(1)
-                }
-            ?: ""
-
-        if (kitsuId.isBlank()) return emptyList()
+        val anilistId = anime.url
+        val meta = fetchAioMeta(anilistId)
 
         val currentTime = System.currentTimeMillis()
         val futureTolerance = currentTime + (7L * 24 * 60 * 60 * 1000)
 
-        if (isMovie) {
-            val video = meta.videos?.firstOrNull()
-            val dateUpload = parseDate(video?.released ?: meta.released) ?: return emptyList()
+        val kitsuId = meta?.kitsuId?.takeIf { it.isNotBlank() }
+            ?: meta?.videos.orEmpty()
+                .firstNotNullOfOrNull { v ->
+                    v.id?.takeIf { it.startsWith("kitsu:") }?.split(":")?.getOrNull(1)
+                }
 
-            if (dateUpload > futureTolerance) return emptyList()
+        if (meta != null && !meta.videos.isNullOrEmpty() && !kitsuId.isNullOrBlank()) {
+            val type = meta.type ?: "series"
+            val isMovie = type == "movie"
 
-            val isFuture = dateUpload > currentTime
-            if (!isFuture && video?.available == false) return emptyList()
+            if (isMovie) {
+                val video = meta.videos.firstOrNull()
+                val dateUpload = parseDate(video?.released ?: meta.released) ?: 0L
 
-            return listOf(
-                SEpisode.create().apply {
-                    episode_number = 1f
-                    name = "Movie"
-                    url = "$kitsuId|movie"
-                    date_upload = dateUpload
-                    summary = cleanText(video?.overview)
-                    preview_url = video?.thumbnail
+                if (dateUpload <= futureTolerance) {
+                    val isFuture = dateUpload > currentTime
+                    if (isFuture || video?.available != false) {
+                        return listOf(
+                            SEpisode.create().apply {
+                                episode_number = 1f
+                                name = "Movie"
+                                url = "/stream/movie/kitsu:$kitsuId.json"
+                                date_upload = dateUpload
+                                summary = cleanText(video?.overview)
+                                preview_url = video?.thumbnail
+                            },
+                        )
+                    }
+                }
+            } else {
+                val episodes = meta.videos.orEmpty()
+                    .filter { video ->
+                        val dateUpload = parseDate(video.released) ?: return@filter false
+                        if (dateUpload > futureTolerance) return@filter false
+                        val isFuture = dateUpload > currentTime
+                        isFuture || video.available != false
+                    }
+                    .sortedByDescending { it.episode }
+                    .mapNotNull { video ->
+                        val epNum = video.episode ?: return@mapNotNull null
+                        val dateUpload = parseDate(video.released) ?: return@mapNotNull null
+
+                        SEpisode.create().apply {
+                            episode_number = epNum.toFloat()
+                            url = "/stream/series/kitsu:$kitsuId:$epNum.json"
+                            date_upload = dateUpload
+
+                            name = (video.title ?: video.name)
+                                ?.takeIf { it.isNotBlank() && it != "Episode $epNum" }
+                                ?.let { "Episode $epNum: $it" }
+                                ?: "Episode $epNum"
+
+                            summary = cleanText(video.overview)
+                            preview_url = video.thumbnail
+                        }
+                    }
+
+                if (episodes.isNotEmpty()) return episodes
+            }
+        }
+        val episodeResponse = runCatching {
+            val res = client.get("https://kenjitsu.vercel.app/api/anilist/anime/$anilistId/episodes")
+            json.decodeFromString<BackUpEpisodeResponse>(res.body.string())
+        }.getOrNull()
+
+        val videos = episodeResponse?.data.orEmpty()
+        if (videos.isEmpty()) return emptyList()
+
+        return videos
+            .map { video ->
+                val raw = video.airDate
+                val dateUpload = parseDate(raw) ?: 0L
+                video to dateUpload
+            }
+            .sortedWith(
+                compareByDescending<Pair<BackUpEpisodeVideo, Long>> {
+                    it.first.episodeNumber ?: 0
                 },
             )
-        }
+            .mapNotNull { (video, dateUpload) ->
+                val number = video.episodeNumber ?: 0
+                val resolvedType = video.type?.lowercase() ?: "series"
 
-        return meta.videos.orEmpty()
-            .filter { video ->
-                val epNum = video.episode ?: return@filter false
-                val dateUpload = parseDate(video.released) ?: return@filter false
-
-                if (dateUpload > futureTolerance) return@filter false
-
-                val isFuture = dateUpload > currentTime
-                if (!isFuture && video.available == false) return@filter false
-
-                true
-            }
-            .sortedByDescending { it.episode }
-            .mapNotNull { video ->
-                val epNum = video.episode ?: return@mapNotNull null
-                val dateUpload = parseDate(video.released) ?: return@mapNotNull null
+                val streamId = video.imdbId?.takeIf { it.isNotBlank() }
+                    ?: video.kitsuId?.let { "kitsu:$it:$number" }
+                    ?: return@mapNotNull null
 
                 SEpisode.create().apply {
-                    episode_number = epNum.toFloat()
-                    url = "$kitsuId|$epNum"
+                    episode_number = number.toFloat()
+                    url = "/stream/$resolvedType/$streamId.json"
                     date_upload = dateUpload
 
-                    name = (video.title ?: video.name)
-                        ?.takeIf { it.isNotBlank() && it != "Episode $epNum" }
-                        ?.let { "Episode $epNum: $it" }
-                        ?: "Episode $epNum"
+                    name = buildString {
+                        if (resolvedType == "series") {
+                            append("Episode $number")
+                        } else {
+                            append("Complete Movie")
+                        }
+                        video.title?.takeIf { it.isNotBlank() }?.let {
+                            append(" - ")
+                            append(it)
+                        }
+                    }
 
-                    summary = cleanText(video.overview)
+                    summary = cleanText(video.summary)
                     preview_url = video.thumbnail
                 }
             }
@@ -370,16 +418,7 @@ class Torrentio :
     // ============================== Hosters ================================
 
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
-        val parts = episode.url.split("|")
-        val kitsuId = parts.getOrNull(0)?.takeIf { it.isNotBlank() } ?: return emptyList()
-        val isMovie = parts.getOrNull(1) == "movie"
-
-        val path = if (isMovie) {
-            "/stream/movie/kitsu:$kitsuId.json"
-        } else {
-            val epNum = parts.getOrNull(1)?.takeIf { it.isNotBlank() } ?: return emptyList()
-            "/stream/series/kitsu:$kitsuId:$epNum.json"
-        }
+        val path = episode.url.takeIf { it.isNotBlank() } ?: return emptyList()
 
         val streamData = fetchStreamData(path)
         val streams = streamData?.streams.orEmpty()

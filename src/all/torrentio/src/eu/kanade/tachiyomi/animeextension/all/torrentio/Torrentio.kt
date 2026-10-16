@@ -295,6 +295,7 @@ class Torrentio :
                 val now = System.currentTimeMillis()
 
                 meta.videos.orEmpty()
+                    .asSequence()
                     .filter { video -> showSeasonZero || (video.season ?: 0) > 0 }
                     .map { video ->
                         val raw = video.firstAired ?: video.released
@@ -336,6 +337,7 @@ class Torrentio :
                             preview_url = video.thumbnail
                         }
                     }
+                    .toList()
             }
 
             "movie" -> {
