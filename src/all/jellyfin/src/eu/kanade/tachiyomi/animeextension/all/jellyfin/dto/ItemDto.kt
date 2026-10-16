@@ -262,8 +262,32 @@ class MediaDto(
     val name: String? = null,
     val supportsTranscoding: Boolean,
     val supportsDirectStream: Boolean,
-    val mediaStreams: List<MediaStreamDto>,
+    // Can be empty for .strm items that haven't been probed yet
+    val mediaStreams: List<MediaStreamDto> = emptyList(),
 ) {
+    private val videoStream
+        get() = mediaStreams.firstOrNull { it.type == "Video" }
+
+    private val audioStream
+        get() = mediaStreams.firstOrNull { it.type == "Audio" && it.isDefault }
+            ?: mediaStreams.firstOrNull { it.type == "Audio" }
+
+    /** Short summary of the video stream, e.g. "1080p H264 SDR" or "4K HEVC DV" */
+    val videoInfo: String?
+        get() = videoStream?.run {
+            listOfNotNull(resolution, codec?.uppercase(), dynamicRange).joinToString(" ")
+        }?.ifEmpty { null }
+
+    /** Short summary of the default audio stream, e.g. "AAC stereo" or "EAC3 5.1" */
+    val audioInfo: String?
+        get() = audioStream?.run {
+            listOfNotNull(codec?.uppercase(), channels?.toChannelLayout()).joinToString(" ")
+        }?.ifEmpty { null }
+
+    /** Bitrate of the video stream alone, without audio */
+    val videoBitrate: Int?
+        get() = videoStream?.bitRate
+
     @Serializable
     class MediaStreamDto(
         val codec: String? = null,
@@ -271,8 +295,54 @@ class MediaDto(
         val type: String,
         val supportsExternalStream: Boolean,
         val isExternal: Boolean,
+        val isDefault: Boolean = false,
         val language: String? = null,
         val displayTitle: String? = null,
         val bitRate: Int? = null,
-    )
+        val width: Int? = null,
+        val height: Int? = null,
+        val videoRange: String? = null,
+        val videoRangeType: String? = null,
+        val channels: Int? = null,
+    ) {
+        // Same thresholds as Jellyfin's own display title
+        val resolution: String?
+            get() {
+                val w = width ?: return null
+                val h = height ?: return null
+                return RESOLUTIONS.firstOrNull { (maxWidth, maxHeight) -> w <= maxWidth && h <= maxHeight }?.third
+            }
+
+        val dynamicRange: String?
+            get() = when (val type = videoRangeType) {
+                null, "Unknown", "DOVIInvalid" -> videoRange?.takeUnless { it == "Unknown" }
+                "HDR10Plus" -> "HDR10+"
+                else -> if (type.startsWith("DOVI")) "DV" else type
+            }
+    }
+
+    private fun Int.toChannelLayout(): String = when (this) {
+        1 -> "mono"
+        2 -> "stereo"
+        6 -> "5.1"
+        8 -> "7.1"
+        else -> "${this}ch"
+    }
+
+    companion object {
+        private val RESOLUTIONS = listOf(
+            Triple(256, 144, "144p"),
+            Triple(426, 240, "240p"),
+            Triple(640, 360, "360p"),
+            Triple(682, 384, "384p"),
+            Triple(720, 404, "404p"),
+            Triple(854, 480, "480p"),
+            Triple(960, 544, "540p"),
+            Triple(1024, 576, "576p"),
+            Triple(1280, 962, "720p"),
+            Triple(2560, 1440, "1080p"),
+            Triple(4096, 3072, "4K"),
+            Triple(8192, 6144, "8K"),
+        )
+    }
 }

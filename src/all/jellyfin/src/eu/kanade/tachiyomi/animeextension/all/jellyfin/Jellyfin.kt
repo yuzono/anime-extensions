@@ -512,12 +512,17 @@ class Jellyfin(private val suffix: String) :
         val item = client.get(episode.url).parseAs<ItemDto>(json)
         val mediaSources = item.mediaSources.orEmpty().filter { !it.id.isNullOrBlank() }
         return mediaSources.mapIndexed { index, source ->
+            // Without alternate versions, the media source is just named after the item
+            val name = when {
+                mediaSources.size == 1 -> "Source"
+                else -> source.name?.takeIf(String::isNotBlank) ?: "Version ${index + 1}"
+            }
+            // Version names are often a resolution already, e.g. "4K"
+            val details = source.videoInfo?.split(" ")
+                ?.filterNot { name.contains(it, ignoreCase = true) }
+                ?.joinToString(" ")
             Hoster(
-                // Without alternate versions, the media source is just named after the item
-                hosterName = when {
-                    mediaSources.size == 1 -> "Source"
-                    else -> source.name?.takeIf(String::isNotBlank) ?: "Version ${index + 1}"
-                },
+                hosterName = if (details.isNullOrEmpty()) name else "$name • $details",
                 hosterUrl = episode.url,
                 internalData = source.id!!,
             )
@@ -536,14 +541,10 @@ class Jellyfin(private val suffix: String) :
 
         var audioTrackIndex: Int? = null
         var subtitleTrackIndex: Int? = null
-        var referenceBitrate = Constants.QUALITIES_LIST.first().videoBitrate
+        val preferSource = preferences.quality == PREF_QUALITY_DEFAULT
 
         mediaSource.mediaStreams.forEach { media ->
             when (media.type) {
-                "Video" -> {
-                    referenceBitrate = media.bitRate ?: referenceBitrate
-                }
-
                 "Subtitle" -> {
                     if (media.supportsExternalStream && media.codec != null) {
                         val subtitleUrl = baseUrl.toHttpUrl().newBuilder().apply {
@@ -578,23 +579,20 @@ class Jellyfin(private val suffix: String) :
             .add("Authorization", getAuthHeader(deviceInfo, preferences.apiKey))
             .build()
 
+        // .strm files and other remote sources, played from their url instead of through Jellyfin
         if (mediaSource.isRemote && mediaSource.path != null && preferences.useRemote) {
             return listOf(
                 Video(
-                    videoTitle = buildString {
-                        append("Remote")
-                        append("\n${mediaSource.path}")
-                    },
+                    videoTitle = "Remote",
                     videoUrl = mediaSource.path,
                     bitrate = Int.MAX_VALUE,
-                    preferred = mediaSource.bitrate == preferences.quality.toIntOrNull(),
+                    preferred = preferSource,
                     subtitleTracks = externalSubtitleList,
                     initialized = true,
                 ),
             )
         }
 
-        val videoBitrate = mediaSource.bitrate?.toLong()?.formatBytes()?.replace("B", "b") ?: "-"
         val sessionData = getSessionData(
             videoBitrate = Int.MAX_VALUE,
             audioBitrate = Int.MAX_VALUE,
@@ -613,27 +611,36 @@ class Jellyfin(private val suffix: String) :
             addQueryParameter("PlaySessionId", sessionData.playSessionId)
         }.build().toString()
 
-        val staticVideo = Video(
-            videoTitle = "${videoBitrate}ps",
-            videoUrl = staticUrl,
-            bitrate = Int.MAX_VALUE,
-            headers = videoHeaders,
-            preferred = mediaSource.bitrate == preferences.quality.toIntOrNull(),
-            subtitleTracks = externalSubtitleList,
-            initialized = true,
-        )
-
+        // PlaybackInfo probes unprobed sources such as .strm files, so prefer its details
         val sessionMediaSource = sessionData.mediaSources.firstOrNull { it.id == mediaSource.id }
             ?: return emptyList()
 
         if (sessionMediaSource.supportsDirectStream) {
-            videoList.add(staticVideo)
+            val staticTitle = listOfNotNull(
+                sessionMediaSource.bitrate?.toLong()?.formatBytes()?.replace("B", "b")?.plus("ps"),
+                (sessionMediaSource.size ?: mediaSource.size)?.formatBytes(),
+                sessionMediaSource.audioInfo,
+            ).joinToString(" • ")
+
+            videoList.add(
+                Video(
+                    videoTitle = staticTitle.ifEmpty { "Source" },
+                    videoUrl = staticUrl,
+                    bitrate = Int.MAX_VALUE,
+                    headers = videoHeaders,
+                    preferred = preferSource,
+                    subtitleTracks = externalSubtitleList,
+                    initialized = true,
+                ),
+            )
         }
 
         if (!sessionMediaSource.supportsTranscoding) {
             return videoList
         }
 
+        // Without a known bitrate, offer every quality
+        val referenceBitrate = sessionMediaSource.videoBitrate ?: sessionMediaSource.bitrate ?: Int.MAX_VALUE
         val qualities = Constants.QUALITIES_LIST.takeWhile { it.videoBitrate <= referenceBitrate }
         qualities.forEach {
             videoList.add(
