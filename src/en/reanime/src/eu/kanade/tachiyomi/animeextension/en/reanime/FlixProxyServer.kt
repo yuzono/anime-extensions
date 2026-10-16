@@ -46,12 +46,7 @@ class FlixProxyServer(
         val params = "url=${URLEncoder.encode(originalUrl, "UTF-8")}&w_payload=${URLEncoder.encode(wPayload, "UTF-8")}"
         // Do not append fake extensions. MPV handles the stream better when it relies
         // on the MIME type and the HLS demuxer handles the timestamps correctly.
-        return "http://127.0.0.1:$listeningPort/proxy?$params"
-    }
-
-    fun createSubtitleProxyUrl(originalUrl: String): String {
-        val params = "url=${URLEncoder.encode(originalUrl, "UTF-8")}&w_payload="
-        return "http://127.0.0.1:$listeningPort/proxy?$params"
+        return "http://$hostname:$listeningPort/proxy?$params"
     }
 
     fun wrapInDecApi(originalUrl: String, wPayload: String): String {
@@ -61,34 +56,7 @@ class FlixProxyServer(
         return "$decApi/parse-flixcloud?url=$encodedUrl&w_payload=$encodedWPayload"
     }
 
-    fun ensureToken(segmentUrl: String, parentUrl: String): String = try {
-        val segHttpUrl = segmentUrl.toHttpUrl()
-
-        // Extract token from parent URL or its nested 'url' parameter if wrapped in enc-dec.app
-        // If segment URL has no token, walk up to 3 levels of nested `url=` params
-        // looking for one. The enc-dec.app wrapper carries the token in its top-level
-        // query string, so this finds it.
-        var token: String? = segHttpUrl.queryParameter("token")
-        if (token == null) {
-            var currentUrl = parentUrl
-            repeat(3) {
-                val httpUrl = currentUrl.toHttpUrl()
-                if (token == null) token = httpUrl.queryParameter("token")
-                if (token == null) {
-                    val nestedUrl = httpUrl.queryParameter("url")
-                    if (nestedUrl != null) currentUrl = nestedUrl
-                }
-            }
-        }
-
-        segHttpUrl.newBuilder().apply {
-            if (token != null && segHttpUrl.queryParameter("token") == null) {
-                addQueryParameter("token", token)
-            }
-        }.build().toString()
-    } catch (_: Exception) {
-        segmentUrl
-    }
+    fun ensureToken(segmentUrl: String, parentUrl: String): String = FlixProxyServer.ensureToken(segmentUrl, parentUrl)
 
     override fun handle(session: IHTTPSession): Response {
         val params = session.parameters
@@ -96,20 +64,6 @@ class FlixProxyServer(
         val wPayload = params["w_payload"]?.firstOrNull() ?: ""
 
         return try {
-            val isSubtitle = url.contains("/subtitles/")
-            if (isSubtitle) {
-                if (!url.startsWith("https://")) {
-                    return newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "Subtitle URL must be https")
-                }
-                val proxyHeaders = headers.newBuilder()
-                    .set("Accept", "*/*")
-                    .removeAll("Origin").removeAll("Referer")
-                    .apply {
-                        add("Origin", flixCloudUrl)
-                        add("Referer", "$flixCloudUrl/")
-                    }.build()
-                return serveSubtitle(url, proxyHeaders)
-            }
             val isManifest = url.contains(".m3u8")
             val isMasterManifest = isManifest && (
                 url.contains("master.m3u8") ||
@@ -180,105 +134,42 @@ class FlixProxyServer(
             )
         }
 
-        val body = response.body
-        val source = body.source()
-
-        // Peek at the first 13 bytes (max 12-byte WebP header + 1 payload byte)
-        // to determine the header type and whether XOR is needed. peek() does
-        // not consume the bytes, so the FlixcloudSegmentSource still sees them.
-        val headerBytes = try {
-            source.peek().readByteArray(13)
-        } catch (_: java.io.EOFException) {
-            ByteArray(0)
-        }
-
-        val headerSize = detectHeader(headerBytes)
-        val shouldXor = headerSize > 0 &&
-            headerBytes.size > headerSize &&
-            (headerBytes[headerSize].toInt() and 0xFF) != 0x47
-
-        // --- XOR KEY VALIDATION ---
-        if (shouldXor) {
-            val firstPayloadByte = headerBytes[headerSize].toInt() and 0xFF
-            val decryptedByte = firstPayloadByte xor (segmentMask[0].toInt() and 0xFF)
-
-            if (decryptedByte != 0x47) {
-                throw IllegalStateException("XOR key could not be found.")
-            }
-        }
-
-        // Output length = original length minus the stripped image header.
-        val originalLength = body.contentLength()
-        val outputLength = if (originalLength > 0 && headerSize > 0) {
-            originalLength - headerSize
-        } else {
-            originalLength
-        }
-
-        // Wrap the upstream source with our XOR-decoding ForwardingSource.
-        val xorSource = FlixcloudSegmentSource(source, segmentMask, headerSize, shouldXor)
-        val inputStream = xorSource.buffer().inputStream()
-
-        return if (outputLength > 0) {
-            newFixedLengthResponse(Status.OK, "video/mp2t", inputStream, outputLength)
-        } else {
-            newChunkedResponse(Status.OK, "video/mp2t", inputStream)
-        }
-    }
-
-    private fun serveSubtitle(
-        subtitleUrl: String,
-        proxyHeaders: Headers,
-    ): Response {
-        val request = Request.Builder().url(subtitleUrl).headers(proxyHeaders).build()
-        return proxyClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                val code = response.code
-                val errorSnippet = try {
-                    response.peekBody(1024).string().take(300)
-                } catch (_: Exception) {
-                    ""
-                }
-                return@use newFixedLengthResponse(
-                    Status.lookup(code) ?: Status.INTERNAL_ERROR,
-                    "text/plain",
-                    "Subtitle Error: $code $errorSnippet",
-                )
-            }
+        try {
             val body = response.body
-            val contentType = when {
-                subtitleUrl.endsWith(".ass") -> "text/x-ass"
-                subtitleUrl.endsWith(".srt") -> "application/x-subrip"
-                subtitleUrl.endsWith(".vtt") -> "text/vtt"
-                else -> body.contentType()?.toString() ?: "text/plain"
+            val source = body.source()
+
+            // Peek at the first 13 bytes (max 12-byte WebP header + 1 payload byte)
+            // to determine the header type and whether XOR is needed. peek() does
+            // not consume the bytes, so the FlixcloudSegmentSource still sees them.
+            val headerBytes = try {
+                source.peek().readByteArray(13)
+            } catch (_: java.io.EOFException) {
+                ByteArray(0)
             }
-            val maxSubtitleBytes = 512 * 1024
-            val contentLength = body.contentLength()
-            if (contentLength != -1L && contentLength > maxSubtitleBytes) {
-                return@use newFixedLengthResponse(Status.INTERNAL_ERROR, "text/plain", "Subtitle too large")
+
+            val headerSize = detectHeader(headerBytes)
+            val shouldXor = headerSize > 0
+
+            // Output length = original length minus the stripped image header.
+            val originalLength = body.contentLength()
+            val outputLength = if (originalLength > 0 && headerSize > 0) {
+                originalLength - headerSize
+            } else {
+                originalLength
             }
-            val bytes: ByteArray = try {
-                body.byteStream().use { input ->
-                    val out = java.io.ByteArrayOutputStream()
-                    val buffer = ByteArray(8192)
-                    var total = 0
-                    var n: Int
-                    while (input.read(buffer).also { n = it } != -1) {
-                        total += n
-                        if (total > maxSubtitleBytes) throw IllegalStateException("too large")
-                        out.write(buffer, 0, n)
-                    }
-                    out.toByteArray()
-                }
-            } catch (e: IllegalStateException) {
-                return@use newFixedLengthResponse(Status.INTERNAL_ERROR, "text/plain", "Subtitle too large")
-            } catch (_: Exception) {
-                return@use newFixedLengthResponse(Status.INTERNAL_ERROR, "text/plain", "Subtitle read error")
+
+            // Wrap the upstream source with our XOR-decoding ForwardingSource.
+            val xorSource = FlixcloudSegmentSource(source, segmentMask, headerSize, shouldXor)
+            val inputStream = xorSource.buffer().inputStream()
+
+            return if (outputLength > 0) {
+                newFixedLengthResponse(Status.OK, "video/mp2t", inputStream, outputLength)
+            } else {
+                newChunkedResponse(Status.OK, "video/mp2t", inputStream)
             }
-            val resp = newFixedLengthResponse(Status.OK, contentType, bytes.inputStream(), bytes.size.toLong())
-            resp.addHeader("Access-Control-Allow-Origin", "*")
-            resp.addHeader("Access-Control-Allow-Headers", "*")
-            resp
+        } catch (e: Exception) {
+            response.close()
+            throw e
         }
     }
 
@@ -380,6 +271,30 @@ class FlixProxyServer(
         private val URI_REGEX = Regex("URI=\"(.*?)\"")
         private val BANDWIDTH_REGEX = Regex("""BANDWIDTH=(\d+)""")
         private val AVERAGE_BANDWIDTH_REGEX = Regex("""AVERAGE-BANDWIDTH=(\d+)""")
+
+        fun ensureToken(segmentUrl: String, parentUrl: String): String = try {
+            val segHttpUrl = segmentUrl.toHttpUrl()
+            var token: String? = segHttpUrl.queryParameter("token")
+            if (token == null) {
+                var currentUrl = parentUrl
+                repeat(3) {
+                    val httpUrl = currentUrl.toHttpUrl()
+                    if (token == null) token = httpUrl.queryParameter("token")
+                    if (token == null) {
+                        val nestedUrl = httpUrl.queryParameter("url")
+                        if (nestedUrl != null) currentUrl = nestedUrl
+                    }
+                }
+            }
+
+            segHttpUrl.newBuilder().apply {
+                if (token != null && segHttpUrl.queryParameter("token") == null) {
+                    addQueryParameter("token", token)
+                }
+            }.build().toString()
+        } catch (_: Exception) {
+            segmentUrl
+        }
 
         /**
          * Detect the fake image header type from the first bytes of a segment.
