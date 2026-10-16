@@ -1,5 +1,6 @@
 ext {
     extName = 'Doramasflix'
+    libVersion = '16'
     extClass = '.Doramasflix'
     extVersionCode = 54
 }
