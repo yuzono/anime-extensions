@@ -112,6 +112,7 @@ class Torrentio :
         }
 
         val animeList = mediaList
+            .filter { it.id != null }
             .distinctBy { it.id }
             .map { media ->
                 SAnime.create().apply {
@@ -387,9 +388,10 @@ class Torrentio :
             .mapNotNull { (video, dateUpload) ->
                 val number = video.episodeNumber ?: 0
                 val resolvedType = video.type?.lowercase() ?: "series"
+                val isMovie = resolvedType == "movie"
 
                 val streamId = video.imdbId?.takeIf { it.isNotBlank() }
-                    ?: video.kitsuId?.let { "kitsu:$it:$number" }
+                    ?: video.kitsuId?.let { if (isMovie) "kitsu:$it" else "kitsu:$it:$number" }
                     ?: return@mapNotNull null
 
                 SEpisode.create().apply {

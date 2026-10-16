@@ -200,7 +200,13 @@ class Torrentio :
                         val url = if (trimmedQuery.isBlank()) {
                             "$streamingCatalogUrl/catalog/$type/$streamingService.json"
                         } else {
-                            "$cinemetaUrl/catalog/$type/top/search=$trimmedQuery.json"
+                            cinemetaUrl.toHttpUrl().newBuilder()
+                                .addPathSegment("catalog")
+                                .addPathSegment(type)
+                                .addPathSegment("top")
+                                .addPathSegment("search=$trimmedQuery.json")
+                                .build()
+                                .toString()
                         }
                         val response = client.get(url)
                         json.decodeFromString<CinemetaSearchResponse>(response.body.string()).metas.orEmpty()
