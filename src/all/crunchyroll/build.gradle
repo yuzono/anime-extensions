@@ -1,0 +1,9 @@
+ext {
+    extName = 'Crunchyroll'
+    extClass = '.Crunchyroll'
+    libVersion = 16
+    extVersionCode = 17
+    isNsfw = false
+}
+
+apply plugin: "kei.plugins.extension.legacy"
