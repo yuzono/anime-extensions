@@ -1,29 +1,27 @@
 package eu.kanade.tachiyomi.animeextension.id.nimegami
 
-import android.util.Base64
+import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.lib.jsunpacker.JsUnpacker
-import keiyoushi.utils.ParsedAnimeHttpLegacySource
-import keiyoushi.utils.chunkedPairs
-import keiyoushi.utils.parallelFlatMapBlocking
+import keiyoushi.utils.extractNextJs
+import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
-import keiyoushi.lib.synchrony.Deobfuscator as Synchrony
 
-class NimeGami : ParsedAnimeHttpLegacySource() {
+class NimeGami : AnimeHttpSource() {
 
     override val name = "NimeGami"
 
@@ -33,35 +31,22 @@ class NimeGami : ParsedAnimeHttpLegacySource() {
 
     override val supportsLatest = true
 
-    private val json: Json by injectLazy()
+    // The site's Brotli responses fail to decode in the app; ask for gzip, which the app's interceptors still decode.
+    override val client = network.client.newBuilder()
+        .addNetworkInterceptor { chain ->
+            chain.proceed(chain.request().newBuilder().header("Accept-Encoding", "gzip").build())
+        }
+        .build()
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int) = GET(baseUrl)
+    override fun popularAnimeRequest(page: Int) = catalogRequest(page, "popular")
 
-    override fun popularAnimeSelector() = "div.wrapper-2-a > article > a"
-
-    override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        setUrlWithoutDomain(element.attr("href"))
-        thumbnail_url = element.selectFirst("img")!!.attr("data-lazy-src")
-        title = element.selectFirst("div.title-post2")!!.text()
-    }
-
-    override fun popularAnimeNextPageSelector() = null
+    override fun popularAnimeParse(response: Response) = catalogParse(response)
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/page/$page")
+    override fun latestUpdatesRequest(page: Int) = catalogRequest(page, "updated")
 
-    override fun latestUpdatesSelector() = "div.post article"
-
-    override fun latestUpdatesFromElement(element: Element) = SAnime.create().apply {
-        element.selectFirst("h2 > a")!!.let {
-            setUrlWithoutDomain(it.attr("href"))
-            title = it.text()
-        }
-        thumbnail_url = element.selectFirst("img")!!.attr("srcset").substringBefore(" ")
-    }
-
-    override fun latestUpdatesNextPageSelector() = "ul.pagination > li > a:contains(Next)"
+    override fun latestUpdatesParse(response: Response) = catalogParse(response)
 
     // =============================== Search ===============================
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
@@ -77,7 +62,7 @@ class NimeGami : ParsedAnimeHttpLegacySource() {
 
         if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH)
-            return client.newCall(GET("$baseUrl/$id"))
+            return client.newCall(GET("$baseUrl/$id/", headers))
                 .awaitSuccess()
                 .use(::searchAnimeByIdParse)
         }
@@ -86,7 +71,7 @@ class NimeGami : ParsedAnimeHttpLegacySource() {
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
-        val details = animeDetailsParse(response.asJsoup()).apply {
+        val details = animeDetailsParse(response).apply {
             setUrlWithoutDomain(response.request.url.toString())
             initialized = true
         }
@@ -94,165 +79,149 @@ class NimeGami : ParsedAnimeHttpLegacySource() {
         return AnimesPage(listOf(details), false)
     }
 
-    // TODO: Add support for search filters
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = GET("$baseUrl/page/$page/?s=$query&post_type=post")
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = catalogRequest(page, "updated", query)
 
-    override fun searchAnimeSelector() = "div.archive > div > article"
+    override fun searchAnimeParse(response: Response) = catalogParse(response)
 
-    override fun searchAnimeFromElement(element: Element) = latestUpdatesFromElement(element)
+    private fun catalogRequest(page: Int, sort: String, query: String = ""): Request {
+        val url = "$baseUrl/anime/".toHttpUrl().newBuilder().apply {
+            if (query.isNotBlank()) addQueryParameter("q", query)
+            addQueryParameter("sort", sort)
+            if (page > 1) addQueryParameter("page", page.toString())
+        }.build()
+        return GET(url, headers)
+    }
 
-    override fun searchAnimeNextPageSelector() = latestUpdatesNextPageSelector()
+    private fun catalogParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val animes = document.select("article.anime-card > a.poster-link").map { link ->
+            SAnime.create().apply {
+                setUrlWithoutDomain(link.absUrl("href"))
+                val poster = link.selectFirst("img")
+                title = poster?.attr("alt")?.takeIf(String::isNotBlank) ?: link.attr("aria-label").removePrefix("Lihat ")
+                thumbnail_url = poster?.imageUrl()
+            }
+        }
+        val hasNextPage = document.selectFirst("a.page-arrow[aria-label=Halaman berikutnya]") != null
+        return AnimesPage(animes, hasNextPage)
+    }
 
     // =========================== Anime Details ============================
-    override fun animeDetailsParse(document: Document) = SAnime.create().apply {
-        setUrlWithoutDomain(document.location())
-        thumbnail_url = document.selectFirst("div.coverthumbnail img")!!.attr("src")
-        val infosDiv = document.selectFirst("div.info2 > table > tbody")!!
-        title = infosDiv.getInfo("Judul:")
-            ?: document.selectFirst("h2[itemprop=name]")!!.text()
-        genre = infosDiv.getInfo("Kategori")
-        artist = infosDiv.getInfo("Studio")
-        status = with(document.selectFirst("h1.title")?.text().orEmpty()) {
-            when {
-                contains("(On-Going)") -> SAnime.ONGOING
-                contains("(End)") || contains("(Movie)") -> SAnime.COMPLETED
+    override fun animeDetailsParse(response: Response): SAnime {
+        val document = response.asJsoup()
+        return SAnime.create().apply {
+            title = document.selectFirst("header.post-header h1")!!.text()
+            thumbnail_url = document.selectFirst("div.detail-poster img")?.imageUrl()
+            genre = document.select("div.post-genres a").joinToString { it.text() }
+            artist = document.getInfo("Studio")
+            status = when (document.getInfo("Status")?.lowercase()) {
+                "ongoing" -> SAnime.ONGOING
+                "completed", "finished", "tamat" -> SAnime.COMPLETED
                 else -> SAnime.UNKNOWN
             }
-        }
-
-        description = buildString {
-            document.select("div#Sinopsis p").eachText().forEach {
-                append("$it\n")
-            }
-
-            val nonNeeded = listOf("Judul:", "Kategori", "Studio")
-            infosDiv.select("tr")
-                .eachText()
-                .filterNot(nonNeeded::contains)
-                .forEach { append("\n$it") }
+            description = buildString {
+                document.select("div.synopsis-block > p").eachText().forEach { append("$it\n") }
+                listOf("Judul alternatif", "Tipe", "Musim", "Mulai tayang", "Durasi").forEach { label ->
+                    document.getInfo(label)?.let { append("\n$label: $it") }
+                }
+            }.trim()
         }
     }
 
-    private fun Element.getInfo(info: String) = selectFirst("tr:has(td.tablex:contains($info))")?.text()?.substringAfter(": ")
+    private fun Document.getInfo(label: String) = selectFirst("dl div:has(> dt:containsOwn($label)) > dd")?.text()
+        ?.takeUnless { it == "Belum tersedia" }
+
+    private fun Element.imageUrl(): String? {
+        val src = attr("srcset").substringBefore(" ").ifBlank { attr("src") }.ifBlank { return null }
+        val image = baseUrl.toHttpUrl().resolve(src) ?: return null
+        return image.queryParameter("url")?.let { baseUrl.toHttpUrl().resolve(it)?.toString() } ?: image.toString()
+    }
 
     // ============================== Episodes ==============================
-    override fun episodeListParse(response: Response) = super.episodeListParse(response).reversed()
-
-    override fun episodeListSelector() = "div.list_eps_stream > li.select-eps"
-
-    override fun episodeFromElement(element: Element) = SEpisode.create().apply {
-        val num = element.attr("id").substringAfterLast("_")
-        episode_number = num.toFloatOrNull() ?: 1F
-        name = "Episode $num"
-        url = element.attr("data")
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val data = fetchPlayerData(anime.url)
+        val numbers = (data.links.mapNotNull { it.episode } + data.episodeInfo.map { it.number }).distinct().sortedDescending()
+        return numbers.map { number ->
+            SEpisode.create().apply {
+                url = "/${data.slug}/#episode_$number"
+                episode_number = number.toFloat()
+                name = if (data.movie && numbers.size == 1) "Movie" else "Episode $number"
+            }
+        }
     }
+
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
+
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
+
+    override fun getEpisodeUrl(episode: SEpisode) = baseUrl + episode.url
 
     // ============================ Video Links =============================
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val qualities = json.decodeFromString<List<VideoQuality>>(episode.url.b64Decode())
-        val episodeIndex = episode.episode_number.toInt() - 1
-        var usedBunga = false // to prevent repeating the same request to bunga.nimegami
-        return qualities.flatMap {
-            val quality = it.format
-            it.url.mapNotNull { url ->
-                if (url.contains("bunga.nimegami")) {
-                    if (usedBunga) {
-                        return@mapNotNull null
-                    } else {
-                        usedBunga = true
-                    }
-                }
-                runCatching {
-                    extractVideos(url, quality, episodeIndex)
-                }.getOrElse { emptyList() }
-            }.flatten()
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
+        val number = episode.url.substringAfter("#episode_", "").toIntOrNull()
+            ?: throw Exception("Refresh the episode list to play this episode")
+        return fetchPlayerData(episode.url.substringBefore("#")).links
+            .filter { it.episode == number && it.mode == "embed" && it.playUrl != null && SUPPORTED_HOSTS.any(it.host::contains) }
+            .map { link ->
+                Hoster(
+                    hosterUrl = link.playUrl!!,
+                    hosterName = listOfNotNull(link.label, link.quality).joinToString(" - "),
+                )
+            }
+    }
+
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
+
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val url = hoster.hosterUrl
+        return when {
+            "mp4upload" in url -> Mp4uploadExtractor(client).videosFromUrl(url, headers, prefix = "${hoster.hosterName} - ")
+            "vidhide" in url -> VidHideExtractor(client, headers).videosFromUrl(url) { resolution -> "${hoster.hosterName} ($resolution)" }
+            else -> {
+                val document = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
+                val videoUrl = document.selectFirst("main#player[data-src]")?.absUrl("data-src")
+                    ?: document.selectFirst("video[src], video source[src]")?.absUrl("src")
+                    ?: return emptyList()
+                listOf(Video(videoUrl = videoUrl, videoTitle = hoster.hosterName, headers = headers))
+            }
         }
     }
 
-    private fun extractVideos(url: String, quality: String, episodeIndex: Int): List<Video> = with(url) {
-        when {
-            contains("video.nimegami.id") -> {
-                val realUrl = url.substringAfter("url=").substringBefore("&").b64Decode()
-                extractVideos(realUrl, quality, episodeIndex)
-            }
-
-            contains("berkasdrive") || contains("drive.nimegami") -> {
-                client.newCall(GET(url, headers)).execute()
-                    .asJsoup()
-                    .selectFirst("source[src]")
-                    ?.attr("src")
-                    ?.let {
-                        listOf(Video(it, "Berkasdrive - $quality", it, headers))
-                    } ?: emptyList()
-            }
-
-            contains("hxfile.co") -> {
-                val embedUrl = when {
-                    "embed-" in url -> url
-                    else -> url.replace(".co/", ".co/embed-") + ".html"
-                }
-
-                client.newCall(GET(embedUrl, headers)).execute()
-                    .asJsoup()
-                    .selectFirst("script:containsData(eval):containsData(p,a,c,k,e,d)")
-                    ?.data()
-                    ?.let(JsUnpacker::unpackAndCombine)
-                    ?.substringAfter("sources:[", "")
-                    ?.substringAfter("file\":\"", "")
-                    ?.substringBefore('"')
-                    ?.takeIf(String::isNotBlank)
-                    ?.let { listOf(Video(it, "HXFile - $quality", it, headers)) }
-                    ?: emptyList()
-            }
-
-            contains("bunga.nimegami") -> {
-                val episodeUrl = url.replace("select_eps", "eps=$episodeIndex")
-                client.newCall(GET(episodeUrl, headers)).execute()
-                    .asJsoup()
-                    .select("div.server_list ul > li")
-                    .map { it.attr("url") to it.text() }
-                    .filter { it.first.contains("uservideo") } // naniplay is absurdly slow
-                    .parallelFlatMapBlocking(::extractUserVideo)
-            }
-
-            else -> emptyList()
-        }
+    override fun List<Hoster>.sortHosters(): List<Hoster> = sortedByDescending { hoster ->
+        QUALITY_REGEX.find(hoster.hosterName)?.groupValues?.get(1)?.toIntOrNull() ?: 0
     }
 
-    private val urlPartRegex by lazy {
-        Regex("\\.(?:title|file) =(?:\n.*?'| ')(.*?)'", RegexOption.MULTILINE)
-    }
-
-    private suspend fun extractUserVideo(pair: Pair<String, String>): List<Video> {
-        val (url, quality) = pair
-        val doc = client.newCall(GET(url, headers)).await().asJsoup()
-        val scriptUrl = doc.selectFirst("script[src*=/s/?data]")?.attr("src")
-            ?: return emptyList()
-
-        return client.newCall(GET(scriptUrl, headers)).await()
-            .body.string()
-            .let(Synchrony::deobfuscateScript)
-            ?.let(urlPartRegex::findAll)
-            ?.map { it.groupValues[1] }
-            ?.chunkedPairs()
-            ?.map { (part, videoUrl) -> Video(videoUrl, "$quality - $part", videoUrl, headers) }
-            ?.toList()
-            ?: emptyList()
-    }
+    private suspend fun fetchPlayerData(animeUrl: String): PlayerData = client.newCall(GET(baseUrl + animeUrl, headers))
+        .awaitSuccess()
+        .useAsJsoup()
+        .extractNextJs<PlayerData>()
+        ?: throw Exception("No episodes found")
 
     @Serializable
-    data class VideoQuality(val format: String, val url: List<String>)
+    class PlayerData(
+        val links: List<LinkDto>,
+        val slug: String,
+        val movie: Boolean = false,
+        val episodeInfo: List<EpisodeInfoDto> = emptyList(),
+    )
 
-    override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
+    @Serializable
+    class LinkDto(
+        val playUrl: String? = null,
+        val mode: String? = null,
+        val label: String? = null,
+        val host: String = "",
+        val quality: String? = null,
+        val episode: Int? = null,
+    )
 
-    override fun videoListSelector(): String = throw UnsupportedOperationException()
-
-    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
-
-    // ============================= Utilities ==============================
-    private fun String.b64Decode() = String(Base64.decode(this, Base64.DEFAULT))
+    @Serializable
+    class EpisodeInfoDto(val number: Int)
 
     companion object {
         const val PREFIX_SEARCH = "id:"
+
+        private val SUPPORTED_HOSTS = listOf("berkasdrive", "workers.dev", "mp4upload", "vidhide")
+        private val QUALITY_REGEX = Regex("""(\d{3,4})p""")
     }
 }
