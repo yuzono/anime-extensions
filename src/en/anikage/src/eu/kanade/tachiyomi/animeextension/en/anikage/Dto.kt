@@ -1,215 +1,281 @@
 package eu.kanade.tachiyomi.animeextension.en.anikage
 
-import kotlinx.serialization.SerialName
+import android.util.Base64
+import eu.kanade.tachiyomi.animesource.model.FetchType
+import eu.kanade.tachiyomi.animesource.model.SAnime
+import eu.kanade.tachiyomi.animesource.model.SEpisode
 import kotlinx.serialization.Serializable
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @Serializable
-data class NextAiringEpisode(
-    val episode: Int,
-    val airingAt: Long,
-    val timeUntilAiring: Long,
+data class BrowseResponseDto(
+    val data: List<AnimeItemDto> = emptyList(),
+    val hasNext: Boolean = false,
 )
 
 @Serializable
-data class CoverImage(
-    val medium: String? = null,
-    val large: String? = null,
+data class DetailsResponseDto(
+    val anime: AnimeItemDto? = null,
+)
+
+@Serializable
+data class TitleDto(
+    val romaji: String? = null,
+    val english: String? = null,
+    val native: String? = null,
+    val userPreferred: String? = null,
+) {
+    fun best(): String = english ?: romaji ?: userPreferred ?: native ?: ""
+}
+
+@Serializable
+data class CoverDto(
     val extraLarge: String? = null,
+    val large: String? = null,
+    val medium: String? = null,
+) {
+    fun best(): String? = extraLarge ?: large ?: medium
+}
+
+@Serializable
+data class StudioDto(
+    val name: String? = null,
 )
 
 @Serializable
-data class Title(
-    val romaji: String? = null,
-    val english: String? = null,
-    val native: String? = null,
-)
-
-@Serializable
-data class Result(
-    @SerialName("anilistId") val aniListId: Int,
-    val averageScore: Int?,
-    val coverColor: String?,
-    val coverImage: CoverImage?,
-    val duration: Int?,
-    val format: String?,
-    val genres: List<String>,
-    val isAdult: Boolean,
-    val malScore: Float?,
-    val meanScore: Float?,
-    val nextAiringEpisode: NextAiringEpisode?,
-    val popularity: Long,
-    val season: String?,
-    val slug: String,
-    val status: String?,
-    val title: Title,
-    val totalEpisodes: Int?,
-    val type: String?,
-    val year: Int?,
-
-)
-
-@Serializable
-data class AnikageResponse(
-    val count: Int,
-    val data: List<Result>,
-    val hasNext: Boolean,
-    val matchQuality: String,
-    val page: Int,
-    val relaxedBy: List<String>,
-    val total: Int,
-)
-
-@Serializable
-data class AnimeInfoTitle(
-    val romaji: String?,
-    val english: String?,
-    val native: String? = null,
-)
-
-@Serializable
-data class AnimeInfoStudio(
-    val name: String,
-    val isAnimationStudio: Boolean = false,
-)
-
-@Serializable
-data class AnimeInfo(
-    val slug: String,
-    val title: AnimeInfoTitle,
+data class AnimeItemDto(
+    val slug: String? = null,
+    val title: TitleDto? = null,
+    val coverImage: CoverDto? = null,
+    val bannerImage: String? = null,
     val description: String? = null,
-    val coverImage: CoverImage? = null,
-    val status: String,
-    val genres: List<String> = emptyList(),
-    val studios: List<AnimeInfoStudio> = emptyList(),
-    val relations: List<Relation> = emptyList(),
-    val recommendations: List<Recommendation> = emptyList(),
-)
-
-@Serializable
-data class RelatedAnimeTitle(
-    val romaji: String? = null,
-    val english: String? = null,
-    val native: String? = null,
-)
-
-@Serializable
-data class Relation(
-    val slug: String,
-    val title: RelatedAnimeTitle,
-    val format: String? = null,
+    val genres: List<String>? = null,
+    val studios: List<StudioDto>? = null,
     val status: String? = null,
-    val anilistId: Int? = null,
-    val coverImage: String? = null,
-    val relationType: String? = null,
-)
-
-@Serializable
-data class Recommendation(
-    val slug: String,
-    val title: RelatedAnimeTitle,
     val format: String? = null,
-    val status: String? = null,
-    val episodes: Int? = null,
-    val anilistId: Int? = null,
-    val coverImage: String? = null,
+    val year: Int? = null,
+    val season: String? = null,
+    val totalEpisodes: Int? = null,
+) {
+    fun toSAnime(): SAnime = SAnime.create().apply {
+        title = this@AnimeItemDto.title?.best().orEmpty()
+        url = "/anime/info/${slug.orEmpty()}"
+        thumbnail_url = coverImage?.best() ?: bannerImage
+        description = buildDescription()
+        genre = genres?.joinToString()
+        author = studios?.mapNotNull { it.name }?.joinToString()?.takeIf { it.isNotBlank() }
+        status = when (this@AnimeItemDto.status?.uppercase()) {
+            "RELEASING" -> SAnime.ONGOING
+            "FINISHED" -> SAnime.COMPLETED
+            "NOT_YET_RELEASED" -> SAnime.LICENSED
+            "HIATUS" -> SAnime.ON_HIATUS
+            "CANCELLED" -> SAnime.CANCELLED
+            else -> SAnime.UNKNOWN
+        }
+        fetch_type = FetchType.Episodes
+    }
+
+    private fun buildDescription(): String {
+        val plot = description?.replace(Regex("<br\\s*/?>"), "\n")?.replace(Regex("<[^>]+>"), "")?.trim()
+        val meta = buildList {
+            format?.let { add("Format: $it") }
+            year?.let { add("Year: $it") }
+            season?.let { add("Season: ${it.lowercase().replaceFirstChar { c -> c.uppercase() }}") }
+            totalEpisodes?.let { add("Episodes: $it") }
+        }.joinToString(" • ")
+        return listOf(plot, meta).filter { !it.isNullOrBlank() }.joinToString("\n\n")
+    }
+}
+
+@Serializable
+data class EpisodeDto(
+    val number: Float? = null,
+    val title: String? = null,
+    val seasonNumber: Int? = null,
+    val image: String? = null,
+    val description: String? = null,
+    val airDate: String? = null,
+    val isFiller: Boolean? = null,
+) {
+    fun toSEpisode(slug: String): SEpisode = SEpisode.create().apply {
+        val num = number ?: 1f
+        val epLabel = if (num == num.toInt().toFloat()) num.toInt().toString() else num.toString()
+        val fillerTag = if (isFiller == true) " (Filler)" else ""
+        name = "Episode $epLabel${title?.takeIf { it.isNotBlank() }?.let { " - $it" } ?: ""}$fillerTag"
+        episode_number = num
+        url = "$slug#ep=$epLabel"
+        preview_url = image
+        summary = description
+        date_upload = parseDate(airDate)
+    }
+
+    private fun parseDate(date: String?): Long {
+        date ?: return 0L
+        return runCatching {
+            SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH).parse(date)?.time ?: 0L
+        }.getOrDefault(0L)
+    }
+}
+
+@Serializable
+data class ServersResponseDto(
+    val servers: List<ServerDto> = emptyList(),
 )
 
 @Serializable
-data class AnimeInfoResponse(
-    val anime: AnimeInfo,
-    val banned: Boolean = false,
-)
-
-@Serializable
-data class EpisodeResult(
-    val id: String,
-    val slug: String,
-    val number: Int,
-    val seasonNumber: Int?,
-    val episodeInSeason: Int?,
-    val seasonName: String?,
-    val title: String?,
-    val titleRomaji: String?,
-    val titleNative: String?,
-    val description: String?,
-    val image: String?,
-    val airDate: String?,
-    val runtime: Int?,
-    val rating: Float?,
-    val isFiller: Boolean,
-    val isRecap: Boolean,
-)
-
-@Serializable
-data class ServerInfo(
-    val id: String,
-    val providerId: String,
-    val default: Boolean = false,
+data class ServerDto(
+    val id: String? = null,
     val subTypes: List<String> = emptyList(),
 )
 
 @Serializable
-data class EpisodeServers(
-    val servers: List<ServerInfo> = emptyList(),
-)
-
-@Serializable
-data class EmbedOptions(
-    val key: String,
-    val label: String,
-    val url: String,
-)
-
-@Serializable
-data class EpisodeSource(
-    val slug: String,
-    val number: Int,
-    val providerId: String,
-    val subType: String,
-    val sources: List<SourceData> = emptyList(),
-    val subtitles: List<SubtitleData> = emptyList(),
-    val embeds: List<Embed>? = null,
-    val intro: TimeStamp? = null,
-    val outro: TimeStamp? = null,
-    val headers: Map<String, String> = emptyMap(),
-    val embedOptions: List<EmbedOptions>? = null,
-    val cached: Boolean,
-    val stale: Boolean,
-)
-
-@Serializable
-data class SourceData(
-    val url: String,
-    val quality: String,
-    val isM3U8: Boolean? = null,
-    val embedUrl: String? = null,
-    val type: String?,
+data class SourcesResponseDto(
+    val sources: List<SourceItemDto> = emptyList(),
+    val subtitles: List<ApiSubtitleDto> = emptyList(),
+    val embeds: List<EmbedDto> = emptyList(),
+    val embedOptions: List<EmbedOptionDto> = emptyList(),
 ) {
-    fun episodeSourceUrl(): String = listOfNotNull(
-        "https://og.bakayaro.live",
-        if (isM3U8 == true) "m3u8" else "stream",
-        url,
-    ).joinToString("/")
+    private fun labelsByUrl(): Map<String, String> = buildMap {
+        embeds.forEach { embed ->
+            val url = embed.url ?: return@forEach
+            embed.server?.takeIf { it.isNotBlank() }?.let { put(url, it) }
+        }
+        embedOptions.forEach { option ->
+            val url = option.url ?: return@forEach
+            option.label?.takeIf { it.isNotBlank() }?.let { put(url, it) }
+        }
+    }
+
+    private fun captionTracks(): List<ApiSubtitleDto> = subtitles.filter {
+        val kind = it.kind?.lowercase()
+        kind == null || kind == "captions" || kind == "subtitles"
+    }
+
+    fun toStreamEntries(lang: String, refererByHost: Map<String, String>): List<StreamEntry> {
+        val labels = labelsByUrl()
+        val tracks = captionTracks().mapNotNull { sub ->
+            val url = decodeStreamToken(sub.file ?: sub.url)?.url ?: return@mapNotNull null
+            SubtitleEntry(url = url, label = sub.label ?: "English")
+        }
+
+        return sources.mapNotNull { src ->
+            val decoded = decodeStreamToken(src.url)
+            val streamUrl = decoded?.url.orEmpty()
+            val embedUrl = src.embedUrl?.takeIf { it.startsWith("http") }.orEmpty()
+            if (streamUrl.isEmpty() && embedUrl.isEmpty()) return@mapNotNull null
+
+            StreamEntry(
+                lang = lang.uppercase(),
+                url = streamUrl,
+                referer = decoded?.referer?.takeIf { it.isNotEmpty() }
+                    ?: refererByHost[streamUrl.hostOrEmpty()].orEmpty(),
+                isM3U8 = src.isM3U8 ?: true,
+                label = src.embedUrl?.let { labels[it] } ?: src.server ?: src.quality.orEmpty(),
+                embedUrl = embedUrl,
+                subtitles = tracks,
+            )
+        }
+    }
 }
 
 @Serializable
-data class SubtitleData(
-    val file: String,
-    val label: String,
-    val kind: String,
-    val default: Boolean? = null,
+data class ApiSubtitleDto(
+    val file: String? = null,
+    val url: String? = null,
+    val label: String? = null,
+    val kind: String? = null,
+)
+
+@Serializable
+data class EmbedDto(
+    val url: String? = null,
+    val server: String? = null,
+)
+
+@Serializable
+data class EmbedOptionDto(
+    val url: String? = null,
+    val label: String? = null,
+)
+
+@Serializable
+data class SourceItemDto(
     val embedUrl: String? = null,
+    val url: String? = null,
+    val quality: String? = null,
+    val isM3U8: Boolean? = null,
+    val server: String? = null,
 )
 
 @Serializable
-data class Embed(
+data class MegaPlaySourcesDto(
+    val sources: MegaPlayFileDto? = null,
+    val tracks: List<MegaPlayTrackDto> = emptyList(),
+)
+
+@Serializable
+data class MegaPlayFileDto(
+    val file: String? = null,
+)
+
+@Serializable
+data class MegaPlayTrackDto(
+    val file: String? = null,
+    val label: String? = null,
+    val kind: String? = null,
+)
+
+@Serializable
+data class StreamEntry(
+    val lang: String,
     val url: String,
-    val type: String,
-    val server: String,
-)
+    val referer: String,
+    val isM3U8: Boolean,
+    val label: String,
+    val embedUrl: String,
+    val subtitles: List<SubtitleEntry> = emptyList(),
+) {
+    fun refererCandidates(): List<String> = buildList {
+        if (referer.isNotBlank()) add(referer)
+        url.toHttpUrlOrNull()?.let { httpUrl ->
+            add("${httpUrl.scheme}://${httpUrl.host}/")
+            val apex = httpUrl.host.split('.').takeLast(2).joinToString(".")
+            add("${httpUrl.scheme}://$apex/")
+        }
+        add("")
+    }.distinct()
+}
 
 @Serializable
-data class TimeStamp(
-    val start: Int,
-    val end: Int,
+data class SubtitleEntry(
+    val url: String,
+    val label: String,
 )
+
+data class DecodedStream(
+    val url: String,
+    val referer: String,
+)
+
+private val TOKEN_KEY = "dj5D455Lzl2LKJXEtFwb5gy2oGFSYPnBKp7PTgFPm6Gn2MGb".toByteArray()
+private const val TOKEN_SEPARATOR = '\u0000'
+
+fun decodeStreamToken(token: String?): DecodedStream? {
+    if (token.isNullOrBlank()) return null
+    val raw = runCatching {
+        Base64.decode(token.replace('-', '+').replace('_', '/'), Base64.DEFAULT)
+    }.getOrNull()?.takeIf { it.isNotEmpty() } ?: return null
+
+    val plain = String(
+        ByteArray(raw.size) { i -> (raw[i].toInt() xor TOKEN_KEY[i % TOKEN_KEY.size].toInt()).toByte() },
+    )
+    val parts = plain.split(TOKEN_SEPARATOR)
+    val url = parts.firstOrNull()?.trim().orEmpty()
+    if (!url.startsWith("http")) return null
+
+    return DecodedStream(url = url, referer = parts.getOrNull(1)?.trim().orEmpty())
+}
+
+fun String.hostOrEmpty(): String = toHttpUrlOrNull()?.host.orEmpty()
