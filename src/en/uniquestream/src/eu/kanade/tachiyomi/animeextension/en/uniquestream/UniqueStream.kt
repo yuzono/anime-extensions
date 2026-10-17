@@ -272,19 +272,19 @@ class UniqueStream : Source() {
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
-            key = PREF_AUDIO_KEY,
-            title = "Preferred Audio",
-            entries = PREF_AUDIO_ENTRIES,
-            entryValues = PREF_AUDIO_VALUES,
-            default = PREF_AUDIO_DEFAULT,
-            summary = "%s",
-        )
-        screen.addListPreference(
             key = PREF_QUALITY_KEY,
             title = "Preferred Quality",
             entries = PREF_QUALITY_ENTRIES,
             entryValues = PREF_QUALITY_VALUES,
             default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
+        screen.addListPreference(
+            key = PREF_AUDIO_KEY,
+            title = "Preferred Audio",
+            entries = PREF_AUDIO_ENTRIES,
+            entryValues = PREF_AUDIO_VALUES,
+            default = PREF_AUDIO_DEFAULT,
             summary = "%s",
         )
     }
@@ -456,14 +456,10 @@ class UniqueStream : Source() {
 
         private fun getScanlatorLabel(locales: List<String>?): String? {
             if (locales.isNullOrEmpty()) return null
-            val hasSub = locales.contains("ja-JP")
-            val hasDub = locales.any { it != "ja-JP" }
-            return when {
-                hasSub && hasDub -> "Sub, Dub"
-                hasDub -> "Dub"
-                hasSub -> "Sub"
-                else -> null
-            }
+            return listOfNotNull(
+                "Sub".takeIf { locales.contains("ja-JP") },
+                "Dub".takeIf { locales.any { it != "ja-JP" } },
+            ).joinToString(" & ").ifEmpty { null }
         }
     }
 }
