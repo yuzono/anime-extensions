@@ -18,50 +18,44 @@ import eu.kanade.tachiyomi.animeextension.en.xanime.Filters.TYPE_MAP
 import eu.kanade.tachiyomi.animeextension.en.xanime.Filters.TypeFilter
 import eu.kanade.tachiyomi.animeextension.en.xanime.Filters.YearFromFilter
 import eu.kanade.tachiyomi.animeextension.en.xanime.Filters.YearToFilter
-import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.network.rateLimit
-import keiyoushi.utils.AnimeHttpLegacySource
+import keiyoushi.utils.Source
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
+import keiyoushi.utils.delegate
 import keiyoushi.utils.firstInstanceOrNull
-import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
-import keiyoushi.utils.parseAs
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import okhttp3.HttpUrl.Companion.toHttpUrl
+import kotlinx.serialization.encodeToString
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.Request
-import okhttp3.Response
 
-class XAnime :
-    AnimeHttpLegacySource(),
-    ConfigurableAnimeSource {
+class XAnime : Source() {
     override val name = "XAnime"
     override val lang = "en"
     override val supportsLatest = true
 
-    private val preferences by getPreferencesLazy()
+    override var baseUrl: String
+        by preferences.delegate(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
 
-    override val baseUrl: String get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN)!!
+    private val cryptoClient by lazy {
+        client.newBuilder()
+            .addInterceptor(Crypto())
+            .rateLimit(5)
+            .build()
+    }
 
-    private val cryptoClient = client.newBuilder()
-        .addInterceptor(Crypto())
-        .rateLimit(5)
-        .build()
-
-    private val api = Queries(cryptoClient, { baseUrl }, headers)
+    private val api by lazy { Queries(cryptoClient, { baseUrl }, headers) }
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
@@ -81,29 +75,25 @@ class XAnime :
 
     override suspend fun getPopularAnime(page: Int): AnimesPage = fetchSearchAnime(page, "", "field_score", getFilterList())
 
-    override fun popularAnimeRequest(page: Int): Request = throw UnsupportedOperationException()
-    override fun popularAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException()
-
     override suspend fun getLatestUpdates(page: Int): AnimesPage = fetchSearchAnime(page, "", "field_update", getFilterList())
-
-    override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
-    override fun latestUpdatesParse(response: Response): AnimesPage = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.startsWith("http")) {
-            val url = query.toHttpUrlOrNull() ?: return AnimesPage(emptyList(), false)
-            val knownHosts = DOMAIN_VALUES.map { it.toHttpUrl().host }
-            if (url.host !in knownHosts) return AnimesPage(emptyList(), false)
-
-            val titleIndex = url.pathSegments.indexOf("title")
-            val aniId = url.pathSegments.getOrNull(titleIndex + 1)
-                ?.substringBefore("-")
-                ?.takeIf { titleIndex != -1 && it.isNotBlank() }
-                ?: return AnimesPage(emptyList(), false)
-
-            return getSearchAnime(page, "$PREFIX_ID$aniId", filters)
+            val url = query.toHttpUrlOrNull()
+            if (url != null && (url.host == "xanime.me" || url.host == "xanime.app") && url.pathSegments.contains("title")) {
+                val titleIndex = url.pathSegments.indexOf("title")
+                val aniId = url.pathSegments.getOrNull(titleIndex + 1)
+                    ?.substringBefore("-")
+                    ?.takeIf { it.isNotBlank() }
+                if (aniId != null) {
+                    val anime = runCatching { getAnimeDetails(SAnime.create().apply { this.url = aniId }) }.getOrNull()
+                    if (anime != null && anime.title.isNotBlank()) {
+                        return AnimesPage(listOf(anime), false)
+                    }
+                }
+            }
         }
 
         if (query.startsWith(PREFIX_ID)) {
@@ -119,12 +109,8 @@ class XAnime :
         }
 
         val sortby = filters.firstInstanceOrNull<SortFilter>()?.getValue(SORT_MAP) ?: "field_date_create"
-
         return fetchSearchAnime(page, query, sortby, filters)
     }
-
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = throw UnsupportedOperationException()
-    override fun searchAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException()
 
     private suspend fun fetchSearchAnime(page: Int, query: String, sortby: String, filters: AnimeFilterList): AnimesPage {
         val genres = filters.firstInstanceOrNull<GenreGroup>()
@@ -183,8 +169,6 @@ class XAnime :
         return node.toSAnimeDetails(baseUrl)
     }
 
-    override fun animeDetailsParse(response: Response): SAnime = throw UnsupportedOperationException()
-
     override fun getAnimeUrl(anime: SAnime): String {
         val slug = slugCache.get(anime.url)?.let { "-$it" } ?: ""
         return "$baseUrl/title/${anime.url}$slug"
@@ -194,25 +178,15 @@ class XAnime :
 
     override val disableRelatedAnimesBySearch = true
 
-    override fun relatedAnimeListRequest(anime: SAnime): Request = api.getRelatedAnimeRequest(anime.url)
-
     override suspend fun fetchRelatedAnimeList(anime: SAnime): List<SAnime> {
-        val response = cryptoClient.newCall(relatedAnimeListRequest(anime)).awaitSuccess()
-        return relatedAnimeListParse(response)
-    }
-
-    override fun relatedAnimeListParse(response: Response): List<SAnime> {
-        val node = response.parseAs<GraphQlResponse<RelatedResponse>>().data?.node
-            ?: return emptyList()
+        val res = api.getRelatedAnime(anime.url)
+        val node = res.node ?: return emptyList()
         val currentId = node.data?.aniId
 
         return buildList {
             node.relations.forEach { rel ->
                 val aniId = rel.aniId?.takeIf { it.isNotBlank() } ?: return@forEach
-
-                if (aniId == currentId) return@forEach
-                if (any { it.url == aniId }) return@forEach
-
+                if (aniId == currentId || any { it.url == aniId }) return@forEach
                 add(rel.toSAnime(aniId, baseUrl))
             }
         }
@@ -239,8 +213,6 @@ class XAnime :
             .sortedByDescending { it.episode_number }
     }
 
-    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
-
     override fun getEpisodeUrl(episode: SEpisode): String {
         val aniId = episode.url.substringBefore("/")
         val epId = episode.url.substringAfter("/")
@@ -249,74 +221,91 @@ class XAnime :
         return "$baseUrl/title/$aniId$aniSlug/$epId$epSlug"
     }
 
-    // ============================ Video Links =============================
+    // =========================== Hosters & Videos ==========================
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val epId = episode.url.substringAfter("/")
         val res = api.getVideoUrl(epId)
-        val sources = res.videoUrlData?.data?.sourcesList ?: emptyList()
+        val sources = res.videoUrlData?.data?.sourcesList ?: return emptyList()
 
         val excludedTypes = preferences.getStringSet(PREF_EXCLUDE_TYPE_KEY, emptySet()) ?: emptySet()
+        val hosterList = mutableListOf<Hoster>()
 
-        val videos = sources.parallelCatchingFlatMapBlocking { source ->
-            val srcData = source.data ?: return@parallelCatchingFlatMapBlocking emptyList()
-
+        for (source in sources) {
+            val srcData = source.data ?: continue
             val srcType = srcData.srcType?.replaceFirstChar {
                 if (it.isLowerCase()) it.titlecase() else it.toString()
             } ?: "Unknown"
 
-            if (excludedTypes.any { it.equals(srcType, ignoreCase = true) }) return@parallelCatchingFlatMapBlocking emptyList()
+            if (excludedTypes.any { it.equals(srcType, ignoreCase = true) }) continue
 
-            val trackList = srcData.tracks.mapNotNull { track ->
+            val serverName = srcData.srcName ?: "Server"
+            val tracks = srcData.tracks.mapNotNull { track ->
                 track.trackPath?.let { path ->
                     val url = if (path.startsWith("http")) path else baseUrl + path
                     val isDefault = track.default?.toString()?.contains("true", ignoreCase = true) ?: false
                     val label = track.label ?: "Unknown"
-                    Track(url, if (isDefault) "$label (Default)" else label)
+                    HosterTrack(url, if (isDefault) "$label (Default)" else label)
                 }
             }
 
-            buildList {
-                srcData.souPath?.let { path ->
+            srcData.souPath?.takeIf { it.isNotBlank() }?.let { path ->
+                val url = if (path.startsWith("http")) path else baseUrl + path
+                val payload = json.encodeToString(HosterData(url, tracks))
+                hosterList.add(
+                    Hoster(
+                        hosterName = "$srcType - $serverName",
+                        hosterUrl = url,
+                        internalData = payload,
+                    ),
+                )
+            }
+
+            srcData.m3u8Lists.forEach { m3u8 ->
+                m3u8.iframe?.takeIf { it.isNotBlank() }?.let { path ->
                     val url = if (path.startsWith("http")) path else baseUrl + path
-                    val serverName = srcData.srcName ?: "Unknown"
-                    addAll(
-                        playlistUtils.extractFromHls(
-                            playlistUrl = url,
-                            videoNameGen = { quality -> "$srcType - $serverName: $quality" },
-                            subtitleList = trackList,
+                    val name = m3u8.name ?: serverName
+                    val payload = json.encodeToString(HosterData(url, tracks))
+                    hosterList.add(
+                        Hoster(
+                            hosterName = "$srcType - $name",
+                            hosterUrl = url,
+                            internalData = payload,
                         ),
                     )
-                }
-
-                srcData.m3u8Lists.forEach { m3u8 ->
-                    m3u8.iframe?.let { path ->
-                        val url = if (path.startsWith("http")) path else baseUrl + path
-                        addAll(
-                            playlistUtils.extractFromHls(
-                                playlistUrl = url,
-                                videoNameGen = { quality -> "$srcType - ${m3u8.name ?: "Unknown"}: $quality" },
-                                subtitleList = trackList,
-                            ),
-                        )
-                    }
                 }
             }
         }
 
-        return videos
+        return hosterList
     }
 
-    override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val preferredType = preferences.getString(PREF_TYPE_KEY, PREF_TYPE_DEFAULT) ?: PREF_TYPE_DEFAULT
+        return sortedByDescending { it.hosterName.startsWith(preferredType, ignoreCase = true) }
+    }
 
-    override fun List<Video>.sortVideos(): List<Video> {
-        val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-        val type = preferences.getString(PREF_TYPE_KEY, PREF_TYPE_DEFAULT)!!
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val hosterData = runCatching { json.decodeFromString<HosterData>(hoster.internalData) }.getOrNull()
+        val streamUrl = hosterData?.url ?: hoster.hosterUrl
+        if (streamUrl.isBlank()) return emptyList()
 
-        return this.sortedWith(
-            compareByDescending<Video> { it.videoTitle.contains(quality) }
-                .thenByDescending { getQualityNumeric(it.videoTitle) }
-                .thenByDescending { it.videoTitle.contains(type, ignoreCase = true) },
+        val subtitleTracks = hosterData?.tracks?.map { Track(it.url, it.label) } ?: emptyList()
+
+        val videos = playlistUtils.extractFromHls(
+            playlistUrl = streamUrl,
+            referer = "$baseUrl/",
+            masterHeaders = headers,
+            videoHeaders = headers,
+            videoNameGen = { quality -> "${hoster.hosterName}: $quality" },
+            subtitleList = subtitleTracks,
+        )
+
+        val preferredQuality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT) ?: PREF_QUALITY_DEFAULT
+
+        return videos.sortedWith(
+            compareByDescending<Video> { it.videoTitle.contains(preferredQuality) }
+                .thenByDescending { getQualityNumeric(it.videoTitle) },
         )
     }
 
@@ -330,9 +319,11 @@ class XAnime :
             title = "Preferred Domain",
             entries = DOMAIN_ENTRIES,
             entryValues = DOMAIN_VALUES,
-            default = PREF_DOMAIN,
+            default = PREF_DOMAIN_DEFAULT,
             summary = "%s",
-        )
+        ) {
+            baseUrl = it
+        }
 
         screen.addListPreference(
             key = PREF_QUALITY_KEY,
@@ -368,7 +359,7 @@ class XAnime :
         private val DOMAIN_VALUES = listOf("https://xanime.me", "https://xanime.app")
         private val DOMAIN_ENTRIES = listOf("xanime.me", "xanime.app")
         private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private val PREF_DOMAIN = DOMAIN_VALUES[0]
+        private val PREF_DOMAIN_DEFAULT = DOMAIN_VALUES[0]
 
         private val QUALITY_VALUES = listOf("1080p", "720p", "480p", "360p")
         private val QUALITY_KEYS = listOf("1080", "720", "480", "360")
