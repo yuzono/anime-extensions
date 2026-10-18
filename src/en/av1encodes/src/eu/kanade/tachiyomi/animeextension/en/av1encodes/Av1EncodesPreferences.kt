@@ -54,7 +54,7 @@ internal fun buildPreferenceScreen(screen: PreferenceScreen) {
     screen.addSwitchPreference(
         key = PREF_SHOW_TORRENT_KEY,
         title = "Show Torrent Link",
-        summary = "Include the torrent link as a server option (requires external torrent client, cannot play in built-in player).",
+        summary = "Include the torrent link as a server option.",
         default = PREF_SHOW_TORRENT_DEFAULT,
     )
 }
