@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.all.torrentioanime
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import java.util.Calendar
 
 object AniListFilters {
     open class QueryPartFilter(
@@ -56,7 +57,6 @@ object AniListFilters {
         YearFilter(),
         SeasonFilter(),
         StatusFilter(),
-
     )
 
     class FilterSearchParams(
@@ -66,7 +66,6 @@ object AniListFilters {
         val year: String = "",
         val season: String = "",
         val status: String = "",
-
     )
 
     internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
@@ -79,7 +78,6 @@ object AniListFilters {
             filters.asQueryPart<YearFilter>(),
             filters.asQueryPart<SeasonFilter>(),
             filters.asQueryPart<StatusFilter>(),
-
         )
     }
 
@@ -105,9 +103,11 @@ object AniListFilters {
             Pair("Thriller", "Thriller"),
         )
 
+        private val currentYear = Calendar.getInstance().get(Calendar.YEAR)
+
         val YEAR_LIST: Array<Pair<String, String>> = arrayOf(
             Pair("Any", ""),
-        ) + (1940..2025).reversed().map { Pair(it.toString(), it.toString()) }.toTypedArray()
+        ) + (1940..currentYear).reversed().map { Pair(it.toString(), it.toString()) }.toTypedArray()
 
         val SEASON_LIST = arrayOf(
             Pair("Any", ""),
