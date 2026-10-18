@@ -282,7 +282,7 @@ object UniqueStreamHlsServer : NanoHTTPD("127.0.0.1", 0) {
         }
     }
 
-    private fun fetchString(url: String): String = requireClient().newCall(Request.Builder().url(url.toValidatedHttpUrl()).build()).execute().use { response ->
+    fun fetchString(url: String): String = requireClient().newCall(Request.Builder().url(url.toValidatedHttpUrl()).build()).execute().use { response ->
         if (!response.isSuccessful) {
             throw IOException("Failed to fetch playlist: ${response.code}")
         }
