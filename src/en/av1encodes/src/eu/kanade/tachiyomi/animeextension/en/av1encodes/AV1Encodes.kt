@@ -350,7 +350,6 @@ class AV1Encodes : Source() {
     // =============================== Hosters ===============================
 
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
-        val preferredLinkType = preferences.getString(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)!!
         val hosters = buildList {
             add(Hoster(hosterName = "Stream", internalData = episode.url))
             add(Hoster(hosterName = "Direct DL", internalData = episode.url))
@@ -359,7 +358,12 @@ class AV1Encodes : Source() {
                 add(Hoster(hosterName = "Torrent", internalData = episode.url))
             }
         }
-        return hosters.sortedByDescending { it.hosterName.equals(preferredLinkType, ignoreCase = true) }
+        return hosters.sortHosters()
+    }
+
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val preferredLinkType = preferences.getString(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)!!
+        return sortedByDescending { it.hosterName.equals(preferredLinkType, ignoreCase = true) }
     }
 
     // =============================== Videos ================================
@@ -368,12 +372,15 @@ class AV1Encodes : Source() {
         val episodeUrl = hoster.internalData
         if (episodeUrl.isBlank()) return emptyList()
 
+        val preferredLinkType = preferences.getString(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)!!
+        val isPreferredServer = hoster.hosterName.equals(preferredLinkType, ignoreCase = true)
+
         val pathParts = episodeUrl.substringBefore("?").trim('/').split("/")
         val encodedFilename = episodeUrl.substringBefore("?").substringAfterLast("/")
         val filename = Uri.decode(encodedFilename)
 
         if (pathParts.size < 5 || pathParts[0] != "download") {
-            return fallbackDirectUrl(episodeUrl, filename)
+            return fallbackDirectUrl(episodeUrl, filename, isPreferredServer)
         }
 
         val slug = pathParts[1]
@@ -403,11 +410,15 @@ class AV1Encodes : Source() {
         }.distinctBy { it.videoUrl }
 
         if (videos.isEmpty()) {
-            return fallbackDirectUrl(episodeUrl, filename)
+            return fallbackDirectUrl(episodeUrl, filename, isPreferredServer)
         }
 
         return videos.sortByPreferredQuality(preferences).mapIndexed { index, video ->
-            if (index == 0) video.copy(preferred = true) else video
+            if (index == 0 && isPreferredServer) {
+                video.copy(preferred = true)
+            } else {
+                video.copy(preferred = false)
+            }
         }
     }
 
@@ -512,12 +523,20 @@ class AV1Encodes : Source() {
         }.getOrNull()
     }
 
-    private fun fallbackDirectUrl(episodeUrl: String, filename: String): List<Video> {
+    private fun fallbackDirectUrl(episodeUrl: String, filename: String, isPreferredServer: Boolean): List<Video> {
         val fullUrl = baseUrl + episodeUrl
-        val resLabel = RES_LABEL_REGEX.find(filename)?.groupValues?.get(1) ?: prefQuality
+        val resLabel = RES_LABEL_REGEX.find(filename)?.groupValues?.get(1)
+            ?: resLabelFromResolution(prefQuality)
         val audioTag = AUDIO_TAG_REGEX.find(filename)?.groupValues?.get(1) ?: ""
         val label = "AV1 · $resLabel${if (audioTag.isNotBlank()) " [$audioTag]" else ""}"
-        return listOf(Video(videoUrl = fullUrl, videoTitle = label, headers = headers))
+        return listOf(
+            Video(
+                videoUrl = fullUrl,
+                videoTitle = label,
+                headers = headers,
+                preferred = isPreferredServer,
+            ),
+        )
     }
 
     // =========================== Extraction Helpers ========================
