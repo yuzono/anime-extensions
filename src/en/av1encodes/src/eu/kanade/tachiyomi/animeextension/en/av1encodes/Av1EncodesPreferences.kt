@@ -59,16 +59,14 @@ internal fun buildPreferenceScreen(screen: PreferenceScreen) {
     )
 }
 
-private val qualityRegex by lazy { Regex("""[xX]\s*(\d{3,4})""") }
+private val qualityNumberRegex by lazy { Regex("""\d{3,4}""") }
 private val resolutionRegex by lazy { Regex("""(\d{3,4})p""") }
 
 internal fun List<Video>.sortByPreferredQuality(preferences: SharedPreferences): List<Video> {
     val preferredQuality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-    val preferredResolution = qualityRegex.find(preferredQuality)?.groupValues?.getOrNull(1) ?: preferredQuality
-    val linkType = preferences.getString(PREF_LINK_TYPE_KEY, PREF_LINK_TYPE_DEFAULT)!!
+    val preferredResolution = qualityNumberRegex.findAll(preferredQuality).lastOrNull()?.value ?: preferredQuality
     return sortedWith(
-        compareByDescending<Video> { it.videoTitle.contains(linkType, ignoreCase = true) }
-            .thenByDescending { it.videoTitle.contains(preferredResolution, ignoreCase = true) }
+        compareByDescending<Video> { it.videoTitle.contains(preferredResolution, ignoreCase = true) }
             .thenByDescending { resolutionRegex.find(it.videoTitle)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0 },
     )
 }
