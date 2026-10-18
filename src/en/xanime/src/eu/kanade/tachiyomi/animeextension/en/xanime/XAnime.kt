@@ -38,6 +38,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.encodeToString
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 class XAnime : Source() {
@@ -81,19 +82,8 @@ class XAnime : Source() {
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.startsWith("http")) {
-            val url = query.toHttpUrlOrNull()
-            if (url != null && (url.host == "xanime.me" || url.host == "xanime.app") && url.pathSegments.contains("title")) {
-                val titleIndex = url.pathSegments.indexOf("title")
-                val aniId = url.pathSegments.getOrNull(titleIndex + 1)
-                    ?.substringBefore("-")
-                    ?.takeIf { it.isNotBlank() }
-                if (aniId != null) {
-                    val anime = runCatching { getAnimeDetails(SAnime.create().apply { this.url = aniId }) }.getOrNull()
-                    if (anime != null && anime.title.isNotBlank()) {
-                        return AnimesPage(listOf(anime), false)
-                    }
-                }
-            }
+            val aniId = parseAniId(query) ?: throw Exception("Invalid URL")
+            return getSearchAnime(page, "$PREFIX_ID$aniId", filters)
         }
 
         if (query.startsWith(PREFIX_ID)) {
@@ -110,6 +100,18 @@ class XAnime : Source() {
 
         val sortby = filters.firstInstanceOrNull<SortFilter>()?.getValue(SORT_MAP) ?: "field_date_create"
         return fetchSearchAnime(page, query, sortby, filters)
+    }
+
+    private fun parseAniId(query: String): String? {
+        val url = query.toHttpUrlOrNull() ?: return null
+        if (url.host !in DOMAIN_HOSTS) return null
+
+        val titleIndex = url.pathSegments.indexOf("title")
+        if (titleIndex == -1) return null
+
+        return url.pathSegments.getOrNull(titleIndex + 1)
+            ?.substringBefore("-")
+            ?.takeIf { it.isNotBlank() }
     }
 
     private suspend fun fetchSearchAnime(page: Int, query: String, sortby: String, filters: AnimeFilterList): AnimesPage {
@@ -297,7 +299,7 @@ class XAnime : Source() {
             referer = "$baseUrl/",
             masterHeaders = headers,
             videoHeaders = headers,
-            videoNameGen = { quality -> "${hoster.hosterName}: $quality" },
+            videoNameGen = { quality -> quality },
             subtitleList = subtitleTracks,
         )
 
@@ -357,6 +359,7 @@ class XAnime : Source() {
         const val PREFIX_ID = "id:"
 
         private val DOMAIN_VALUES = listOf("https://xanime.me", "https://xanime.app")
+        private val DOMAIN_HOSTS = DOMAIN_VALUES.map { it.toHttpUrl().host }
         private val DOMAIN_ENTRIES = listOf("xanime.me", "xanime.app")
         private const val PREF_DOMAIN_KEY = "preferred_domain"
         private val PREF_DOMAIN_DEFAULT = DOMAIN_VALUES[0]
