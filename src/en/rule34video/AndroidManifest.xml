@@ -15,6 +15,10 @@
 
                 <data
                     android:host="rule34video.com"
+                    android:pathPattern="/video/..*"
+                    android:scheme="https" />
+                <data
+                    android:host="rule34video.com"
                     android:pathPattern="/videos/..*"
                     android:scheme="https" />
             </intent-filter>
