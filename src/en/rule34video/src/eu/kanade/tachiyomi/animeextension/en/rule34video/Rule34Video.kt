@@ -19,6 +19,7 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -96,7 +97,8 @@ class Rule34Video :
             if (url.host != baseUrl.toHttpUrl().host || segments.size < 3 || segments[0] !in VIDEO_PATHS) {
                 throw Exception("Unsupported url")
             }
-            val anime = SAnime.create().apply { this.url = "/video/${segments[1]}/${segments[2]}/" }
+            // Keep the incoming /video/ or legacy /videos/ path so saved entries still match
+            val anime = SAnime.create().apply { this.url = "/${segments[0]}/${segments[1]}/${segments[2]}/" }
             val details = getAnimeDetails(anime).apply { this.url = anime.url }
             return AnimesPage(listOf(details), false)
         }
@@ -210,34 +212,40 @@ class Rule34Video :
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
-        val headers = headersBuilder()
+        val pageUrl = response.request.url
+        val playerHeaders = headersBuilder()
+            .add("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
+            .add("Referer", pageUrl.toString())
+            .add("Accept-Language", "en-US,en;q=0.5")
+            .build()
+        // Site cookies are only sent to the site's own get_file endpoint, never to the CDN
+        val siteHeaders = playerHeaders.newBuilder()
             .apply {
-                val cookies = client.cookieJar.loadForRequest(response.request.url)
+                val cookies = client.cookieJar.loadForRequest(pageUrl)
                     .filterNot { it.name in listOf("__ddgid_", "__ddgmark_") }
                     .map { "${it.name}=${it.value}" }
                     .joinToString("; ")
                 val xsrfToken = cookies.split("XSRF-TOKEN=").getOrNull(1)?.substringBefore(";")?.replace("%3D", "=")
                 xsrfToken?.let { add("X-XSRF-TOKEN", it) }
                 add("Cookie", cookies)
-                add("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
-                add("Referer", response.request.url.toString())
-                add("Accept-Language", "en-US,en;q=0.5")
             }.build()
 
         val document = response.asJsoup()
 
         return document.select(DOWNLOAD_SELECTOR)
             .mapNotNull { element ->
-                val originalUrl = element.attr("href")
+                val originalUrl = element.absUrl("href").toHttpUrlOrNull()
+                    ?.takeIf { it.host == pageUrl.host }
+                    ?: return@mapNotNull null
                 // We need to do that because this url returns a http 403 error
                 // if you try to connect using http/1.1, which is the protocol
                 // that the player uses. OkHttp uses http/2 by default, so we
                 // fetch the video url first via okhttp and then pass it for the player.
-                val url = noRedirectClient.newCall(GET(originalUrl, headers)).execute()
+                val url = noRedirectClient.newCall(GET(originalUrl, siteHeaders)).execute()
                     .use { it.headers["location"] }
                     ?: return@mapNotNull null
                 val quality = element.ownText().substringAfter(" ")
-                Video(url, quality, url, headers)
+                Video(url, quality, url, playerHeaders)
             }
     }
 
