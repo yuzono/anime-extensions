@@ -10,9 +10,9 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.catchingFlatMap
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -24,7 +24,7 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class Hentaijk :
-    ParsedAnimeHttpSource(),
+    ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "Hentaijk"
@@ -191,16 +191,14 @@ class Hentaijk :
 
     override fun videoListSelector() = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
-
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
 
-    override fun List<Video>.sort(): List<Video> = try {
+    override fun List<Video>.sortVideos(): List<Video> = try {
         val videoSorted = this.sortedWith(
-            compareBy<Video> { it.quality.replace("[0-9]".toRegex(), "") }.thenByDescending { getNumberFromString(it.quality) },
+            compareBy<Video> { it.videoTitle.replace("[0-9]".toRegex(), "") }.thenByDescending { getNumberFromString(it.videoTitle) },
         ).toTypedArray()
         val userPreferredQuality = preferences.getString("preferred_quality", "Sabrosio")
-        val preferredIdx = videoSorted.indexOfFirst { x -> x.quality == userPreferredQuality }
+        val preferredIdx = videoSorted.indexOfFirst { x -> x.videoTitle == userPreferredQuality }
         if (preferredIdx != -1) {
             videoSorted.drop(preferredIdx + 1)
             videoSorted[0] = videoSorted[preferredIdx]

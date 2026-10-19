@@ -1,0 +1,18 @@
+ext {
+    extName = 'FilmiFen'
+    extClass = '.FilmiFen'
+    extVersionCode = 2
+    libVersion = 16
+    isNsfw = false
+}
+
+apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(':lib:filemoonextractor'))
+    implementation(project(':lib:okruextractor'))
+    implementation(project(':lib:playlistutils'))
+    implementation(project(':lib:unpacker'))
+    implementation(project(':lib:voeextractor'))
+    implementation(project(':lib:youtubeextractor'))
+}

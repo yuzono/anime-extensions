@@ -6,11 +6,15 @@ object UrlUtils {
 
     private val firstHttpsRegex by lazy { Regex("""^.*(?=https?://)""") }
 
+    // An origin with an absolute URL glued onto it: `http://example.comhttps://example.com/path`.
+    // A scheme can't occur inside a host, so valid URLs never match.
+    private val gluedOriginRegex by lazy { Regex("""^https?://[^/?#]*(?=https?://)""") }
+
     fun fixUrl(url: String): String? = when {
         url.isEmpty() -> null
-        url.startsWith("http") ||
-            // Do not fix JSON objects when passed as urls.
-            url.startsWith("{\"") -> url
+        // Do not fix JSON objects when passed as urls.
+        url.startsWith("{\"") -> url
+        url.startsWith("http") -> url.replaceFirst(gluedOriginRegex, "")
         url.startsWith("//") -> "https:$url"
         else -> url.replaceFirst(firstHttpsRegex, "")
     }
@@ -19,9 +23,9 @@ object UrlUtils {
         val baseHttpUrl = baseUrl.toHttpUrlOrNull() ?: return null
         return when {
             url.isEmpty() -> null
-            url.startsWith("http") ||
-                // Do not fix JSON objects when passed as urls.
-                url.startsWith("{\"") -> url
+            // Do not fix JSON objects when passed as urls.
+            url.startsWith("{\"") -> url
+            url.startsWith("http") -> url.replaceFirst(gluedOriginRegex, "")
             url.startsWith("//") -> "https:$url"
             url.startsWith("/") -> {
                 // Will be: http[s]://<domain>/<url>

@@ -1,7 +1,8 @@
 ext {
     extName = 'HexaWatch'
     extClass = '.HexaWatch'
-    extVersionCode = 6
+    libVersion = 16
+    extVersionCode = 8
     isNsfw = true
 }
 

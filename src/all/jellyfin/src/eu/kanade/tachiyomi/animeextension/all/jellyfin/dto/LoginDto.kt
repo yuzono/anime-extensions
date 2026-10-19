@@ -3,12 +3,18 @@ package eu.kanade.tachiyomi.animeextension.all.jellyfin.dto
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class LoginDto(
+class LoginDto(
     val accessToken: String,
     val sessionInfo: LoginSessionDto,
 ) {
     @Serializable
-    data class LoginSessionDto(
+    class LoginSessionDto(
         val userId: String,
     )
 }
+
+@Serializable
+class LoginRequestDto(
+    val username: String,
+    val pw: String,
+)

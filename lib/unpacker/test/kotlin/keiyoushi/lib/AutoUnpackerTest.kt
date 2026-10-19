@@ -2,10 +2,10 @@ package keiyoushi.lib
 
 import keiyoushi.lib.jsunpacker.JsUnpacker
 import keiyoushi.lib.unpacker.Unpacker
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
+import org.junit.Test
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 
 class AutoUnpackerTest {
     @Test

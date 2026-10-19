@@ -27,7 +27,7 @@ class EmTurboExtractor(private val client: OkHttpClient, private val headers: He
         }
 
         return playlistExtractor.extractFromHls(urlPlay, url, videoNameGen = { quality -> "EmTurboVid: $quality" })
-            .distinctBy { it.url } // they have the same stream repeated twice in the playlist file
+            .distinctBy { it.videoUrl } // they have the same stream repeated twice in the playlist file
     }
 
     companion object {

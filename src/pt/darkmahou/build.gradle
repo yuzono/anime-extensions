@@ -3,7 +3,7 @@ ext {
     extClass = '.DarkMahou'
     themePkg = 'animestream'
     baseUrl = 'https://darkmahou.org'
-    overrideVersionCode = 13
+    overrideVersionCode = 14
 }
 
 apply plugin: "kei.plugins.extension.legacy"

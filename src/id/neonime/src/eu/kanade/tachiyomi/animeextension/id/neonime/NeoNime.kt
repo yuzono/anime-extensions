@@ -14,10 +14,10 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
@@ -31,7 +31,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 class NeoNime :
-    ParsedAnimeHttpSource(),
+    ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
     override val baseUrl: String = "https://neonime.ink"
     override val lang: String = "id"
@@ -193,8 +193,6 @@ class NeoNime :
 
     override fun videoListSelector() = "div > ul >ul > li >a:nth-child(6)"
 
-    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
-
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
 
@@ -259,13 +257,13 @@ class NeoNime :
         }
     }
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString("preferred_quality", null)
         if (quality != null) {
             val newList = mutableListOf<Video>()
             var preferred = 0
             for (video in this) {
-                if (video.quality.contains(quality)) {
+                if (video.videoTitle.contains(quality)) {
                     newList.add(preferred, video)
                     preferred++
                 } else {

@@ -21,9 +21,9 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.bodyString
@@ -43,7 +43,7 @@ import okhttp3.Request
 import okhttp3.Response
 
 class AnimeSama :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "Anime-Sama"
@@ -275,7 +275,7 @@ class AnimeSama :
             // the url-aware dedupe below cannot collapse. Restricted to those hosts: other
             // players can return distinct files under one label, and must not lose them.
             val dedupedVids = if (VIDHIDE_DOMAINS.any { playerUrl.contains(it, ignoreCase = true) }) {
-                vids.distinctBy { it.quality }
+                vids.distinctBy { it.videoTitle }
             } else {
                 vids
             }
@@ -296,21 +296,20 @@ class AnimeSama :
         }
 
         return (knownVideos + fallbackVideos)
-            .distinctBy { it.quality to it.url.substringBefore("?") }
-            .sort()
+            .distinctBy { it.videoTitle to it.videoUrl.substringBefore("?") }
     }
 
     // ============================ Utils =============================
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val voices = preferences.getString(PREF_VOICES_KEY, PREF_VOICES_DEFAULT)!!
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         val player = preferences.getString(PREF_PLAYER_KEY, PREF_PLAYER_DEFAULT)!!
 
         return this.sortedWith(
             compareBy(
-                { it.quality.contains(voices, true) },
-                { it.quality.contains(player, true) },
-                { it.quality.contains(quality) },
+                { it.videoTitle.contains(voices, true) },
+                { it.videoTitle.contains(player, true) },
+                { it.videoTitle.contains(quality) },
             ),
         ).reversed()
     }

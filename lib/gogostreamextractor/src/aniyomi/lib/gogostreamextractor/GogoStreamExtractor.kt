@@ -68,7 +68,7 @@ class GogoStreamExtractor(private val client: OkHttpClient) {
             else -> {
                 val headers = Headers.headersOf("Referer", serverUrl)
                 sourceList.map { video ->
-                    Video(video.file, qualityPrefix + video.label, video.file, headers)
+                    Video(videoUrl = video.file, videoTitle = qualityPrefix + video.label, headers = headers)
                 }
             }
         }

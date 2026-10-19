@@ -13,11 +13,10 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.copyLegacy
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
@@ -40,7 +39,7 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class AniWaves :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "AniWaves.ru"
@@ -481,8 +480,8 @@ class AniWaves :
     private fun extractFromDood(embedUrl: String, server: VideoData): List<Video> {
         val label = videoLabel(server)
         return doodExtractor.videosFromUrl(embedUrl, label).map { video ->
-            video.copyLegacy(
-                quality = "$label - Doodstream 1080p",
+            video.copy(
+                videoTitle = "$label - Doodstream 1080p",
             )
         }
     }
@@ -749,15 +748,15 @@ class AniWaves :
         return ANIME_PATH_REGEX.find(path)?.value
     }
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val qualityTiers = PREF_QUALITY_VALUES.reversed()
         val typePattern = Regex(""" - ${Regex.escape(preferredType)}(?:\s|$)""", RegexOption.IGNORE_CASE)
 
         return sortedWith(
-            compareByDescending<Video> { it.quality.contains(preferredQuality) }
-                .thenByDescending { video -> qualityTiers.indexOfLast { tier -> video.quality.contains(tier) } }
-                .thenByDescending { it.quality.contains(preferredServer, ignoreCase = true) }
-                .thenByDescending { typePattern.containsMatchIn(it.quality) },
+            compareByDescending<Video> { it.videoTitle.contains(preferredQuality) }
+                .thenByDescending { video -> qualityTiers.indexOfLast { tier -> video.videoTitle.contains(tier) } }
+                .thenByDescending { it.videoTitle.contains(preferredServer, ignoreCase = true) }
+                .thenByDescending { typePattern.containsMatchIn(it.videoTitle) },
         )
     }
 

@@ -1,0 +1,22 @@
+{
+  "target_branch": "master",
+  "since": "2025-01-01",
+  "output": "cherrypick_log.md",
+  "exclude_identity_regex": "renovate",
+  "main_upstream": {
+    "name": "yuzono",
+    "remote": "yuzono",
+    "branch": "main",
+    "github": "yuzono/tachiyomi-extensions",
+    "exclude_only_paths": ["src/", "lib-multisrc/"],
+    "repo_wide_min_modules": 5
+  },
+  "additional_upstreams": [
+    {
+      "name": "@secozzi",
+      "remote": "@secozzi",
+      "branch": "master",
+      "github": "Secozzi/aniyomi-extensions"
+    }
+  ]
+}

@@ -1,8 +1,13 @@
 ext {
     extName = 'KissKH'
     extClass = '.KissKH'
-    extVersionCode = 5
+    libVersion = 16
+    extVersionCode = 9
     isNsfw = true
 }
 
 apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(':lib:playlistutils'))
+}

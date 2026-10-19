@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.pt.funanimetv.dto
 
 import android.util.Base64
+import keiyoushi.utils.toHex
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
@@ -24,9 +25,7 @@ class FunAnimeTVRequest(
     val sign: String = run {
         MessageDigest.getInstance("MD5")
             .digest("$singsalt$salt".toByteArray(Charsets.UTF_8))
-            .joinToString("") {
-                "%02x".format(it)
-            }
+            .toHex()
     }
 
     fun toBase64(json: Json): String = Base64.encodeToString(json.encodeToString(this).toByteArray(), Base64.NO_PADDING)

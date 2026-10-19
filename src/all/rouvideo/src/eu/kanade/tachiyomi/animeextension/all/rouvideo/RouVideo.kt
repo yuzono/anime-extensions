@@ -14,11 +14,11 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.lib.i18n.Intl
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -34,7 +34,7 @@ import java.util.Locale
 
 class RouVideo(
     override val lang: String = "all",
-) : AnimeHttpSource() {
+) : AnimeHttpLegacySource() {
 
     override val name = "肉視頻"
 
@@ -464,7 +464,7 @@ class RouVideo(
     }
 
     // Sorts by quality
-    override fun List<Video>.sort(): List<Video> = sortedByDescending { it.quality }
+    override fun List<Video>.sortVideos(): List<Video> = sortedByDescending { it.videoTitle }
 
     // ============================= Utilities ==============================
 

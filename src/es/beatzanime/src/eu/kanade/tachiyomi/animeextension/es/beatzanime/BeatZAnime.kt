@@ -5,8 +5,8 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.useAsJsoup
 import okhttp3.Request
 import okhttp3.Response
@@ -15,7 +15,7 @@ import org.jsoup.nodes.Element
 import java.net.URLDecoder
 import java.text.Normalizer
 
-class BeatZAnime : ParsedAnimeHttpSource() {
+class BeatZAnime : ParsedAnimeHttpLegacySource() {
 
     override val name = "BeatZ Anime"
 
@@ -299,7 +299,6 @@ class BeatZAnime : ParsedAnimeHttpSource() {
 
     override fun videoListSelector() = throw UnsupportedOperationException()
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
 
     // ============================= Utilities ==============================
 

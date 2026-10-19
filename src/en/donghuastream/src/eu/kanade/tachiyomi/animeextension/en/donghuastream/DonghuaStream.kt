@@ -113,13 +113,13 @@ class DonghuaStream :
 
     private val qualityRegex by lazy { Regex("""(\d+)p""") }
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.videoSortPref
         return sortedWith(
             compareBy<Video>(
-                { it.quality.contains(quality, true) },
-                { qualityRegex.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
-            ).thenByDescending { it.quality },
+                { it.videoTitle.contains(quality, true) },
+                { qualityRegex.find(it.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
+            ).thenByDescending { it.videoTitle },
         ).reversed()
     }
 }

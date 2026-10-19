@@ -11,6 +11,4 @@ apk/
 gen
 generated-src/
 .kotlin
-.history
-signingkey.jks
-nul
+*.jks

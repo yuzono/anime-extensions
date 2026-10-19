@@ -11,16 +11,13 @@ import android.webkit.WebViewClient
 import aniyomi.lib.m3u8server.M3u8Integration
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.network.get
 import keiyoushi.utils.applicationContext
+import keiyoushi.utils.parseAs
 import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.Serializable
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -34,9 +31,11 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
     private val m3u8Integration by lazy { M3u8Integration(client) }
 
-    suspend fun videosFromUrl(url: String, serverName: String = ""): List<Video> {
-        val qualityPrefix = qualityPrefix(serverName)
-        val playerDoc = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
+    suspend fun videosFromUrl(url: String, serverName: String, episodeUrl: String): List<Video> {
+        val qualityPrefix = if (serverName.isEmpty()) "Animei.to" else "Animei.to $serverName"
+        // AniDrive rejects token embeds that are not requested with the episode page as Referer.
+        val playerHeaders = headers.newBuilder().set("Referer", episodeUrl).build()
+        val playerDoc = client.get(url, playerHeaders).useAsJsoup()
 
         // AniDrive embeds multiple TextDecoder scripts (service-worker first, player config later).
         // Decode each until playable sources are found instead of stopping at the first match.
@@ -67,12 +66,7 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
         }
 
         Log.w(tag, "No videos extracted from scripts, falling back to WebView")
-        return finalizeVideos(videosFromWebView(url, qualityPrefix))
-    }
-
-    private fun qualityPrefix(serverName: String): String {
-        val trimmed = serverName.trim()
-        return if (trimmed.isEmpty()) "Animei.to" else "Animei.to $trimmed"
+        return finalizeVideos(videosFromWebView(url, qualityPrefix, playerHeaders))
     }
 
     private fun finalizeVideos(videos: List<Video>): List<Video> {
@@ -167,19 +161,18 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
 
     private fun isPlayableUrl(url: String): Boolean = url.contains("videoplayback") || url.contains(".m3u8") || url.contains(".mp4")
 
-    @SuppressLint("SetJavaScriptEnabled")
-    private suspend fun videosFromWebView(url: String, qualityPrefix: String): List<Video> = withContext(Dispatchers.IO) {
+    private suspend fun videosFromWebView(url: String, qualityPrefix: String, playerHeaders: Headers): List<Video> = withContext(Dispatchers.IO) {
         synchronized(WEB_VIEW_LOCK) {
-            videosFromWebViewInternal(url, qualityPrefix)
+            videosFromWebViewInternal(url, qualityPrefix, playerHeaders)
         }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun videosFromWebViewInternal(url: String, qualityPrefix: String): List<Video> {
+    private fun videosFromWebViewInternal(url: String, qualityPrefix: String, playerHeaders: Headers): List<Video> {
         val latch = CountDownLatch(1)
         var webView: WebView? = null
         var jsResult = ""
-        val loadHeaders = headers.toMultimap().mapValues { entry -> entry.value.getOrNull(0) ?: "" }
+        val loadHeaders = playerHeaders.toMultimap().mapValues { entry -> entry.value.getOrNull(0) ?: "" }
         val jsInterface = PlayerJSInterface(latch) { jsResult = it }
 
         try {
@@ -226,7 +219,7 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
         }
 
         val items = try {
-            Json.parseToJsonElement(json).jsonArray
+            json.parseAs<List<WebViewSource>>()
         } catch (e: Exception) {
             Log.e(tag, "Failed to parse WebView JSON", e)
             return emptyList()
@@ -239,15 +232,14 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
 
         val videoHeaders = buildVideoHeaders(pageUrl)
         val videos = mutableListOf<Video>()
-        for (element in items) {
-            val item = element.jsonObject
-            val videoUrl = item["url"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+        for (item in items) {
+            val videoUrl = item.url?.takeIf { it.isNotBlank() }
             if (videoUrl == null) {
-                Log.w(tag, "WebView item missing valid 'url' key: $item")
+                Log.w(tag, "WebView item missing valid 'url' key")
                 continue
             }
-            val label = item["label"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } ?: "Video"
-            val type = item["type"]?.jsonPrimitive?.content.orEmpty()
+            val label = item.label?.takeIf { it.isNotBlank() } ?: "Video"
+            val type = item.type.orEmpty()
 
             when {
                 type == "m3u8" || type == "hls" || ".m3u8" in videoUrl -> {
@@ -368,6 +360,13 @@ class AnimeItoExtractor(private val client: OkHttpClient, private val headers: H
 
         return String(result, Charsets.UTF_8)
     }
+
+    @Serializable
+    private class WebViewSource(
+        val url: String? = null,
+        val label: String? = null,
+        val type: String? = null,
+    )
 
     private class PlayerJSInterface(
         private val latch: CountDownLatch,

@@ -11,8 +11,8 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
@@ -21,6 +21,7 @@ import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parallelMapNotNullBlocking
+import keiyoushi.utils.toHex
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -39,7 +40,7 @@ import java.net.URLEncoder
 import java.security.MessageDigest
 
 class Serienstream :
-    ParsedAnimeHttpSource(),
+    ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "Serienstream"
@@ -443,7 +444,7 @@ class Serienstream :
         }
         for (i in 0..maxnumber) {
             val hash = md.digest((salt + i.toString()).toByteArray())
-            val hex = hash.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+            val hex = hash.toHex()
             if (hex == challenge) return i
             md.reset()
         }
@@ -484,7 +485,7 @@ class Serienstream :
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val hoster = preferredHoster.takeIf { it.isNotBlank() }
         val hosterName = when (hoster) {
             SConstants.URL_VOE -> SConstants.NAME_VOE
@@ -494,12 +495,10 @@ class Serienstream :
         }
         val lang = preferredLang
         return sortedWith(
-            compareByDescending<Video> { hosterName != null && (it.url.contains(hoster ?: "", true) || it.quality.contains(hosterName, true)) }
-                .thenByDescending { it.quality.contains(lang, true) },
+            compareByDescending<Video> { hosterName != null && (it.videoUrl.contains(hoster ?: "", true) || it.videoTitle.contains(hosterName, true)) }
+                .thenByDescending { it.videoTitle.contains(lang, true) },
         )
     }
-
-    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(

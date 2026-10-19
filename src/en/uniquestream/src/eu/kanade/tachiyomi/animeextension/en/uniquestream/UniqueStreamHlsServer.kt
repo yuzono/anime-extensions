@@ -1,6 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.en.uniquestream
 
 import android.util.Base64
+import aniyomi.lib.hlssegment.openHlsSegment
+import keiyoushi.utils.decodeHex
 import okhttp3.Dns
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -12,7 +14,6 @@ import org.nanohttpd.protocols.http.response.Response
 import org.nanohttpd.protocols.http.response.Response.newChunkedResponse
 import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
 import org.nanohttpd.protocols.http.response.Status
-import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.net.Inet4Address
 import java.net.Inet6Address
@@ -102,14 +103,18 @@ object UniqueStreamHlsServer : NanoHTTPD("127.0.0.1", 0) {
             ?: return badRequest("Missing mid parameter")
 
         return try {
-            val data = fetchBytes(url)
-            val plaintext = if (keyUrl.isNullOrBlank()) {
-                data
+            val cipher = if (keyUrl.isNullOrBlank()) {
+                null
             } else {
                 val ivHex = iv ?: throw IOException("Missing AES-128 IV for encrypted segment")
-                decryptAes128Cbc(data, fetchRealKey(keyUrl, mid), ivHex)
+                aes128CbcCipher(fetchRealKey(keyUrl, mid), ivHex)
             }
-            newChunkedResponse(Status.OK, "video/mp2t", ByteArrayInputStream(plaintext))
+            val segment = requireClient().openHlsSegment(Request.Builder().url(url.toValidatedHttpUrl()).build(), cipher)
+            if (segment.length >= 0) {
+                newFixedLengthResponse(Status.OK, "video/mp2t", segment.stream, segment.length)
+            } else {
+                newChunkedResponse(Status.OK, "video/mp2t", segment.stream)
+            }
         } catch (e: Exception) {
             newFixedLengthResponse(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
         }
@@ -144,7 +149,7 @@ object UniqueStreamHlsServer : NanoHTTPD("127.0.0.1", 0) {
                 line.startsWith("#EXT-X-STREAM-INF:") -> pendingStreamInf = line.trim()
                 line.startsWith("#EXT-X-I-FRAME-STREAM-INF") -> Unit
                 pendingStreamInf != null && !line.startsWith("#") && line.isNotBlank() -> {
-                    variants.add(pendingStreamInf!! to resolveHlsUrl(baseHttpUrl, line.trim()))
+                    variants.add(pendingStreamInf to resolveHlsUrl(baseHttpUrl, line.trim()))
                     pendingStreamInf = null
                 }
                 pendingStreamInf != null -> Unit
@@ -253,38 +258,35 @@ object UniqueStreamHlsServer : NanoHTTPD("127.0.0.1", 0) {
         return recovered
     }
 
-    private fun decryptAes128Cbc(data: ByteArray, key: ByteArray, iv: String): ByteArray {
+    private fun aes128CbcCipher(key: ByteArray, iv: String): Cipher {
         if (key.size != 16) {
             throw IOException("Invalid AES-128 key length: ${key.size}")
         }
 
-        return try {
-            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-            cipher.init(
-                Cipher.DECRYPT_MODE,
-                SecretKeySpec(key, "AES"),
-                IvParameterSpec(iv.hexToByteArray()),
-            )
-            cipher.doFinal(data)
-        } catch (e: GeneralSecurityException) {
-            throw IOException("Failed to decrypt AES-128 segment", e)
+        val ivBytes = try {
+            iv.decodeHex()
         } catch (e: IllegalArgumentException) {
             throw IOException("Invalid AES-128 IV", e)
         }
+
+        return try {
+            Cipher.getInstance("AES/CBC/PKCS5Padding").apply {
+                init(
+                    Cipher.DECRYPT_MODE,
+                    SecretKeySpec(key, "AES"),
+                    IvParameterSpec(ivBytes),
+                )
+            }
+        } catch (e: GeneralSecurityException) {
+            throw IOException("Failed to init AES-128 cipher", e)
+        }
     }
 
-    private fun fetchString(url: String): String = requireClient().newCall(Request.Builder().url(url.toValidatedHttpUrl()).build()).execute().use { response ->
+    fun fetchString(url: String): String = requireClient().newCall(Request.Builder().url(url.toValidatedHttpUrl()).build()).execute().use { response ->
         if (!response.isSuccessful) {
             throw IOException("Failed to fetch playlist: ${response.code}")
         }
         response.body.string()
-    }
-
-    private fun fetchBytes(url: String): ByteArray = requireClient().newCall(Request.Builder().url(url.toValidatedHttpUrl()).build()).execute().use { response ->
-        if (!response.isSuccessful) {
-            throw IOException("Failed to fetch resource: ${response.code}")
-        }
-        response.body.bytes()
     }
 
     // Outbound requests are restricted to public HTTPS hosts so the local
@@ -352,8 +354,4 @@ object UniqueStreamHlsServer : NanoHTTPD("127.0.0.1", 0) {
     private fun String.normalizeHlsIv(): String = removePrefix("0x").removePrefix("0X").padStart(32, '0')
 
     private fun encode(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name())
-
-    private fun String.hexToByteArray(): ByteArray = ByteArray(length / 2) { index ->
-        substring(index * 2, index * 2 + 2).toInt(16).toByte()
-    }
 }

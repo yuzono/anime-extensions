@@ -9,11 +9,11 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import kotlinx.coroutines.Dispatchers
@@ -31,7 +31,7 @@ import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
 class UHDMovies :
-    ParsedAnimeHttpSource(),
+    ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "UHD Movies"
@@ -242,8 +242,6 @@ class UHDMovies :
 
     override fun videoListSelector(): String = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
-
     // ============================= Utilities ==============================
     private val redirectBypasser by lazy { RedirectorBypasser(client, headers) }
 
@@ -331,15 +329,15 @@ class UHDMovies :
         }
     }
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         val ascSort = preferences.getString(PREF_SIZE_SORT_KEY, PREF_SIZE_SORT_DEFAULT)!! == "asc"
 
-        val comparator = compareByDescending<Video> { it.quality.contains(quality) }.let { cmp ->
+        val comparator = compareByDescending<Video> { it.videoTitle.contains(quality) }.let { cmp ->
             if (ascSort) {
-                cmp.thenBy { it.quality.fixQuality() }
+                cmp.thenBy { it.videoTitle.fixQuality() }
             } else {
-                cmp.thenByDescending { it.quality.fixQuality() }
+                cmp.thenByDescending { it.videoTitle.fixQuality() }
             }
         }
         return sortedWith(comparator)

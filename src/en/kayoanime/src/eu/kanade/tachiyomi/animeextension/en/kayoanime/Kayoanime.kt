@@ -11,12 +11,14 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
+import keiyoushi.utils.formatBytes
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toHex
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.FormBody
@@ -32,7 +34,7 @@ import uy.kohesive.injekt.injectLazy
 import java.security.MessageDigest
 
 class Kayoanime :
-    ParsedAnimeHttpSource(),
+    ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "Kayoanime"
@@ -351,7 +353,7 @@ class Kayoanime :
                 if (parsed.items == null) throw Exception("Failed to load items, please log in to google drive through webview")
                 parsed.items.forEachIndexed { index, it ->
                     if (it.mimeType.startsWith("video")) {
-                        val size = it.fileSize?.toLongOrNull()?.let { formatBytes(it) }
+                        val size = it.fileSize?.toLongOrNull()?.formatBytes() ?: ""
                         val pathName = path.trimInfo()
 
                         episodeList.add(
@@ -445,8 +447,6 @@ class Kayoanime :
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
-
     // ============================= Utilities ==============================
 
     // https://github.com/yt-dlp/yt-dlp/blob/8f0be90ecb3b8d862397177bb226f17b245ef933/yt_dlp/extractor/youtube.py#L573
@@ -456,7 +456,7 @@ class Kayoanime :
         val sapisidhash = MessageDigest
             .getInstance("SHA-1")
             .digest("$timeNow $SAPISID $origin".toByteArray())
-            .joinToString("") { "%02x".format(it) }
+            .toHex()
         return "SAPISIDHASH ${timeNow}_$sapisidhash"
     }
 
@@ -524,15 +524,6 @@ class Kayoanime :
         val hide_next: Boolean,
         val code: String,
     )
-
-    private fun formatBytes(bytes: Long): String = when {
-        bytes >= 1_000_000_000 -> "%.2f GB".format(bytes / 1_000_000_000.0)
-        bytes >= 1_000_000 -> "%.2f MB".format(bytes / 1_000_000.0)
-        bytes >= 1_000 -> "%.2f KB".format(bytes / 1_000.0)
-        bytes > 1 -> "$bytes bytes"
-        bytes == 1L -> "$bytes byte"
-        else -> ""
-    }
 
     private fun getCookie(url: String): String {
         val cookieList = client.cookieJar.loadForRequest(url.toHttpUrl())

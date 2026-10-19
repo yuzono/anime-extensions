@@ -174,15 +174,15 @@ class Cineplus123 :
     // ============================= Utilities ==============================
     override fun String.toDate() = 0L
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(prefQualityKey, prefQualityDefault)!!
         val lang = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT)!!
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
         return sortedWith(
             compareBy(
-                { it.quality.contains(lang) },
-                { it.quality.contains(server, true) },
-                { it.quality.contains(quality) },
+                { it.videoTitle.contains(lang) },
+                { it.videoTitle.contains(server, true) },
+                { it.videoTitle.contains(quality) },
             ),
         ).reversed()
     }

@@ -33,6 +33,7 @@ fun anilistQuery() = """
                 isAdult: false
             ) {
                 id
+                isAdult
                 title {
                     romaji
                     english
@@ -66,14 +67,18 @@ fun anilistLatestQuery() = """
             pageInfo {
                 currentPage
                 hasNextPage
+                total
             }
             airingSchedules(
-                airingAt_greater: 0,
-                airingAt_lesser: ${System.currentTimeMillis() / 1000 - 10000},
+                airingAt_greater: 0
+                airingAt_lesser: ${System.currentTimeMillis() / 1000 - 10000}
                 sort: %sort
             ) {
+                episode
+                airingAt
                 media {
                     id
+                    isAdult
                     title {
                         romaji
                         english
@@ -101,40 +106,28 @@ fun anilistLatestQuery() = """
         }
     }
 """.toQuery()
-
-fun getDetailsQuery() = """
-query media(%id: Int) {
-  Media(id: %id, isAdult: false) {
-    id
-    title {
-        romaji
-        english
-        native
-    }
-    coverImage {
-        extraLarge
-        large
-        medium
-    }
-    description
-    season
-    seasonYear
-    format
-    status
-    genres
-    episodes
-    format
-    countryOfOrigin
-    isAdult
-    tags{
-        name
-    }
-    studios {
-        nodes {
-          id
-          name
+fun anilistRelationsQuery() = """
+    query (%id: Int) {
+        Media(id: %id) {
+            relations {
+                edges {
+                    relationType
+                    node {
+                        id
+                        type
+                        title {
+                            romaji
+                            english
+                            native
+                        }
+                        coverImage {
+                            extraLarge
+                            large
+                        }
+                        status
+                    }
+                }
+            }
         }
     }
-  }
-}
 """.toQuery()

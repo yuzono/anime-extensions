@@ -81,16 +81,13 @@ class KwikExtractor(
         val hlsStream = getHlsStream(kwikUrl, referer)
 
         return Video(
-            hlsStream.url,
-            quality,
-            hlsStream.url,
+            videoUrl = hlsStream.url,
+            videoTitle = quality,
             headers = kwikHeaders.newBuilder()
                 .set("Referer", hlsStream.referer)
                 .build(),
         )
     }
-
-    suspend fun getHlsStreamUrl(kwikUrl: String, referer: String): String = getHlsStream(kwikUrl, referer).url
 
     private suspend fun getHlsStream(kwikUrl: String, referer: String): HlsStream = client.newCall(GET(kwikUrl, headers.newBuilder().set("Referer", referer).build()))
         .awaitSuccess().use { response ->
@@ -111,9 +108,8 @@ class KwikExtractor(
         val videoUrl = getStreamUrlFromKwik(paheUrl)
 
         return Video(
-            videoUrl,
-            quality,
-            videoUrl,
+            videoUrl = videoUrl,
+            videoTitle = quality,
             headers = kwikHeaders,
         )
     }

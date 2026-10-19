@@ -9,10 +9,10 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
@@ -31,7 +31,7 @@ import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
 
 class SushiAnimes :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "Sushi Animes"
@@ -249,7 +249,7 @@ class SushiAnimes :
             val body = response.bodyString()
 
             parseEmbedVideos(body)
-        }.sort()
+        }
     }
 
     override fun videoListParse(response: Response): List<Video> = throw UnsupportedOperationException()
@@ -382,11 +382,11 @@ class SushiAnimes :
         )
     }
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         return sortedWith(
-            compareByDescending<Video> { it.quality.contains(quality) }
-                .thenByDescending { QUALITY_REGEX.find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
+            compareByDescending<Video> { it.videoTitle.contains(quality) }
+                .thenByDescending { QUALITY_REGEX.find(it.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
         )
     }
 

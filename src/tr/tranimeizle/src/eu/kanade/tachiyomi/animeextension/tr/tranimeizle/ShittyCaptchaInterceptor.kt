@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.tr.tranimeizle
 
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import keiyoushi.utils.toHex
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.Interceptor
@@ -65,5 +66,5 @@ class ShittyCaptchaInterceptor(private val baseUrl: String, private val headers:
 
     private fun md5Hash(byteArray: ByteArray) = MessageDigest.getInstance("MD5")
         .digest(byteArray)
-        .joinToString("") { "%02x".format(it) } // create hex
+        .toHex()
 }

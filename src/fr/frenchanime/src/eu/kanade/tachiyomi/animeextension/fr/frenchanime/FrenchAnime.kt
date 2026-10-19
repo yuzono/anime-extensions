@@ -19,7 +19,6 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.parallelCatchingFlatMap
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class FrenchAnime :
@@ -139,6 +138,4 @@ class FrenchAnime :
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
     override fun videoListSelector(): String = throw UnsupportedOperationException()
-
-    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 }

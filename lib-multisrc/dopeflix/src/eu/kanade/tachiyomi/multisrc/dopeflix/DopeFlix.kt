@@ -11,7 +11,6 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.multisrc.dopeflix.dto.SourcesResponse
 import eu.kanade.tachiyomi.multisrc.dopeflix.dto.VideoData
 import eu.kanade.tachiyomi.network.GET
@@ -19,9 +18,9 @@ import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
-import keiyoushi.utils.copyLegacy
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelFlatMap
@@ -51,7 +50,7 @@ abstract class DopeFlix(
     ),
     private val preferredHoster: String = hosterNames.first(),
     override val supportsLatest: Boolean = true,
-) : ParsedAnimeHttpSource(),
+) : ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     protected open val preferences by getPreferencesLazy {
@@ -314,11 +313,11 @@ abstract class DopeFlix(
         val seasonRequest = GET("$baseUrl/ajax/season/list/$id", apiHeaders(baseUrl + anime.url))
         return client.newCall(seasonRequest).awaitSuccess().use { response ->
             response.asJsoup().select(".ss-item")
-                .parallelFlatMap(::seasonFromElement).reversed()
+                .parallelFlatMap(::episodesFromElement).reversed()
         }
     }
 
-    protected open suspend fun seasonFromElement(element: Element): List<SEpisode> = runCatching {
+    protected open suspend fun episodesFromElement(element: Element): List<SEpisode> = runCatching {
         val season = element.elementSiblingIndex() + 1
         val seasonId = element.attr("data-id")
         client.newCall(GET("$baseUrl/ajax/season/episodes/$seasonId", apiHeaders()))
@@ -383,7 +382,7 @@ abstract class DopeFlix(
 
             return embedLinks.parallelCatchingFlatMap(::extractVideo)
                 .map { video ->
-                    video.copyLegacy(
+                    video.copy(
                         subtitleTracks = subLangOrder(video.subtitleTracks),
                         audioTracks = subLangOrder(video.audioTracks),
                     )
@@ -400,17 +399,15 @@ abstract class DopeFlix(
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
-
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.prefQuality
         val server = preferences.prefServer
         val qualitiesList = PREF_QUALITY_LIST.reversed()
 
         return sortedWith(
-            compareByDescending<Video> { it.quality.contains(quality) }
-                .thenByDescending { video -> qualitiesList.indexOfLast { video.quality.contains(it) } }
-                .thenByDescending { it.quality.contains(server, true) },
+            compareByDescending<Video> { it.videoTitle.contains(quality) }
+                .thenByDescending { video -> qualitiesList.indexOfLast { video.videoTitle.contains(it) } }
+                .thenByDescending { it.videoTitle.contains(server, true) },
         )
     }
 

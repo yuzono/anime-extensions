@@ -1,7 +1,8 @@
 ext {
+    libVersion = 16
     extName = 'AnimeAv1'
     extClass = '.AnimeAv1'
-    extVersionCode = 5
+    extVersionCode = 7
 }
 
 apply plugin: "kei.plugins.extension.legacy"
@@ -14,5 +15,8 @@ dependencies {
     implementation(project(':lib:pixeldrainextractor'))
     implementation(project(':lib:mp4uploadextractor'))
     implementation(project(':lib:doodextractor'))
+    implementation(project(':lib:playlistutils'))
+    implementation(project(':lib:megaextractor'))
+    implementation(project(':lib:streamtapeextractor'))
     implementation(project(':lib:universalextractor'))
 }

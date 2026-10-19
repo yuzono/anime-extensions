@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.all.missav
 
 import android.util.Log
+import keiyoushi.utils.toHex
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.put
@@ -94,7 +95,7 @@ object MissAvApi {
         mac.init(secretKeySpec)
 
         val hashBytes = mac.doFinal(data.toByteArray(StandardCharsets.UTF_8))
-        val hexString = hashBytes.joinToString("") { "%02x".format(it) }
+        val hexString = hashBytes.toHex()
 
         "$data&frontend_sign=$hexString"
     } catch (e: Exception) {

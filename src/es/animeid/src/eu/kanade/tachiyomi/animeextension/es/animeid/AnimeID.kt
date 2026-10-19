@@ -8,12 +8,13 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
+import keiyoushi.utils.unescapeUnicode
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -27,7 +28,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
-class AnimeID : ParsedAnimeHttpSource() {
+class AnimeID : ParsedAnimeHttpLegacySource() {
 
     override val name = "AnimeID"
 
@@ -118,8 +119,8 @@ class AnimeID : ParsedAnimeHttpSource() {
             val titleServer = script.closest(".subtab")?.attr("data-tab-id")?.let {
                 document.selectFirst("#mirrors [data-tab-id=\"$it\"]")?.ownText()?.trim()
             } ?: ""
-            val jsonUnescape = unescapeJava(jsonString).replace("\\", "")
-            val url = fetchUrls(jsonUnescape).firstOrNull()?.replace("\\\\", "\\") ?: ""
+            val jsonUnescape = jsonString.unescapeUnicode().replace("\\", "")
+            val url = fetchUrls(jsonUnescape).firstOrNull() ?: ""
             val matched = conventions.firstOrNull { (_, names) -> names.any { it.lowercase() in url.lowercase() || it.lowercase() in titleServer.lowercase() } }?.first
             when (matched) {
                 "streamtape" -> streamtapeExtractor.videosFromUrl(url)
@@ -133,22 +134,6 @@ class AnimeID : ParsedAnimeHttpSource() {
         "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "Kswplayer", "Swhoi", "Multimovies", "Uqloads", "neko-stream", "swdyu", "fviplions", "streamgg"),
         "streamtape" to listOf("streamtape", "stp", "stape", "shavetape", "shg"),
     )
-
-    private fun unescapeJava(escaped: String): String {
-        var escaped = escaped
-        if (escaped.indexOf("\\u") == -1) return escaped
-        var processed = ""
-        var position = escaped.indexOf("\\u")
-        while (position != -1) {
-            if (position != 0) processed += escaped.substring(0, position)
-            val token = escaped.substring(position + 2, position + 6)
-            escaped = escaped.substring(position + 6)
-            processed += token.toInt(16).toChar()
-            position = escaped.indexOf("\\u")
-        }
-        processed += escaped
-        return processed
-    }
 
     private fun fetchUrls(text: String?): List<String> {
         if (text.isNullOrEmpty()) return listOf()
@@ -167,8 +152,6 @@ class AnimeID : ParsedAnimeHttpSource() {
     }
 
     override fun videoListSelector() = throw UnsupportedOperationException()
-
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
 

@@ -12,8 +12,8 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
@@ -23,7 +23,7 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class AnimeLek :
-    ParsedAnimeHttpSource(),
+    ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "AnimeLek"
@@ -109,8 +109,6 @@ class AnimeLek :
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
-
     // =============================== Search ===============================
     // TODO: Add search filters
     override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
@@ -177,10 +175,10 @@ class AnimeLek :
     }
 
     // ============================= Utilities ==============================
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         return sortedWith(
-            compareBy { it.quality.contains(quality) },
+            compareBy { it.videoTitle.contains(quality) },
         ).reversed()
     }
 

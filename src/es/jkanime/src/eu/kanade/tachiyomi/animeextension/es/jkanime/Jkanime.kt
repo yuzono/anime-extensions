@@ -20,10 +20,10 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.catchingFlatMapBlocking
@@ -42,7 +42,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 class Jkanime :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "Jkanime"
@@ -463,16 +463,16 @@ class Jkanime :
         "mega" to listOf("mega.nz"),
     )
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.qualityPref
         val server = preferences.serverPref
         val lang = preferences.langPref
         return this.sortedWith(
             compareBy(
-                { it.quality.contains(lang) },
-                { it.quality.contains(server, true) },
-                { it.quality.contains(quality) },
-                { Regex("""(\d+)p""").find(it.quality)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
+                { it.videoTitle.contains(lang) },
+                { it.videoTitle.contains(server, true) },
+                { it.videoTitle.contains(quality) },
+                { Regex("""(\d+)p""").find(it.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
             ),
         ).reversed()
     }

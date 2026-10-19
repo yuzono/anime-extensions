@@ -7,16 +7,13 @@ import android.os.Looper
 import android.widget.Toast
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
-import eu.kanade.tachiyomi.animesource.model.Track
-import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import kotlinx.serialization.json.Json
-import okhttp3.Headers
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
-import kotlin.getValue
 
 abstract class Source :
     AnimeHttpSource(),
@@ -37,7 +34,6 @@ abstract class Source :
         }
     }
 
-    // TODO: Remove with ext lib 16
     override fun popularAnimeRequest(page: Int) = throw UnsupportedOperationException()
     override fun popularAnimeParse(response: Response) = throw UnsupportedOperationException()
     override fun latestUpdatesRequest(page: Int) = throw UnsupportedOperationException()
@@ -52,23 +48,13 @@ abstract class Source :
     override fun animeDetailsParse(response: Response) = throw UnsupportedOperationException()
     override fun episodeListRequest(anime: SAnime) = throw UnsupportedOperationException()
     override fun episodeListParse(response: Response) = throw UnsupportedOperationException()
-    override fun videoListRequest(episode: SEpisode) = throw UnsupportedOperationException()
-    override fun videoListParse(response: Response) = throw UnsupportedOperationException()
+    override fun seasonListRequest(anime: SAnime) = throw UnsupportedOperationException()
+    override fun seasonListParse(response: Response) = throw UnsupportedOperationException()
+    override fun hosterListRequest(episode: SEpisode) = throw UnsupportedOperationException()
+    override fun hosterListParse(response: Response) = throw UnsupportedOperationException()
+    override fun videoListRequest(hoster: Hoster) = throw UnsupportedOperationException()
+    override fun videoListParse(
+        response: Response,
+        hoster: Hoster,
+    ) = throw UnsupportedOperationException()
 }
-
-fun Video.copyLegacy(
-    // This is quick fix for the bug in Anikku preview r8888 (caused by a bug upstream)
-    url: String = this.url.takeIf { it.isNotBlank() } ?: this.videoUrl?.takeIf { it.isNotBlank() } ?: "Video URL was empty",
-    quality: String = this.quality,
-    videoUrl: String? = this.videoUrl,
-    headers: Headers? = this.headers,
-    subtitleTracks: List<Track> = this.subtitleTracks,
-    audioTracks: List<Track> = this.audioTracks,
-): Video = Video(
-    url = url,
-    quality = quality,
-    videoUrl = videoUrl,
-    headers = headers,
-    subtitleTracks = subtitleTracks,
-    audioTracks = audioTracks,
-)

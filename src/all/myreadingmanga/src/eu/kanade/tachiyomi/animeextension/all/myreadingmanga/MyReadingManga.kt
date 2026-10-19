@@ -14,13 +14,13 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.applicationContext
 import keiyoushi.utils.delegate
@@ -39,7 +39,7 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 open class MyReadingManga(override val lang: String, private val siteLang: String, private val latestLang: String) :
-    ParsedAnimeHttpSource(),
+    ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     /*
@@ -339,7 +339,7 @@ open class MyReadingManga(override val lang: String, private val siteLang: Strin
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document): String = document.selectFirst(videoListSelector())?.attr("src")
+    override fun videoUrlParse(response: Response): String = response.asJsoup().selectFirst(videoListSelector())?.attr("src")
         ?: throw Exception("No video URL found")
 
     override fun videoListParse(response: Response): List<Video> {
@@ -350,8 +350,7 @@ open class MyReadingManga(override val lang: String, private val siteLang: Strin
             throw Exception("Failed to fetch video list: HTTP ${response.code}")
         }
 
-        val document = response.asJsoup()
-        val videoUrl = videoUrlParse(document)
+        val videoUrl = videoUrlParse(response)
         if (videoUrl.isEmpty()) return emptyList()
 
         val cookieManager = CookieManager.getInstance()

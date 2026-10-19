@@ -9,6 +9,8 @@ import java.net.URI
 
 class DoodExtractor(private val client: OkHttpClient) {
 
+    // Retain the legacy Video constructor for extensions targeting lib 14.
+    @Suppress("DEPRECATION")
     fun videoFromUrl(
         url: String,
         prefix: String? = null,

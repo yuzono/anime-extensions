@@ -1,15 +1,15 @@
 package keiyoushi.lib.unpacker
 
 import keiyoushi.lib.autoUnpacker
-import kotlin.test.Test
-import kotlin.test.assertTrue
+import org.junit.Test
+import org.junit.Assert.assertTrue
 
 class AutoUnpackerUnpackerUnitTest {
 
     @Test
     fun callUnpackedCorrectly() {
         val unpacked = autoUnpacker(PACKED_CALL)
-        assertTrue(callUnpackCheck(unpacked), "Unpacker did not unpack call correctly")
+        assertTrue("Unpacker did not unpack call correctly", callUnpackCheck(unpacked))
     }
 
     private fun callUnpackCheck(unpacked: String?): Boolean = unpacked == UNPACKED_CALL || unpacked == UNPACKED_CALL_ALLOWED
@@ -17,7 +17,7 @@ class AutoUnpackerUnpackerUnitTest {
     @Test
     fun functionUnpackedCorrectly() {
         val unpacked = autoUnpacker(PACKED_FUNCTION)
-        assertTrue(functionUnpackCheck(unpacked), "Unpacker did not unpack function correctly")
+        assertTrue("Unpacker did not unpack function correctly", functionUnpackCheck(unpacked))
     }
 
     private fun functionUnpackCheck(unpacked: String?): Boolean = unpacked == UNPACKED_FUNCTION || unpacked == UNPACKED_FUNCTION_ALLOWED

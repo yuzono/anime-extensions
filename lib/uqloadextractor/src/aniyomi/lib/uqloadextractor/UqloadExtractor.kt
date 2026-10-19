@@ -54,7 +54,7 @@ class UqloadExtractor(private val client: OkHttpClient) {
         }.distinct().toList()
 
         return sources.flatMap { videosFromSource(it, quality, fixedUrl, videoHeaders) }
-            .distinctBy { it.url }
+            .distinctBy { it.videoUrl }
     }
 
     /**

@@ -15,7 +15,6 @@ import eu.kanade.tachiyomi.network.GET
 import keiyoushi.utils.parallelCatchingFlatMap
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 /**
@@ -101,6 +100,4 @@ class Wiflix :
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
     override fun videoListSelector(): String = throw UnsupportedOperationException()
-
-    override fun videoUrlParse(document: Document): String = throw UnsupportedOperationException()
 }

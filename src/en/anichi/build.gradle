@@ -3,6 +3,7 @@ ext {
     extClass = '.Anichi'
     themePkg = 'anikototheme'
     baseUrl = 'https://anichi.to'
+    libVersion = 16
     overrideVersionCode = 0
 }
 

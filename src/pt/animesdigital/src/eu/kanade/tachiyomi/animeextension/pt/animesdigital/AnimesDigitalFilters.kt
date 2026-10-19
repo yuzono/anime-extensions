@@ -4,13 +4,16 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter.TriState
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.firstInstance
 import keiyoushi.utils.useAsJsoup
+import okhttp3.Headers
 import okhttp3.OkHttpClient
 import org.jsoup.nodes.Document
 
 class AnimesDigitalFilters(
     private val baseUrl: String,
     private val client: OkHttpClient,
+    private val headers: Headers,
 ) {
     private var error = false
 
@@ -32,11 +35,11 @@ class AnimesDigitalFilters(
     open class TriStateFilterList(name: String, values: List<TriFilterVal>) : AnimeFilter.Group<TriState>(name, values)
     class TriFilterVal(name: String) : TriState(name)
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (first { it is R } as QueryPartFilter).toQueryPart()
+    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (firstInstance<R>() as QueryPartFilter).toQueryPart()
 
     private inline fun <reified R> AnimeFilterList.parseTriFilter(
         options: Array<Pair<String, String>>,
-    ): List<List<String>> = (first { it is R } as TriStateFilterList).state
+    ): List<List<String>> = (firstInstance<R>() as TriStateFilterList).state
         .filterNot { it.isIgnored() }
         .map { filter -> filter.state to options.find { it.first == filter.name }!!.second }
         .groupBy { it.first } // group by state
@@ -72,7 +75,7 @@ class AnimesDigitalFilters(
         if (!filterInitialized()) {
             runCatching {
                 error = false
-                val document = client.newCall(GET("$baseUrl/animes-legendados-online"))
+                val document = client.newCall(GET("$baseUrl/animes-legendados-online001", headers))
                     .execute()
                     .useAsJsoup()
                 filterList = filtersParse(document)
@@ -85,7 +88,7 @@ class AnimesDigitalFilters(
     private fun filtersParse(document: Document): AnimeFilterList {
         val genres = document.select("li.filter_genre")
             .mapNotNull { element ->
-                val name = element.text().trim()
+                val name = element.text()
                 val value = element.attr("data-value")
                 if (name.isNotEmpty() && value.isNotEmpty()) {
                     Pair(name, value)
@@ -114,12 +117,12 @@ class AnimesDigitalFilters(
         val audio: String = "0",
         val type: String = "animes",
         val genres: List<String> = emptyList(),
-        val deleted_genres: List<String> = emptyList(),
+        val deletedGenres: List<String> = emptyList(),
     )
 
     internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
         if (filters.isEmpty() || !filterInitialized()) return FilterSearchParams()
-        val genresFilter = filters.first { it is GenresFilter } as GenresFilter
+        val genresFilter = filters.firstInstance<GenresFilter>()
         val (added, deleted) = filters.parseTriFilter<GenresFilter>(genresFilter.genresArray)
 
         return FilterSearchParams(

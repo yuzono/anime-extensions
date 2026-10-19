@@ -9,11 +9,11 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
@@ -32,7 +32,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 class Samehadaku :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
     override val name: String = "Samehadaku"
 
@@ -174,9 +174,9 @@ class Samehadaku :
 
     // ============================= Utilities ==============================
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-        return sortedWith(compareByDescending { it.quality.contains(quality) })
+        return sortedWith(compareByDescending { it.videoTitle.contains(quality) })
     }
 
     private fun Element.getInfo(info: String, cut: Boolean = true): String? = selectFirst("span:has(b:contains($info))")?.text()

@@ -3,7 +3,7 @@ ext {
     extClass = '.ChineseAnime'
     themePkg = 'animestream'
     baseUrl = 'https://www.chineseanime.in'
-    overrideVersionCode = 26
+    overrideVersionCode = 28
 }
 
 apply plugin: "kei.plugins.extension.legacy"

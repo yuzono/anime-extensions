@@ -79,13 +79,13 @@ class LMAnime :
     private val SharedPreferences.allowedLangsPref by preferences.delegate(PREF_ALLOWED_LANGS_KEY, PREF_ALLOWED_LANGS_DEFAULT)
 
     // ============================= Utilities ==============================
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.videoSortPref
         val lang = preferences.langPref
         return sortedWith(
             compareBy(
-                { it.quality.contains(quality) },
-                { it.quality.contains(lang, true) },
+                { it.videoTitle.contains(quality) },
+                { it.videoTitle.contains(lang, true) },
             ),
         ).reversed()
     }

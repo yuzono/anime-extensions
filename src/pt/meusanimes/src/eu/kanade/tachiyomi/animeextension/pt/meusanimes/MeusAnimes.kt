@@ -6,8 +6,8 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.runBlocking
@@ -17,7 +17,7 @@ import org.json.JSONObject
 import org.jsoup.nodes.Document
 import java.net.URLEncoder
 
-class MeusAnimes : AnimeHttpSource() {
+class MeusAnimes : AnimeHttpLegacySource() {
 
     override val name = "Meus Animes"
     override val baseUrl = "https://meusanimes.vip"
@@ -284,8 +284,8 @@ class MeusAnimes : AnimeHttpSource() {
                     .forEach { video ->
                         videoList.add(
                             Video(
-                                video.url,
-                                "$prefix: ${video.quality}",
+                                video.videoUrl,
+                                "$prefix: ${video.videoTitle}",
                                 video.videoUrl,
                                 googleHeaders,
                             ),

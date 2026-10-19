@@ -10,13 +10,14 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.lib.cryptoaes.CryptoAES
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.toHex
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -25,7 +26,7 @@ import java.security.MessageDigest
 import java.util.Calendar
 
 class Cycity :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
     override val baseUrl = "https://www.cycani.org"
     override val name = "次元城动漫"
@@ -75,7 +76,7 @@ class Cycity :
         val prefix = CharArray(k2.length)
         k1.indices.forEach { prefix[k1[it] - '0'] = k2[it] }
         val txt = "${prefix.joinToString("")}YLwJVbXw77pk2eOrAnFdBo2c3mWkLtodMni2wk81GCnP94ZltW"
-        val a = md5.digest(txt.toByteArray()).joinToString("") { "%02x".format(it) }
+        val a = md5.digest(txt.toByteArray()).toHex()
         val ivBytes = a.take(16).toByteArray(Charsets.UTF_8)
         val keyBytes = a.substring(16).toByteArray(Charsets.UTF_8)
         return CryptoAES.decrypt(url, keyBytes, ivBytes)
@@ -242,10 +243,10 @@ class Cycity :
     override fun videoListParse(response: Response) = response.asJsoup().let {
         val origin = VIDEO_URL_REGEX.find(it.select(".player-left").html())!!.groups[1]!!.value
         val base64 = Base64.decode(origin, Base64.DEFAULT).toString(Charsets.UTF_8)
-        listOf(Video(URLDecoder.decode(base64, "UTF-8"), "默认", null))
+        listOf(Video(url = URLDecoder.decode(base64, "UTF-8"), quality = "默认", videoUrl = null))
     }
 
-    override fun videoUrlRequest(video: Video) = GET(PARSE_URL + video.url)
+    override fun videoUrlRequest(video: Video) = GET(PARSE_URL + video.videoUrl)
 
     override fun videoUrlParse(response: Response): String {
         val body = response.body.string()

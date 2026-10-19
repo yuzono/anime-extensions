@@ -51,6 +51,38 @@ query (
 }
 """.toQuery()
 
+fun getPersonalListQuery() = """
+query (
+    %userName: String,
+    %type: MediaType,
+    %status: MediaListStatus,
+    %page: Int,
+    %perPage: Int,
+) {
+    Page(page: %page, perPage: %perPage) {
+        pageInfo {
+            hasNextPage
+        }
+        mediaList(userName: %userName, type: %type, status: %status) {
+            media {
+                id
+                isAdult
+                title {
+                    romaji
+                    english
+                    native
+                }
+                coverImage {
+                    extraLarge
+                    large
+                    medium
+                }
+            }
+        }
+    }
+}
+""".toQuery()
+
 fun getDetailsQuery() = """
 query media(%id: Int, %type: MediaType) {
   Media(id: %id, type: %type) {
@@ -86,23 +118,15 @@ query media(%id: Int, %type: MediaType) {
 }
 """.toQuery()
 
-fun getEpisodeQuery() = """
-query media(%id: Int, %type: MediaType) {
-  Media(id: %id, type: %type) {
+fun getEpisodeQuery() = $$"""
+query media($id: Int, $type: MediaType) {
+  Media(id: $id, type: $type) {
+    idMal
+    status
     episodes
     nextAiringEpisode {
       episode
     }
   }
 }
-""".toQuery()
-
-fun getMalIdQuery() = """
-query media(%id: Int, %type: MediaType) {
-  Media(id: %id, type: %type) {
-    idMal
-    id
-    status
-  }
-}
-""".toQuery()
+""".trimIndent()

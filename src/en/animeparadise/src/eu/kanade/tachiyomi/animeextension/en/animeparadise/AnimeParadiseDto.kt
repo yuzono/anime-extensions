@@ -2,131 +2,142 @@ package eu.kanade.tachiyomi.animeextension.en.animeparadise
 
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import keiyoushi.utils.toJsonString
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 
 @Serializable
-data class AnimeListResponse(
-    val data: List<AnimeObject>,
-) {
-    @Serializable
-    data class AnimeObject(
-        @SerialName("_id")
-        val id: String,
-        val title: String,
-        val link: String,
-        val posterImage: ImageObject,
-    ) {
-        @Serializable
-        data class ImageObject(
-            val original: String? = null,
-            val large: String? = null,
-            val medium: String? = null,
-            val small: String? = null,
-        )
+class Pagination(
+    val hasNext: Boolean,
+)
 
-        fun toSAnime(json: Json): SAnime = SAnime.create().apply {
-            title = this@AnimeObject.title
-            thumbnail_url = posterImage.original ?: posterImage.large ?: posterImage.medium ?: posterImage.small ?: ""
-            url = json.encodeToString(LinkData(slug = link, id = id))
-        }
+@Serializable
+class AnimeListResponse(
+    val data: List<AnimeObject>,
+    val pagination: Pagination,
+)
+
+@Serializable
+class RecentEpisodesResponse(
+    val data: List<RecentEpisodeObject>,
+    val pagination: Pagination,
+)
+
+@Serializable
+class RecentEpisodeObject(
+    val origin: AnimeObject,
+)
+
+@Serializable
+class AnimeObject(
+    @SerialName("_id") val id: String,
+    val title: String,
+    val link: String,
+    val posterImage: ImageObject,
+    val alternativeTitle: AlternativeTitle? = null,
+) {
+    fun toSAnime(titleLang: String): SAnime = SAnime.create().apply {
+        title = alternativeTitle.pick(titleLang) ?: this@AnimeObject.title
+        thumbnail_url = posterImage.url
+        url = LinkData(slug = link, id = id).toJsonString()
     }
 }
 
 @Serializable
-data class LinkData(
+class ImageObject(
+    val original: String? = null,
+    val large: String? = null,
+    val medium: String? = null,
+    val small: String? = null,
+) {
+    // Kitsu "original" links are often pre-signed S3 URLs that expire after 15 minutes
+    val url get() = large ?: medium ?: small ?: original?.takeUnless { "X-Amz-" in it }
+}
+
+@Serializable
+class AlternativeTitle(
+    val english: String? = null,
+    val native: String? = null,
+)
+
+private fun AlternativeTitle?.pick(titleLang: String): String? = when (titleLang) {
+    "english" -> this?.english
+    "native" -> this?.native
+    else -> null
+}?.takeIf { it.isNotBlank() }
+
+@Serializable
+class LinkData(
     val slug: String,
     val id: String,
 )
 
 @Serializable
-data class AnimeDetails(
-    val props: PropsObject,
+class AnimeDetailsResponse(
+    val data: AnimeDetails,
+)
+
+@Serializable
+class AnimeDetails(
+    private val title: String,
+    private val alternativeTitle: AlternativeTitle? = null,
+    private val synopsys: String? = null,
+    private val genres: List<String>? = null,
+    private val posterImage: ImageObject? = null,
 ) {
-    @Serializable
-    data class PropsObject(
-        val pageProps: PagePropsObject,
-    ) {
-        @Serializable
-        data class PagePropsObject(
-            val data: DataObject,
-        ) {
-            @Serializable
-            data class DataObject(
-                val synopsys: String? = null,
-                val genres: List<String>? = null,
-            ) {
-                fun toSAnime(): SAnime = SAnime.create().apply {
-                    description = synopsys
-                    genre = genres?.joinToString(", ")
-                }
-            }
-        }
+    fun toSAnime(titleLang: String): SAnime = SAnime.create().apply {
+        val displayTitle = alternativeTitle.pick(titleLang) ?: this@AnimeDetails.title
+        title = displayTitle
+        val otherTitles = listOfNotNull(this@AnimeDetails.title, alternativeTitle?.english, alternativeTitle?.native)
+            .filter { it.isNotBlank() && it != displayTitle }
+            .distinct()
+        description = buildString {
+            if (otherTitles.isNotEmpty()) append("Also known as: ${otherTitles.joinToString()}\n\n")
+            synopsys?.let(::append)
+        }.trim().ifEmpty { null }
+        thumbnail_url = posterImage?.url
+        genre = genres?.joinToString()
     }
 }
 
 @Serializable
-data class EpisodeListResponse(
+class EpisodeListResponse(
     val data: List<EpisodeObject>,
+)
+
+@Serializable
+class EpisodeObject(
+    private val uid: String,
+    private val origin: String,
+    private val number: String? = null,
+    private val title: String? = null,
 ) {
-    @Serializable
-    data class EpisodeObject(
-        val uid: String,
-        val origin: String,
-        val number: String? = null,
-        val title: String? = null,
-    ) {
-        fun toSEpisode(): SEpisode = SEpisode.create().apply {
-            episode_number = number?.toFloatOrNull() ?: 1F
-            name = (number?.let { "Ep. $number" } ?: "Episode") + (title?.let { " - $it" } ?: "")
-            url = "/watch/$uid?origin=$origin"
-        }
+    fun toSEpisode(): SEpisode = SEpisode.create().apply {
+        episode_number = number?.toFloatOrNull() ?: 1F
+        name = (number?.let { "Ep. $number" } ?: "Episode") + (title?.let { " - $it" } ?: "")
+        url = "/watch/$uid?origin=$origin"
     }
 }
 
 @Serializable
-data class VideoData(
-    val props: PropsObject,
-) {
-    @Serializable
-    data class PropsObject(
-        val pageProps: PagePropsObject,
-    ) {
-        @Serializable
-        data class PagePropsObject(
-            val subtitles: List<SubtitleObject>? = null,
-            val animeData: AnimeDataObject,
-            val episode: EpisodeObject,
-        ) {
-            @Serializable
-            data class SubtitleObject(
-                val src: String,
-                val label: String,
-            )
-
-            @Serializable
-            data class AnimeDataObject(
-                val title: String,
-            )
-
-            @Serializable
-            data class EpisodeObject(
-                val number: String,
-            )
-        }
-    }
-}
+class EpisodeDataResponse(
+    val data: EpisodeData,
+)
 
 @Serializable
-data class VideoList(
-    val directUrl: List<VideoObject>? = null,
-    val message: String? = null,
-) {
-    @Serializable
-    data class VideoObject(
-        val src: String,
-        val label: String,
-    )
-}
+class EpisodeData(
+    val episode: StreamEpisode,
+)
+
+@Serializable
+class StreamEpisode(
+    val streamLink: String? = null,
+    val subData: List<SubtitleObject>? = null,
+)
+
+@Serializable
+class SubtitleObject(
+    val src: String,
+    val label: String,
+    val type: String,
+)

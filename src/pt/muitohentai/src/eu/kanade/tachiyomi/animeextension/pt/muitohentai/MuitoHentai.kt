@@ -4,15 +4,15 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 
-class MuitoHentai : ParsedAnimeHttpSource() {
+class MuitoHentai : ParsedAnimeHttpLegacySource() {
     override val name = "Muito Hentai"
 
     override val baseUrl = "https://www.muitohentai.com"
@@ -108,8 +108,6 @@ class MuitoHentai : ParsedAnimeHttpSource() {
         val url = element.attr("src")
         return Video(url, element.attr("label"), url)
     }
-
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
 
     // ============================= Utilities ==============================
     private fun String.parseDate(): Long = runCatching { DATE_FORMATTER.parse(this)?.time }

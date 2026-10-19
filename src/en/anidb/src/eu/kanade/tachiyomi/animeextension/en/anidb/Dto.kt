@@ -1,47 +1,103 @@
 package eu.kanade.tachiyomi.animeextension.en.anidb
 
+import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlin.math.roundToInt
 
 @Serializable
-class EpisodeResponseDto(
-    val episodes: List<EpisodeDto>,
+class HomeDto(
+    val sections: List<SectionDto>,
 )
 
 @Serializable
-class EpisodeDto(
+class SectionDto(
+    val name: String,
+    val posts: List<PostItemDto>,
+)
+
+@Serializable
+class PostListDto(
+    val posts: List<PostItemDto>,
+)
+
+@Serializable
+class PostItemDto(
     val id: Long,
-    val number: Double,
-    val number2: Double? = null,
-    val filler: Boolean = false,
+)
+
+@Serializable
+class PostDto(
+    private val id: Long,
+    private val title: String,
+    private val type: String? = null,
+    private val poster: String? = null,
+    private val overview: String? = null,
+    private val status: String? = null,
+    private val runtime: String? = null,
+    private val premiered: String? = null,
+    private val age: String? = null,
+    private val score: String? = null,
+    private val genres: String? = null,
 ) {
-    fun toSEpisode(offset: Float, showFillerTag: Boolean = true): SEpisode = SEpisode.create().apply {
-        val num = number.toFloat()
-        val num2 = number2?.toFloat()
-        val adjustedNumber = num - offset
-        val adjustedNumber2 = num2?.let { it - offset }
-
-        val label = if (adjustedNumber2 != null && adjustedNumber2 != 0f && adjustedNumber2 != adjustedNumber) {
-            "${adjustedNumber.toString().removeSuffix(".0")}\u2013${adjustedNumber2.toString().removeSuffix(".0")}"
-        } else {
-            adjustedNumber.toString().removeSuffix(".0")
-        }
-
-        name = "Episode $label"
-        if (filler && showFillerTag) name += " (Filler)"
-        episode_number = adjustedNumber
+    fun toSAnime(): SAnime = SAnime.create().apply {
         url = id.toString()
+        title = this@PostDto.title
+        thumbnail_url = poster
+        genre = genres
+        status = when (this@PostDto.status?.lowercase()) {
+            "currently airing" -> SAnime.ONGOING
+            "finished airing" -> SAnime.COMPLETED
+            else -> SAnime.UNKNOWN
+        }
+        description = buildString {
+            score?.toFloatOrNull()?.let {
+                val filled = (it / 2.0).roundToInt().coerceIn(0, 5)
+                append("★".repeat(filled) + "☆".repeat(5 - filled) + " $it\n\n")
+            }
+            overview?.let { append(it) }
+            val meta = listOfNotNull(
+                type?.let { "**Type:** $it" },
+                premiered?.let { "**Season:** $it" },
+                runtime?.let { "**Duration:** $it" },
+                age?.let { "**Rating:** $it" },
+            ).joinToString(" | ")
+            if (meta.isNotEmpty()) append("\n\n$meta")
+        }.trim()
     }
 }
 
 @Serializable
-class LanguageResponseDto(
-    val languages: List<LanguageDto>,
+class EpisodeListDto(
+    val list: List<EpisodeDto>,
 )
 
 @Serializable
-class LanguageDto(
-    val name: String,
-    @SerialName("embed_url") val embedUrl: String,
+class EpisodeDto(
+    private val id: String,
+    val number: String,
+    private val filler: Boolean = false,
+) {
+    fun toSEpisode(offset: Float): SEpisode = SEpisode.create().apply {
+        val adjustedNumber = number.toFloatOrNull()?.minus(offset) ?: 0f
+        name = "Episode ${adjustedNumber.toString().removeSuffix(".0")}"
+        episode_number = adjustedNumber
+        fillermark = filler
+        url = id
+    }
+}
+
+@Serializable
+class ServerListDto(
+    val list: List<ServerDto>,
+)
+
+@Serializable
+class ServerDto(
+    val id: String,
+)
+
+@Serializable
+class IframeDto(
+    val link: String,
 )

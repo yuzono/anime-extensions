@@ -3,7 +3,7 @@ ext {
     extClass = '.JetAnime'
     themePkg = 'dooplay'
     baseUrl = 'https://ssl.jetanimes.com'
-    overrideVersionCode = 19
+    overrideVersionCode = 20
 }
 
 apply plugin: "kei.plugins.extension.legacy"

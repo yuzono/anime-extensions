@@ -7,13 +7,13 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.multisrc.zorotheme.dto.HtmlResponse
 import eu.kanade.tachiyomi.multisrc.zorotheme.dto.SourcesResponse
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.LazyMutable
+import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
@@ -35,7 +35,7 @@ abstract class ZoroTheme(
     override val name: String,
     override val baseUrl: String,
     private val hosterNames: List<String>,
-) : ParsedAnimeHttpSource(),
+) : ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = true
@@ -262,8 +262,6 @@ abstract class ZoroTheme(
 
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
 
-    override fun videoUrlParse(document: Document) = throw UnsupportedOperationException()
-
     // ============================= Utilities ==============================
 
     private fun SharedPreferences.clearOldHosts(): SharedPreferences {
@@ -297,15 +295,15 @@ abstract class ZoroTheme(
         return this
     }
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.prefQuality
         val type = preferences.prefType
         val server = preferences.prefServer
 
         return this.sortedWith(
-            compareByDescending<Video> { it.quality.contains(quality) }
-                .thenByDescending { it.quality.contains(server, true) }
-                .thenByDescending { it.quality.contains(type, true) },
+            compareByDescending<Video> { it.videoTitle.contains(quality) }
+                .thenByDescending { it.videoTitle.contains(server, true) }
+                .thenByDescending { it.videoTitle.contains(type, true) },
         )
     }
 

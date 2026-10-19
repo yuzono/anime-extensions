@@ -1,5 +1,6 @@
 package aniyomi.lib.voeextractor
 
+import android.media.MediaMetadataRetriever
 import android.util.Base64
 import android.util.Log
 import aniyomi.lib.playlistutils.PlaylistUtils
@@ -15,6 +16,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import uy.kohesive.injekt.injectLazy
+import java.io.IOException
 
 class VoeExtractor(private val client: OkHttpClient, private val headers: Headers) {
 
@@ -23,6 +25,23 @@ class VoeExtractor(private val client: OkHttpClient, private val headers: Header
     private val clientDdos by lazy { client.newBuilder().addInterceptor(DdosGuardInterceptor(client)).build() }
 
     private val playlistUtils by lazy { PlaylistUtils(clientDdos, headers) }
+
+    // Fails on a non-playlist response, which PlaylistUtils would otherwise pass on as a single video.
+    private val hlsPlaylistUtils by lazy {
+        val playlistClient = clientDdos.newBuilder().addInterceptor { chain ->
+            val response = chain.proceed(chain.request())
+            try {
+                if (!response.isSuccessful || !response.peekBody(64).string().trimStart().removePrefix("\uFEFF").startsWith("#EXTM3U")) {
+                    throw IOException("VOE: HLS playlist is unavailable")
+                }
+                response
+            } catch (e: IOException) {
+                response.close()
+                throw e
+            }
+        }.build()
+        PlaylistUtils(playlistClient, headers)
+    }
 
     private val redirectRegex = Regex("""window.location.href\s*=\s*'([^']+)';""")
 
@@ -69,23 +88,53 @@ class VoeExtractor(private val client: OkHttpClient, private val headers: Header
         val subHint = if (tracks.isNotEmpty()) " [CC ${tracks.size}]" else ""
 
         if (m3u8 != null) {
-            playlistUtils.extractFromHls(
-                m3u8,
-                videoNameGen = { quality ->
-                    val base = if (displayPrefix == "VOE") "VOE:$quality" else "$displayPrefix - VOE $quality"
-                    base + subHint
-                },
-                subtitleList = tracks,
-            ).let { videoList.addAll(it) }
+            try {
+                hlsPlaylistUtils.extractFromHls(
+                    m3u8,
+                    videoNameGen = { quality ->
+                        val base = if (displayPrefix == "VOE") "VOE:$quality" else "$displayPrefix - VOE $quality"
+                        base + subHint
+                    },
+                    subtitleList = tracks,
+                ).let { videoList.addAll(it) }
+            } catch (e: IOException) {
+                if (mp4.isNullOrBlank()) throw e
+            }
         }
+        // The MP4 duplicates the top HLS variant, so it is only offered when HLS is unavailable.
+        if (videoList.isNotEmpty()) return videoList
         if (mp4 != null) {
-            val mp4Quality = if (displayPrefix == "VOE") "VOE:MP4" else "$displayPrefix - VOE MP4"
+            val videoHeaders = headers.newBuilder().set("Referer", baseUrl).build()
+            val dimensions = mp4Dimensions(mp4, videoHeaders)
+            val resolution = dimensions?.let { (width, height) -> "${playlistUtils.standardQuality(height.toString())} (${width}x$height)" }
+                ?: "Unknown quality"
+            val mp4Quality = if (displayPrefix == "VOE") "VOE:MP4 - $resolution" else "$displayPrefix - VOE MP4 - $resolution"
             videoList.add(
-                Video(mp4, mp4Quality + subHint, mp4, subtitleTracks = tracks),
+                Video(
+                    url = mp4,
+                    quality = mp4Quality + subHint,
+                    videoUrl = mp4,
+                    headers = videoHeaders,
+                    subtitleTracks = tracks,
+                ),
             )
         }
 
         return videoList
+    }
+
+    private fun mp4Dimensions(url: String, headers: Headers): Pair<Int, Int>? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(url, headers.toMap())
+            val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
+            val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull()
+            if (width != null && height != null && width > 0 && height > 0) width to height else null
+        } catch (_: Exception) {
+            null
+        } finally {
+            retriever.release()
+        }
     }
 
     private fun decryptF7(p8: String): JsonObject? = try {

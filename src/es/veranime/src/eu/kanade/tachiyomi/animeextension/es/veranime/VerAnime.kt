@@ -17,8 +17,8 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -28,7 +28,7 @@ import okhttp3.Response
 import java.net.URLEncoder
 
 class VerAnime :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val name = "VerAni.me"
@@ -197,7 +197,7 @@ class VerAnime :
             val videos = serverVideoResolver(src)
             if (language.isNotBlank()) {
                 videos.map {
-                    Video(it.url, "[$language] ${it.quality}", it.videoUrl, it.headers, it.subtitleTracks, it.audioTracks)
+                    Video(it.videoUrl, "[$language] ${it.videoTitle}", it.videoUrl, it.headers, it.subtitleTracks, it.audioTracks)
                 }
             } else {
                 videos
@@ -291,10 +291,10 @@ class VerAnime :
         )
     }
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
         return this.sortedWith(
-            compareBy { it.quality.contains(quality) },
+            compareBy { it.videoTitle.contains(quality) },
         ).reversed()
     }
 

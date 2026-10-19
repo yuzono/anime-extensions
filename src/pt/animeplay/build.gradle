@@ -3,7 +3,7 @@ ext {
     extClass = '.AnimePlay'
     themePkg = 'dooplay'
     baseUrl = 'https://animeplay.cloud'
-    overrideVersionCode = 3
+    overrideVersionCode = 4
     isNsfw = true
 }
 

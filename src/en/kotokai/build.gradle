@@ -3,6 +3,7 @@ ext {
     extClass = '.KotoKai'
     themePkg = 'anikototheme'
     baseUrl = 'https://animekaitv.to'
+    libVersion = 16
     overrideVersionCode = 0
 }
 

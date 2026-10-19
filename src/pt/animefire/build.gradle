@@ -1,7 +1,12 @@
 ext {
+    libVersion = 16
     extName = 'Anime Fire'
     extClass = '.AnimeFire'
-    extVersionCode = 9
+    extVersionCode = 10
 }
 
 apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation("com.github.komikku-app.nanohttpd:nanohttpd:gradle-upgrade-SNAPSHOT")
+}

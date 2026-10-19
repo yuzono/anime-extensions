@@ -92,3 +92,63 @@ class KodikVideoQuality(
 
 @Serializable
 class KodikData(val links: KodikVideoQuality)
+
+/**
+ * Aksor serves its playlists from a plain JSON call: the id is the last path segment of the
+ * player page and `qualities` maps "q1080"/"q720"/… to the stream url. No token, no session
+ * and nothing for a WebView to keep alive, which is why these links keep working after
+ * playback starts.
+ */
+@Serializable
+class AksorResponse(
+    val qualities: Map<String, String?> = emptyMap(),
+)
+
+/**
+ * CVH (cdnvideohub) lists every video of a title in one playlist. Only the voice type is
+ * guaranteed; the studio name is filled in for some titles only.
+ */
+@Serializable
+class CvhPlaylist(
+    val items: List<CvhItem> = emptyList(),
+)
+
+@Serializable
+class CvhItem(
+    val vkId: String,
+    val voiceType: String? = null,
+    val voiceStudio: String? = null,
+    val episode: Int? = null,
+)
+
+@Serializable
+class CvhVideo(
+    val sources: CvhSources,
+)
+
+@Serializable
+class CvhSources(
+    val mpeg4kUrl: String? = null,
+    val mpeg2kUrl: String? = null,
+    val mpegQhdUrl: String? = null,
+    val mpegFullHdUrl: String? = null,
+    val mpegHighUrl: String? = null,
+    val mpegMediumUrl: String? = null,
+    val mpegLowUrl: String? = null,
+    val mpegLowestUrl: String? = null,
+    val mpegTinyUrl: String? = null,
+) {
+    /** Progressive mp4 renditions, best first, keyed by height. */
+    fun renditions(): List<Pair<String, String>> = listOf(
+        "2160" to mpeg4kUrl,
+        "1440" to mpegQhdUrl,
+        "1440" to mpeg2kUrl,
+        "1080" to mpegFullHdUrl,
+        "720" to mpegHighUrl,
+        "480" to mpegMediumUrl,
+        "360" to mpegLowUrl,
+        "240" to mpegLowestUrl,
+        "144" to mpegTinyUrl,
+    ).mapNotNull { (quality, url) -> url?.takeIf { it.isNotBlank() }?.let { quality to it } }
+        .distinctBy { it.first }
+}
