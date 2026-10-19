@@ -169,7 +169,7 @@ class AV1Encodes : Source() {
             val contentRoot = doc.selectFirst(
                 "main, #main, #content, .content, [class*='anime-list'], [class*='anime-grid'], " +
                     "[class*='result'], [class*='listing'], [class*='airing'], section.animes",
-            ) ?: doc
+            ) ?: doc.body()
             animes = contentRoot.select("h3").mapNotNull { h3 ->
                 val block = h3.parent() ?: return@mapNotNull null
                 val a = block.selectFirst("a[href*='/anime/']")
@@ -247,7 +247,7 @@ class AV1Encodes : Source() {
                 ?: extractBg(
                     doc.selectFirst(
                         ".anime-poster, .poster, .anime-hero, [class*='poster'], [class*='hero']",
-                    ) ?: doc,
+                    ) ?: doc.body(),
                 )
 
             description = doc.selectFirst(
