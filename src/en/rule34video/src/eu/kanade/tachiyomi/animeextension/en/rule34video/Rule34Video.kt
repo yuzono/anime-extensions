@@ -235,7 +235,7 @@ class Rule34Video :
         return document.select(DOWNLOAD_SELECTOR)
             .mapNotNull { element ->
                 val originalUrl = element.absUrl("href").toHttpUrlOrNull()
-                    ?.takeIf { it.host == pageUrl.host }
+                    ?.takeIf { it.isHttps && it.host == pageUrl.host }
                     ?: return@mapNotNull null
                 // We need to do that because this url returns a http 403 error
                 // if you try to connect using http/1.1, which is the protocol
