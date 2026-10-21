@@ -198,7 +198,7 @@ class Hstream :
         val doc = response.asJsoup()
 
         val token = client.cookieJar.loadForRequest(response.request.url)
-            .first { it.name.equals("XSRF-TOKEN") }
+            .first { it.name == "XSRF-TOKEN" }
             .value
 
         val episodeId = doc.selectFirst("input#e_id")!!.attr("value")
@@ -217,8 +217,6 @@ class Hstream :
         val urlBase = data.stream_domains.random() + "/" + data.stream_url
         val subtitleList = listOf(Track("$urlBase/eng.ass", "English"))
 
-        val resolutions = listOfNotNull("720", "1080", if (data.resolution == "4k") "2160" else null)
-
         // Determine if we need to force legacy mode based on manifest inspection to handle html video chunks
         var forceLegacy = data.legacy != 0
         if (!forceLegacy) {
@@ -231,15 +229,33 @@ class Hstream :
             } catch (_: Exception) {}
         }
 
+        val resolutions = listOfNotNull(
+            "720",
+            "1080",
+            if (!forceLegacy) "1080i" else null,
+            if (data.resolution == "4k") "2160" else null,
+        )
+
         return resolutions.map { resolution ->
             val path = getVideoUrlPath(forceLegacy, resolution)
             val url = urlBase + path
-            Video(url, "${resolution}p" + if (forceLegacy) " (Legacy)" else "", url, subtitleTracks = subtitleList)
+
+            val qualityLabel = when (resolution) {
+                "1080i" -> "1080@48"
+                else -> "${resolution}p"
+            }
+
+            Video(
+                url,
+                qualityLabel + if (forceLegacy) " (Legacy)" else "",
+                url,
+                subtitleTracks = subtitleList,
+            )
         }
     }
 
     private fun getVideoUrlPath(isLegacy: Boolean, resolution: String): String = if (isLegacy) {
-        if (resolution.equals("720")) {
+        if (resolution == "720") {
             "/x264.720p.mp4"
         } else {
             "/av1.$resolution.webm"
@@ -299,7 +315,7 @@ class Hstream :
         private const val PREF_QUALITY_KEY = "pref_quality_key"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
         private const val PREF_QUALITY_DEFAULT = "720p"
-        private val PREF_QUALITY_ENTRIES = arrayOf("720p (HD)", "1080p (FULLHD)", "2160p (4K)")
-        private val PREF_QUALITY_VALUES = arrayOf("720p", "1080p", "2160p")
+        private val PREF_QUALITY_ENTRIES = arrayOf("720p (HD)", "1080p (FULLHD)", "1080@48 (1080i)", "2160p (4K)")
+        private val PREF_QUALITY_VALUES = arrayOf("720p", "1080p", "1080@48", "2160p")
     }
 }
