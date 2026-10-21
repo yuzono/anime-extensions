@@ -170,7 +170,6 @@ data class Episode(
     @SerialName("url") val url: Url? = Url(),
     @SerialName("slug") val slug: Slug? = Slug(),
     @SerialName("nextEpisode") val nextEpisode: NextEpisode? = NextEpisode(),
-    @SerialName("previousEpisode") val previousEpisode: String? = null,
     @SerialName("videos") val videos: Videos? = Videos(),
     @SerialName("downloads") val downloads: ArrayList<Downloads> = arrayListOf(),
 )
