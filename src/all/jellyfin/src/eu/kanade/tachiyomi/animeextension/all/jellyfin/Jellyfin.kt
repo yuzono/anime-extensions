@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.ItemListDto
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.ItemType
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.LoginDto
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.LoginRequestDto
+import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.MediaDto
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.MediaLibraryDto
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.PlaybackInfoDto
 import eu.kanade.tachiyomi.animeextension.all.jellyfin.dto.SessionDto
@@ -166,28 +167,62 @@ class Jellyfin(private val suffix: String) :
         }
 
         val startIndex = (page - 1) * SERIES_FETCH_LIMIT
-        val url = if (query.isNotBlank()) {
-            getItemsUrl(startIndex).newBuilder().apply {
+        if (query.isNotBlank()) {
+            fun getSearchUrl(searchTerm: String) = getItemsUrl(startIndex).newBuilder().apply {
                 setQueryParameter("Limit", SERIES_FETCH_LIMIT.toString())
-                setQueryParameter("SearchTerm", query)
+                setQueryParameter("SearchTerm", searchTerm)
             }.build()
-        } else {
-            baseUrl.toHttpUrl().newBuilder().apply {
-                addPathSegment("Users")
-                addPathSegment(preferences.userId)
-                addPathSegment("Items")
-                addQueryParameter("StartIndex", startIndex.toString())
-                addQueryParameter("Limit", SERIES_FETCH_LIMIT.toString())
-                addQueryParameter("Recursive", "true")
-                addQueryParameter("ImageTypeLimit", "1")
-                addQueryParameter("ParentId", preferences.selectedLibrary)
-                addQueryParameter("EnableImageTypes", "Primary")
 
-                filterList.filterIsInstance<UrlFilter>().forEach {
-                    it.addToUrl(this)
-                }
-            }.build()
+            val searchQuery = query.trim()
+            var items = client.get(getSearchUrl(searchQuery)).parseAs<ItemListDto>(json)
+            val seasonSuffix = SEASON_TITLE_SUFFIX_REGEX.find(searchQuery)
+            val seriesQuery = seasonSuffix?.let { searchQuery.removeRange(it.range) }.orEmpty()
+
+            // Season names don't include the series name, so look the season up in the series instead
+            val seasons = if (
+                seriesQuery.isNotBlank() &&
+                items.items.none { it.name.equals(searchQuery, ignoreCase = true) }
+            ) {
+                items = client.get(getSearchUrl(seriesQuery)).parseAs<ItemListDto>(json)
+                // Specials are season 0
+                val seasonNumber = seasonSuffix!!.groupValues[1].toIntOrNull() ?: 0
+                items.items
+                    .filter { it.type == ItemType.Series && it.name.equals(seriesQuery, ignoreCase = true) }
+                    .flatMap { series ->
+                        val seasonsUrl = baseUrl.toHttpUrl().newBuilder().apply {
+                            addPathSegment("Shows")
+                            addPathSegment(series.id)
+                            addPathSegment("Seasons")
+                        }.build()
+                        client.get(seasonsUrl).parseAs<ItemListDto>(json).items
+                    }
+                    .filter { it.indexNumber == seasonNumber }
+            } else {
+                emptyList()
+            }
+
+            val animeList = seasons.map { it.toSAnime(baseUrl, preferences.userId, concatenateNames = true) } +
+                items.items.map { it.toSAnime(baseUrl, preferences.userId, preferences.concatNames) }
+            val hasNextPage = SERIES_FETCH_LIMIT * page < items.totalRecordCount
+
+            return AnimesPage(animeList, hasNextPage)
         }
+
+        val url = baseUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment("Users")
+            addPathSegment(preferences.userId)
+            addPathSegment("Items")
+            addQueryParameter("StartIndex", startIndex.toString())
+            addQueryParameter("Limit", SERIES_FETCH_LIMIT.toString())
+            addQueryParameter("Recursive", "true")
+            addQueryParameter("ImageTypeLimit", "1")
+            addQueryParameter("ParentId", preferences.selectedLibrary)
+            addQueryParameter("EnableImageTypes", "Primary")
+
+            filterList.filterIsInstance<UrlFilter>().forEach {
+                it.addToUrl(this)
+            }
+        }.build()
         return getAnimePage(url, page)
     }
 
@@ -512,12 +547,17 @@ class Jellyfin(private val suffix: String) :
         val item = client.get(episode.url).parseAs<ItemDto>(json)
         val mediaSources = item.mediaSources.orEmpty().filter { !it.id.isNullOrBlank() }
         return mediaSources.mapIndexed { index, source ->
+            // Without alternate versions, the media source is just named after the item
+            val name = when {
+                mediaSources.size == 1 -> "Source"
+                else -> source.name?.takeIf(String::isNotBlank) ?: "Version ${index + 1}"
+            }
+            // Version names are often a resolution already, e.g. "4K"
+            val details = source.videoInfo?.split(" ")
+                ?.filterNot { name.contains(it, ignoreCase = true) }
+                ?.joinToString(" ")
             Hoster(
-                // Without alternate versions, the media source is just named after the item
-                hosterName = when {
-                    mediaSources.size == 1 -> "Source"
-                    else -> source.name?.takeIf(String::isNotBlank) ?: "Version ${index + 1}"
-                },
+                hosterName = if (details.isNullOrEmpty()) name else "$name • $details",
                 hosterUrl = episode.url,
                 internalData = source.id!!,
             )
@@ -536,14 +576,10 @@ class Jellyfin(private val suffix: String) :
 
         var audioTrackIndex: Int? = null
         var subtitleTrackIndex: Int? = null
-        var referenceBitrate = Constants.QUALITIES_LIST.first().videoBitrate
+        val preferSource = preferences.quality == PREF_QUALITY_DEFAULT
 
-        mediaSource.mediaStreams.forEach { media ->
+        fun addTracks(mediaStreams: List<MediaDto.MediaStreamDto>) = mediaStreams.forEach { media ->
             when (media.type) {
-                "Video" -> {
-                    referenceBitrate = media.bitRate ?: referenceBitrate
-                }
-
                 "Subtitle" -> {
                     if (media.supportsExternalStream && media.codec != null) {
                         val subtitleUrl = baseUrl.toHttpUrl().newBuilder().apply {
@@ -573,28 +609,26 @@ class Jellyfin(private val suffix: String) :
                 }
             }
         }
+        addTracks(mediaSource.mediaStreams)
 
         val videoHeaders = headersBuilder()
             .add("Authorization", getAuthHeader(deviceInfo, preferences.apiKey))
             .build()
 
+        // .strm files and other remote sources, played from their url instead of through Jellyfin
         if (mediaSource.isRemote && mediaSource.path != null && preferences.useRemote) {
             return listOf(
                 Video(
-                    videoTitle = buildString {
-                        append("Remote")
-                        append("\n${mediaSource.path}")
-                    },
+                    videoTitle = "Remote",
                     videoUrl = mediaSource.path,
                     bitrate = Int.MAX_VALUE,
-                    preferred = mediaSource.bitrate == preferences.quality.toIntOrNull(),
+                    preferred = preferSource,
                     subtitleTracks = externalSubtitleList,
                     initialized = true,
                 ),
             )
         }
 
-        val videoBitrate = mediaSource.bitrate?.toLong()?.formatBytes()?.replace("B", "b") ?: "-"
         val sessionData = getSessionData(
             videoBitrate = Int.MAX_VALUE,
             audioBitrate = Int.MAX_VALUE,
@@ -613,32 +647,50 @@ class Jellyfin(private val suffix: String) :
             addQueryParameter("PlaySessionId", sessionData.playSessionId)
         }.build().toString()
 
-        val staticVideo = Video(
-            videoTitle = "${videoBitrate}ps",
-            videoUrl = staticUrl,
-            bitrate = Int.MAX_VALUE,
-            headers = videoHeaders,
-            preferred = mediaSource.bitrate == preferences.quality.toIntOrNull(),
-            subtitleTracks = externalSubtitleList,
-            initialized = true,
-        )
-
+        // PlaybackInfo probes unprobed sources such as .strm files, so prefer its details
         val sessionMediaSource = sessionData.mediaSources.firstOrNull { it.id == mediaSource.id }
             ?: return emptyList()
+        if (mediaSource.mediaStreams.isEmpty()) {
+            addTracks(sessionMediaSource.mediaStreams)
+        }
 
-        if (sessionMediaSource.supportsDirectStream) {
-            videoList.add(staticVideo)
+        // Jellyfin would only proxy a remote playlist, not its segments
+        val isRemotePlaylist = mediaSource.isRemote && mediaSource.path?.contains(".m3u", ignoreCase = true) == true
+
+        if (sessionMediaSource.supportsDirectStream && !isRemotePlaylist) {
+            val staticTitle = listOfNotNull(
+                sessionMediaSource.bitrate?.toLong()?.formatBytes()?.replace("B", "b")?.plus("ps"),
+                (sessionMediaSource.size ?: mediaSource.size)?.formatBytes(),
+                sessionMediaSource.audioInfo,
+            ).joinToString(" • ")
+
+            videoList.add(
+                Video(
+                    videoTitle = staticTitle.ifEmpty { "Source" },
+                    videoUrl = staticUrl,
+                    bitrate = Int.MAX_VALUE,
+                    headers = videoHeaders,
+                    preferred = preferSource,
+                    subtitleTracks = externalSubtitleList,
+                    initialized = true,
+                ),
+            )
         }
 
         if (!sessionMediaSource.supportsTranscoding) {
             return videoList
         }
 
+        // Without a known bitrate, offer every quality
+        val referenceBitrate = sessionMediaSource.videoBitrate?.takeIf { it > 0 }
+            ?: sessionMediaSource.bitrate?.takeIf { it > 0 }
+            ?: Int.MAX_VALUE
         val qualities = Constants.QUALITIES_LIST.takeWhile { it.videoBitrate <= referenceBitrate }
         qualities.forEach {
             videoList.add(
                 Video(
-                    videoUrl = "",
+                    // Replaced in resolveVideo, but Anikku only auto-selects videos that have a url
+                    videoUrl = staticUrl,
                     videoTitle = it.description,
                     bitrate = it.videoBitrate,
                     headers = videoHeaders,
@@ -837,6 +889,10 @@ class Jellyfin(private val suffix: String) :
 
     companion object {
         private const val SERIES_FETCH_LIMIT = 20
+        private val SEASON_TITLE_SUFFIX_REGEX = Regex(
+            """\s+(?:Season\s+(\d+)|Specials)\s*$""",
+            RegexOption.IGNORE_CASE,
+        )
         private val LIBRARY_BLACKLIST = listOf(
             "music",
             "musicvideos",
