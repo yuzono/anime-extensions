@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.id.otakudesu
 import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.bloggerextractor.BloggerExtractor
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.vidhideextractor.VidHideExtractor
 import aniyomi.lib.youruploadextractor.YourUploadExtractor
@@ -166,11 +167,10 @@ class OtakuDesu :
 
     override fun videoListParse(response: Response): List<Video> {
         val doc = response.useAsJsoup()
-        val script = doc.selectFirst("script:containsData({action:)")!!
-            .data()
+        val script = doc.select("script").map { it.data() }.first { "admin-ajax" in it && "__x__nonce" in it }
 
-        val nonceAction = script.substringAfter("{action:\"").substringBefore('"')
-        val action = script.substringAfter("action:\"").substringBefore('"')
+        val nonceAction = NONCE_ACTION_REGEX.find(script)!!.groupValues[1]
+        val action = EMBED_ACTION_REGEX.find(script)!!.groupValues[1]
 
         val nonce = getNonce(nonceAction)
 
@@ -216,6 +216,7 @@ class OtakuDesu :
     private val filelionsExtractor by lazy { StreamWishExtractor(client, headers) }
     private val yourUploadExtractor by lazy { YourUploadExtractor(client) }
     private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
+    private val bloggerExtractor by lazy { BloggerExtractor(client) }
 
     private suspend fun getVideosFromEmbed(quality: String, link: String): List<Video> = when {
         "filelions" in link -> {
@@ -229,15 +230,13 @@ class OtakuDesu :
         }
 
         "desustream" in link -> {
-            client.newCall(GET(link, headers)).awaitSuccess().let {
-                val doc = it.useAsJsoup()
-                val script = doc.selectFirst("script:containsData(sources)")!!.data()
-                val videoUrl = script.substringAfter("sources:[{")
-                    .substringAfter("file':'")
-                    .substringBefore("'")
-                listOf(Video(videoUrl, "DesuStream - $quality", videoUrl, headers))
-            }
+            val doc = client.newCall(GET(link, headers)).awaitSuccess().useAsJsoup()
+            val videoUrl = doc.selectFirst("video source[src~=.], video[src~=.]")?.absUrl("src")
+                ?: DESUSTREAM_FILE_REGEX.find(doc.select("script").joinToString("\n") { it.data() })?.groupValues?.get(1)
+            listOfNotNull(videoUrl?.let { Video(it, "DesuStream - $quality", it, headers) })
         }
+
+        "blogger.com" in link || "video.g?token=" in link -> bloggerExtractor.videosFromUrl(link, headers, " - $quality")
 
         "mp4upload" in link -> {
             client.newCall(GET(link, headers)).awaitSuccess().let {
@@ -352,6 +351,9 @@ class OtakuDesu :
     private fun String.b64Decode(): String = String(Base64.decode(this, Base64.DEFAULT))
 
     companion object {
+        private val NONCE_ACTION_REGEX = Regex("""\{action:"([^"]+)"""")
+        private val EMBED_ACTION_REGEX = Regex("""nonce:[^,]+,action:"([^"]+)"""")
+        private val DESUSTREAM_FILE_REGEX = Regex("""(?:file|videoURL)["']?\s*[:=]\s*["'](https?://[^"']+)["']""")
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("d MMM,yyyy", Locale("id", "ID"))
         }
