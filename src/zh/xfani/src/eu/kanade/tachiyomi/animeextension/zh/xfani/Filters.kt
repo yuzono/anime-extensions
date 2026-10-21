@@ -21,6 +21,7 @@ abstract class TagFilter(name: String, values: Array<String>) :
 
 class TypeFilter(
     kv: Array<Pair<String, String>> = arrayOf(
+        "全部" to "",
         "连载新番" to "1",
         "完结旧番" to "2",
         "剧场版" to "3",
@@ -32,37 +33,34 @@ class ClassFilter(
         "全部",
         "搞笑",
         "原创",
-        "轻小说改",
+        "小说改",
         "恋爱",
         "百合",
-        "漫改",
+        "漫画改",
+        "奇幻",
+        "战斗",
+        "校园",
     ),
 ) : TagFilter("类型", tags)
 
 class VersionFilter(
     tags: Array<String> = arrayOf(
         "全部",
-        "BD",
-        "OVA",
-        "SP",
-        "OAD",
+        "tv",
+        "movie",
+        "ova",
+        "oad",
+        "web",
     ),
-) : TagFilter("版本", tags)
-
-class LetterFilter(
-    tags: Array<String> = "ABCDEFGHIJKLMNOPQRSTUYWXYZ".map { it.toString() }.toMutableList()
-        .also {
-            it.add(0, "全部")
-            it.add("0-9")
-        }.toTypedArray(),
-) : TagFilter("字母", tags)
+) : TagFilter("形式", tags)
 
 class SortFilter(
     kv: Array<Pair<String, String>> = arrayOf(
-        "按最新" to "time",
-        "按热门" to "hits",
-        "按评分" to "score",
+        "按上映日期（最新）" to "release_date",
+        "按热门" to "view_count",
+        "按评分" to "bangumi_score",
+
     ),
 ) : SelectFilter("排序", kv)
 
-class YearFilter(tags: Array<String>) : TagFilter("年份", tags)
+class YearFilter : SelectFilter("年份", arrayOf("全部" to "") + (2026 downTo 2007).map { it.toString() to it.toString() }.toTypedArray())
