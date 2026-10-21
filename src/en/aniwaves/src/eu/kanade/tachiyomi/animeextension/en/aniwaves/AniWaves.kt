@@ -22,6 +22,7 @@ import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.CancellationException
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -448,39 +449,51 @@ class AniWaves :
         val embedUrl = try {
             getEmbedUrl(serverId, epUrl)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Failed to get embed URL for $serverName: ${e.message}")
             return emptyList()
         }
 
-        // Note: myvidplay contains "vidplay" — the dood check must come first
-        val videos = when {
-            embedUrl.contains("dood", true) ||
-                embedUrl.contains("myvidplay", true) ||
-                embedUrl.contains("playmogo", true) ||
-                serverName.equals("DGHG", ignoreCase = true) ->
-                extractFromDood(embedUrl, serverName, typeLabel)
+        return try {
+            // Note: myvidplay contains "vidplay" — the dood check must come first
+            val videos = when {
+                embedUrl.contains("dood", true) ||
+                    embedUrl.contains("myvidplay", true) ||
+                    embedUrl.contains("playmogo", true) ||
+                    serverName.equals("DGHG", ignoreCase = true) ->
+                    extractFromDood(embedUrl, serverName, typeLabel)
 
-            embedUrl.contains("mfw09", true) ||
-                embedUrl.contains("gn1r5n", true) ||
-                embedUrl.contains("byfms", true) ||
-                embedUrl.contains("filemoon", true) ||
-                serverName.equals("BYFMS", ignoreCase = true) ->
-                extractFromByse(embedUrl, serverName, typeLabel, epUrl)
+                embedUrl.contains("mfw09", true) ||
+                    embedUrl.contains("gn1r5n", true) ||
+                    embedUrl.contains("byfms", true) ||
+                    embedUrl.contains("filemoon", true) ||
+                    serverName.equals("BYFMS", ignoreCase = true) ->
+                    extractFromByse(embedUrl, serverName, typeLabel, epUrl)
 
-            else -> extractFromEchoVideo(embedUrl, serverName, typeLabel)
+                else -> extractFromEchoVideo(embedUrl, serverName, typeLabel)
+            }
+
+            videos.sortVideosByPreference(serverName, typeLabel)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.e(TAG, "Failed to extract videos for $serverName: ${e.message}")
+            emptyList()
         }
-
-        return videos.sortVideosByPreference(serverName, typeLabel)
     }
 
     private suspend fun getEmbedUrl(serverLinkId: String, epUrl: String): String {
         val requestHeaders = ajaxHeaders(baseUrl + epUrl)
 
         // Current API - data-link-id is already VRF-encoded, send as-is
-        val response = client.get(
-            "$baseUrl/ajax/sources?id=$serverLinkId&asi=0&autoPlay=0",
-            requestHeaders,
-        )
+        val response = try {
+            client.get(
+                "$baseUrl/ajax/sources?id=$serverLinkId&asi=0&autoPlay=0",
+                requestHeaders,
+            )
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            throw e
+        }
 
         return response.parseAs<SourcesResponse>().result?.url
             ?.takeIf(String::isNotBlank)
@@ -749,21 +762,28 @@ class AniWaves :
     }
 
     override fun List<Hoster>.sortHosters(): List<Hoster> {
-        val typePattern = Regex(""" - ${Regex.escape(preferredType)}$""", RegexOption.IGNORE_CASE)
+        val server = preferredServer
+        val type = preferredType
+        val typePattern = Regex(""" - ${Regex.escape(type)}$""", RegexOption.IGNORE_CASE)
 
         return sortedWith(
-            compareByDescending<Hoster> { it.hosterName.contains(preferredServer, ignoreCase = true) }
-                .thenByDescending { typePattern.containsMatchIn(it.hosterName) },
+            compareByDescending<Hoster> { hoster ->
+                val hosterBase = hoster.hosterName.substringBefore(" - ").trim()
+                hosterBase.equals(server, ignoreCase = true)
+            }.thenByDescending { typePattern.containsMatchIn(it.hosterName) },
         )
     }
 
     private fun List<Video>.sortVideosByPreference(serverName: String, typeLabel: String): List<Video> {
+        val quality = preferredQuality
+        val prefServer = preferredServer
+        val prefType = preferredType
         val qualityTiers = PREF_QUALITY_VALUES.reversed()
-        val isPreferredHoster = serverName.equals(preferredServer, ignoreCase = true) &&
-            typeLabel.equals(preferredType, ignoreCase = true)
+        val isPreferredHoster = serverName.equals(prefServer, ignoreCase = true) &&
+            typeLabel.equals(prefType, ignoreCase = true)
 
         return sortedWith(
-            compareByDescending<Video> { it.videoTitle.contains(preferredQuality) }
+            compareByDescending<Video> { it.videoTitle.contains(quality) }
                 .thenByDescending { video -> qualityTiers.indexOfLast { tier -> video.videoTitle.contains(tier) } },
         ).mapIndexed { index, video ->
             video.copy(preferred = index == 0 && isPreferredHoster)
