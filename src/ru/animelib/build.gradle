@@ -1,7 +1,8 @@
 ext {
     extName = 'Animelib'
     extClass = '.Animelib'
-    extVersionCode = 17
+    extVersionCode = 18
+    libVersion = "16"
     isNsfw = true
 }
 
