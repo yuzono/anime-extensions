@@ -34,7 +34,7 @@ class MiniOppaiExtractor(private val client: OkHttpClient) {
         .split("{")
         .drop(1)
         .map {
-            val url = "$baseUrl${it.extractKey("file")}"
+            val url = it.extractKey("file").let { file -> if (file.startsWith("http")) file else "$baseUrl$file" }
             val label = it.extractKey("label")
             transformer(url, label)
         }
