@@ -24,11 +24,15 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.catchingFlatMapBlocking
+import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.post
+import keiyoushi.utils.useAsJsoup
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 class MonosChinos :
@@ -64,10 +68,15 @@ class MonosChinos :
             "LuluStream",
         )
 
-        private val EPISODE_SLUG_REGEX = Regex("-episodio-(\\d+|[\\d.]+)$")
-        private val SUB_ES_REGEX = Regex("-sub-espanol$")
+        private val EPISODE_SLUG_REGEX = Regex("-episodio-[\\d.]+$")
         private val QUALITY_REGEX = Regex("""(\d+)p""")
+
+        private const val ANIME_CARD_SELECTOR = "a.card-wrap[href*=/anime/]"
+        private const val EPISODE_CARD_SELECTOR = "a.card-wrap[href*=/ver/]"
+        private const val MAX_EPISODE_PAGES = 200
     }
+
+    private fun Document.hasNextPage() = selectFirst("a[rel=next]") != null
 
     // ====================== POPULAR ======================
 
@@ -75,49 +84,33 @@ class MonosChinos :
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-        val elements = document.select("li.ficha_efecto a")
-        val nextPage = document.selectFirst(".pagination a:has(span:containsOwn(»))") != null
-        val animeList = elements.mapNotNull { element ->
+        val animeList = document.select(ANIME_CARD_SELECTOR).map { element ->
             SAnime.create().apply {
-                title = element.selectFirst("h3")?.text() ?: return@mapNotNull null
+                title = element.selectFirst("h3")!!.text()
                 thumbnail_url = element.selectFirst("img")?.getImageUrl()
                 setUrlWithoutDomain(element.attr("abs:href"))
             }
         }
-        return AnimesPage(animeList, nextPage)
+        return AnimesPage(animeList, document.hasNextPage())
     }
 
     // ====================== ÚLTIMOS EPISODIOS ======================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        val url = if (page == 1) baseUrl else "$baseUrl?page=$page"
-        return GET(url, headers)
-    }
+    // The front page is the only listing of recent episodes and it does not
+    // paginate, so every page but the first would repeat it.
+    override fun latestUpdatesRequest(page: Int) = GET(baseUrl, headers)
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-        val episodeItems = document.select("ul.row.row-cols-xl-4.row-cols-lg-4.row-cols-md-3.row-cols-2 > li.col.mb-4")
-        val animeList = episodeItems.mapNotNull { item ->
-            val episodeLink = item.selectFirst("a") ?: return@mapNotNull null
-            val episodeUrl = episodeLink.attr("abs:href")
-
-            val episodeSlug = episodeUrl.substringAfter("/ver/").substringBefore("?")
-            val animeSlugBase = episodeSlug.replace(EPISODE_SLUG_REGEX, "")
-            val animeUrl = "/anime/$animeSlugBase-sub-espanol"
-
-            val animeTitle = item.selectFirst("h2.fs-5")?.text() ?: return@mapNotNull null
-            val genre = item.selectFirst("span.text-muted")?.text() ?: ""
-
+        val animeList = document.select(EPISODE_CARD_SELECTOR).map { element ->
+            val episodeSlug = element.attr("abs:href").substringAfter("/ver/").substringBefore("?")
             SAnime.create().apply {
-                title = animeTitle
-                setUrlWithoutDomain(animeUrl)
-                description = genre
-                thumbnail_url = item.selectFirst("img.lazy")?.getImageUrl()
+                title = element.selectFirst("h3")!!.text()
+                setUrlWithoutDomain("/anime/${episodeSlug.replace(EPISODE_SLUG_REGEX, "")}-sub-espanol")
+                thumbnail_url = element.selectFirst("img")?.getImageUrl()
             }
         }
-
-        val nextPage = document.selectFirst(".pagination a:has(span:containsOwn(»))") != null
-        return AnimesPage(animeList, nextPage)
+        return AnimesPage(animeList, hasNextPage = false)
     }
 
     // ====================== BÚSQUEDA ======================
@@ -138,25 +131,26 @@ class MonosChinos :
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
         return SAnime.create().apply {
-            title = document.selectFirst("h1.fs-2.text-capitalize.text-light")?.text() ?: ""
-            description = document.selectFirst("#profile-tab-pane .mb-3 p")?.text()
-            genre = document.select("#profile-tab-pane .badge.bg-secondary").joinToString { it.text() }
-            thumbnail_url = document.selectFirst(".d-none.d-sm-flex img.lazy")?.getImageUrl()
-            status = run {
-                val estadoElement = document.selectFirst(".col:has(.text-muted:contains(Estado)) div.ms-2 div:last-child")
-                when (estadoElement?.text()) {
-                    "Estreno", "En emisión" -> SAnime.ONGOING
-                    "Finalizado" -> SAnime.COMPLETED
-                    else -> SAnime.UNKNOWN
-                }
+            title = document.selectFirst("h1")!!.text()
+            description = document.selectFirst("h1 ~ p")?.text()
+            // The page lists the genres twice, in the header and in the info tab.
+            genre = document.select("a[href*=/genero/]").map { it.text() }.distinct().joinToString()
+            thumbnail_url = document.selectFirst("img.lazy")?.getImageUrl()
+            status = when {
+                document.selectFirst("div:containsOwn(Finalizado)") != null -> SAnime.COMPLETED
+                document.selectFirst("div:containsOwn(En emisión)") != null -> SAnime.ONGOING
+                document.selectFirst("div:containsOwn(Estreno)") != null -> SAnime.ONGOING
+                else -> SAnime.UNKNOWN
             }
         }
     }
 
     // ====================== EPISODIOS ======================
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        val document = response.asJsoup()
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
+
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val document = client.get(baseUrl + anime.url, headers).useAsJsoup()
         val referer = document.location()
 
         val ajaxUrl = document.selectFirst("section.caplist")?.attr("data-ajax")?.let {
@@ -165,78 +159,47 @@ class MonosChinos :
 
         val csrfToken = document.selectFirst("meta[name='csrf-token']")?.attr("content") ?: ""
 
-        val episodeSlug = document.selectFirst("a[href^='/ver/']")?.attr("href")
-            ?.substringAfter("/ver/")
-            ?.substringBefore("-episodio-")
-            ?: run {
-                val animeSlug = referer.substringAfter("/anime/").substringBefore("?").substringBefore("#")
-                animeSlug.replace(SUB_ES_REGEX, "")
-            }
-        if (episodeSlug.isBlank()) return emptyList()
+        val ajaxHeaders = headers.newBuilder()
+            .set("Referer", referer)
+            .set("X-Requested-With", "XMLHttpRequest")
+            .set("Accept", "application/json, text/javascript, */*; q=0.01")
+            .build()
+
+        suspend fun ajaxPost(url: String, page: Int?): Response {
+            val form = FormBody.Builder().add("_token", csrfToken)
+            if (page != null) form.add("p", page.toString())
+            return client.post(url, ajaxHeaders, form.build())
+        }
+
+        // The old endpoint now always answers with an empty list and points at
+        // the real one through `paginate_url`, which pages with `p`.
+        val index = ajaxPost(ajaxUrl, null).parseAs<EpisodesDto>()
+        val listUrl = index.paginateUrl ?: return emptyList()
+        val perPage = index.perpage ?: 0
 
         val episodes = mutableListOf<SEpisode>()
         var currentPage = 1
-        var hasMore = true
-        val maxPages = 200
 
-        while (hasMore && currentPage <= maxPages) {
-            val paginatedUrl = if (currentPage == 1) {
-                ajaxUrl
-            } else {
-                val separator = if (ajaxUrl.contains("?")) "&" else "?"
-                "$ajaxUrl${separator}page=$currentPage"
-            }
+        while (currentPage <= MAX_EPISODE_PAGES) {
+            val caps = ajaxPost(listUrl, currentPage).parseAs<CapListDto>().caps
 
-            val formBody = FormBody.Builder()
-                .add("_token", csrfToken)
-                .build()
-
-            val request = Request.Builder()
-                .url(paginatedUrl)
-                .post(formBody)
-                .header("Referer", referer)
-                .header("X-Requested-With", "XMLHttpRequest")
-                .header("Accept", "application/json, text/javascript, */*; q=0.01")
-                .build()
-
-            val json = try {
-                client.newCall(request).execute().parseAs<EpisodesDto>()
-            } catch (_: Exception) {
-                break
-            }
-
-            for (obj in json.eps) {
-                val numStr = obj.num.toString()
-                if (numStr.isBlank()) continue
-
-                val episodeNumber = numStr.toFloatOrNull() ?: continue
-
-                val urlNumber = if (episodeNumber % 1 == 0f) {
-                    episodeNumber.toInt().toString()
-                } else {
-                    numStr
-                }
-
+            caps.forEach { cap ->
+                val episodeNumber = cap.numStr.toFloatOrNull() ?: return@forEach
                 episodes.add(
                     SEpisode.create().apply {
                         name = if (episodeNumber % 1 == 0f) {
                             "Episodio ${episodeNumber.toInt()}"
                         } else {
-                            "Episodio $numStr"
+                            "Episodio ${cap.numStr}"
                         }
                         episode_number = episodeNumber
-                        setUrlWithoutDomain("/ver/$episodeSlug-episodio-$urlNumber")
+                        setUrlWithoutDomain(cap.url)
                     },
                 )
             }
 
-            val perpage = json.perpage?.toInt() ?: 0
-
-            if (perpage == 0 || json.eps.size < perpage) {
-                hasMore = false
-            } else {
-                currentPage++
-            }
+            if (perPage == 0 || caps.size < perPage) break
+            currentPage++
         }
 
         return episodes.sortedByDescending { it.episode_number }
@@ -280,17 +243,19 @@ class MonosChinos :
     private val luluExtractor by lazy { LuluExtractor(client, headers) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
+    // Aliases are matched as substrings of the URL, so each list keeps only the
+    // shortest form: a longer alias containing another one is never reached.
     private val conventions = listOf(
         "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
         "okru" to listOf("ok.ru", "okru"),
-        "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "filemoon.sx"),
+        "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im"),
         "uqload" to listOf("uqload"),
         "mp4upload" to listOf("mp4upload"),
-        "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "kswplayer", "swhoi", "multimovies", "uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
+        "streamwish" to listOf("wish", "kswplayer", "swhoi", "multimovies", "uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
         "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2video", "dooood", "d000d", "d0000d"),
         "mixdrop" to listOf("mixdrop"),
         "streamtape" to listOf("streamtape", "stp", "stape", "shavetape"),
-        "lulu" to listOf("luluvdo", "lulu", "lulustream"),
+        "lulu" to listOf("lulu"),
     )
 
     private suspend fun serverVideoResolver(url: String, serverName: String = ""): List<Video> {
