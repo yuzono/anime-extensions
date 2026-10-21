@@ -62,7 +62,12 @@ class Rule34Video :
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
         setUrlWithoutDomain(element.selectFirst("a.th")!!.attr("href"))
         title = element.selectFirst("a.th div.thumb_title")!!.text()
-        thumbnail_url = element.selectFirst("a.th div.img img")?.attr("abs:data-original")
+        thumbnail_url = element.selectFirst("a.th div.img img")?.let { img ->
+            listOf("data-rd-jpg", "data-rd-src", "src", "data-original")
+                .map { img.attr(it) }
+                .firstOrNull { it.isNotBlank() && !it.startsWith("data:") }
+                ?.let { baseUrl.toHttpUrl().resolve(it)?.toString() }
+        }
     }
 
     override fun popularAnimeNextPageSelector() = "div.item.pager.next a"
@@ -130,55 +135,49 @@ class Rule34Video :
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
         title = document.selectFirst("h1.title_video")?.text().toString()
 
-        val infoRow = document.selectFirst("div.info.row")
-        val detailRows = document.select("div.row")
-
-        val artistElement = detailRows.select("div.col:has(div.label:contains(Artist)) a.item span.name").firstOrNull()
+        val artistElement = document.select("[data-suggest-type=model] a.item").firstOrNull()
         author = artistElement?.text().orEmpty()
 
         description = buildString {
-            detailRows.select("div.row:has(div.label > em) > div.label > em").html()
+            (document.selectFirst("div.vp-desc em") ?: document.selectFirst("div.vp-desc"))?.html()
+                .orEmpty()
                 .replace("<br>", "\n") // Ensure single <br> tags are followed by a newline
                 .let { text ->
                     append(text)
                 }
             append("\n\n") // Add extra spacing
 
-            infoRow?.selectFirst("div.item_info:nth-child(1) > span")?.text()?.let {
-                append("Uploaded: $it\n")
-            }
+            val metaItems = document.select("div.vp-meta span.item_info > span")
+            metaItems.getOrNull(0)?.text()?.let { append("Uploaded: $it\n") }
 
-            val artist = detailRows.select("div.col:has(div.label:contains(Artist)) a.item span.name")
+            val artist = document.select("[data-suggest-type=model] a.item")
                 .eachText()
                 .joinToString()
             if (artist.isNotEmpty()) {
                 append("Artists: $artist\n")
             }
 
-            val categories = detailRows.select("div.col:has(div.label:contains(Categories)) a.item span")
+            val categories = document.select("[data-suggest-type=category] a.item")
                 .eachText()
                 .joinToString()
             if (categories.isNotEmpty()) {
                 append("Categories: $categories\n")
             }
 
-            val uploader = detailRows.select("div.col:has(div.label:contains(Uploaded by)) a.item").text()
+            val uploader = document.selectFirst("div.vp-credits a.video_meta_pill")?.text().orEmpty()
             if (uploader.isNotEmpty()) {
                 append("Uploader: $uploader\n")
             }
 
-            infoRow?.select("div.item_info:nth-child(2) > span")?.text()?.let {
-                val views = it.substringBefore(" ").replace(",", "")
-                append("Views: $views\n")
-            }
-            infoRow?.select("div.item_info:nth-child(3) > span")?.text()?.let { append("Duration: $it\n") }
-            document.select("div.row:has(div.label:contains(Download)) a.tag_item")
-                .eachText()
-                .joinToString { it.substringAfter(" ") }
+            metaItems.getOrNull(1)?.text()?.let { append("Views: ${it.substringBefore(" ")}\n") }
+            metaItems.getOrNull(2)?.text()?.let { append("Duration: $it\n") }
+            document.select("a.tag_item_download")
+                .map { qualityOf(it) }
+                .joinToString()
                 .also { append("Quality: $it") }
         }
 
-        genre = document.select("div.row_spacer:has(div.label:contains(Tags)) a.tag_item:not(:contains(Suggest))")
+        genre = document.select("[data-suggest-type=tag] a.tag_item:not(.tag_item_suggest)")
             .eachText()
             .joinToString()
 
@@ -203,6 +202,12 @@ class Rule34Video :
         client.newBuilder().followRedirects(false).build()
     }
 
+    private fun qualityOf(element: Element): String {
+        val href = element.attr("href")
+        return QUALITY_REGEX.find(href)?.groupValues?.get(1)
+            ?: element.ownText().substringAfter(" ").trim()
+    }
+
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
         val headers = headersBuilder()
@@ -221,7 +226,7 @@ class Rule34Video :
 
         val document = response.asJsoup()
 
-        return document.select("div.label:contains(Download) ~ a.tag_item")
+        return document.select("a.tag_item_download")
             .mapNotNull { element ->
                 val originalUrl = element.attr("href")
                 // We need to do that because this url returns a http 403 error
@@ -231,7 +236,7 @@ class Rule34Video :
                 val url = noRedirectClient.newCall(GET(originalUrl, headers)).execute()
                     .use { it.headers["location"] }
                     ?: return@mapNotNull null
-                val quality = element.text().substringAfter(" ")
+                val quality = qualityOf(element)
                 Video(url, quality, url, headers)
             }
     }
@@ -348,6 +353,8 @@ class Rule34Video :
 
     companion object {
         const val PREFIX_SEARCH = "slug:"
+
+        private val QUALITY_REGEX = Regex("_(\\d+p)\\.mp4")
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
