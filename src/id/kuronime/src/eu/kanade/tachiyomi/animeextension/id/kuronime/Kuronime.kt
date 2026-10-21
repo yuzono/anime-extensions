@@ -2,26 +2,28 @@ package eu.kanade.tachiyomi.animeextension.id.kuronime
 
 import android.util.Base64
 import androidx.preference.ListPreference
-import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.doodextractor.DoodExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
-import aniyomi.lib.streamlareextractor.StreamlareExtractor
-import aniyomi.lib.youruploadextractor.YourUploadExtractor
-import eu.kanade.tachiyomi.animeextension.id.kuronime.extractors.AnimekuExtractor
-import eu.kanade.tachiyomi.animeextension.id.kuronime.extractors.HxFileExtractor
-import eu.kanade.tachiyomi.animeextension.id.kuronime.extractors.LinkBoxExtractor
+import aniyomi.lib.pixeldrainextractor.PixelDrainExtractor
+import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
+import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.lib.cryptoaes.CryptoAES
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.toJsonRequestBody
+import keiyoushi.utils.useAsJsoup
+import kotlinx.serialization.Serializable
 import okhttp3.Request
-import okhttp3.Response
-import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.util.Locale
@@ -29,7 +31,7 @@ import java.util.Locale
 class Kuronime :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-    override val baseUrl: String = "https://tv1.kuronime.vip"
+    override val baseUrl: String = "https://kuronime.sbs"
     override val lang: String = "id"
     override val name: String = "Kuronime"
     override val supportsLatest: Boolean = true
@@ -40,12 +42,12 @@ class Kuronime :
         val anime = SAnime.create()
         val infodetail = document.select("div.infodetail")
         val status = parseStatus(infodetail.select("ul > li:nth-child(3)").text().replace("Status: ", ""))
-        anime.title = infodetail.select("ul > li:nth-child(1)").text().replace("Judul: ", "")
-        anime.genre = infodetail.select("ul > li:nth-child(2)").joinToString(", ") { it.text() }
+        anime.title = document.selectFirst("h1.entry-title")?.text() ?: infodetail.select("ul > li:nth-child(1)").text().replace("Judul: ", "")
+        anime.genre = infodetail.select("ul > li:nth-child(2) a").joinToString { it.text() }
         anime.status = status
         anime.artist = infodetail.select("ul > li:nth-child(4)").text().replace("Studio: ", "")
         anime.author = "UNKNOWN"
-        anime.description = "Synopsis: \n" + document.select("div.main-info > div.con > div.r > div > span > p").text()
+        anime.description = "Synopsis: \n" + document.select("div.main-info div.r span.const p").text()
         return anime
     }
 
@@ -85,20 +87,20 @@ class Kuronime :
         } else {
             if (thumbnailElement.hasAttr("data-src")) thumbnailElement.attr("data-src") else ""
         }
-        anime.title = element.select("div > a > div.tt > h4").text()
+        anime.title = element.select("div > a > div.tt > h2").text()
         return anime
     }
-    override fun latestUpdatesNextPageSelector(): String = "div.pagination > a.next"
+    override fun latestUpdatesNextPageSelector(): String = "a.next.page-numbers"
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/anime/?page=$page&status=ongoing&sub=&order=update")
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/anime/page/$page/?status=ongoing&order=update")
 
     override fun latestUpdatesSelector(): String = "div.listupd > article"
 
     override fun popularAnimeFromElement(element: Element): SAnime = getAnimeFromAnimeElement(element)
 
-    override fun popularAnimeNextPageSelector(): String = "div.pagination > a.next"
+    override fun popularAnimeNextPageSelector(): String = "a.next.page-numbers"
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/anime/page/$page")
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/anime/page/$page/?order=popular")
 
     override fun popularAnimeSelector(): String = "div.listupd > article"
 
@@ -113,54 +115,41 @@ class Kuronime :
 
     override fun searchAnimeSelector(): String = "div.listupd > article"
 
-    override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
-        val videoList = mutableListOf<Video>()
+    override suspend fun getVideoList(episode: SEpisode): List<Video> {
+        val document = client.newCall(videoListRequest(episode)).awaitSuccess().useAsJsoup()
+        val id = document.select("script").firstNotNullOfOrNull { ID_REGEX.find(it.data())?.groupValues?.get(1) }
+            ?: return emptyList()
+        val sources = client.newCall(POST("$API_URL/sources", headers, SourcesRequest(id).toJsonRequestBody()))
+            .awaitSuccess()
+            .parseAs<SourcesResponse>()
+        val mirror = sources.mirror ?: return emptyList()
+        val encrypted = String(Base64.decode(mirror, Base64.DEFAULT)).parseAs<EncryptedMirror>()
+        val embeds = CryptoAES.decryptWithSalt(encrypted.ct, encrypted.s, MIRROR_KEY).parseAs<Mirror>().embed
 
-        val hosterSelection = preferences.getStringSet(
-            "hoster_selection",
-            setOf("animeku", "mp4upload", "yourupload", "streamlare", "linkbox"),
-        )!!
-
-        document.select("select.mirror > option[value]").forEach { opt ->
-            val decoded = if (opt.attr("value").isEmpty()) {
-                document.selectFirst("iframe")!!.attr("data-src")
-            } else {
-                Jsoup.parse(
-                    String(Base64.decode(opt.attr("value"), Base64.DEFAULT)),
-                ).select("iframe[data-src~=.]").attr("data-src")
-            }
-
-            when {
-                hosterSelection.contains("animeku") && decoded.contains("animeku.org") -> {
-                    videoList.addAll(AnimekuExtractor(client).getVideosFromUrl(decoded, opt.text()))
-                }
-
-                hosterSelection.contains("mp4upload") && decoded.contains("mp4upload.com") -> {
-                    val videos = Mp4uploadExtractor(client).videosFromUrl(decoded, headers, suffix = " - ${opt.text()}")
-                    videoList.addAll(videos)
-                }
-
-                hosterSelection.contains("yourupload") && decoded.contains("yourupload.com") -> {
-                    videoList.addAll(YourUploadExtractor(client).videoFromUrl(decoded, headers, opt.text(), "Original - "))
-                }
-
-                hosterSelection.contains("streamlare") && decoded.contains("streamlare.com") -> {
-                    videoList.addAll(StreamlareExtractor(client).videosFromUrl(decoded, suffix = "- " + opt.text()))
-                }
-
-                hosterSelection.contains("hxfile") && decoded.contains("hxfile.co") -> {
-                    videoList.addAll(HxFileExtractor(client).getVideoFromUrl(decoded, opt.text()))
-                }
-
-                hosterSelection.contains("linkbox") && decoded.contains("linkbox.to") -> {
-                    videoList.addAll(LinkBoxExtractor(client).videosFromUrl(decoded, opt.text()))
-                }
+        return embeds.flatMap { (quality, hosts) ->
+            hosts.mapNotNull { (host, url) -> url?.let { Triple(host, it, quality.removePrefix("v")) } }
+        }.parallelCatchingFlatMap { (host, url, quality) ->
+            when (host) {
+                "doodstream" -> listOfNotNull(DoodExtractor(client).videoFromUrl(url, quality))
+                "mp4upload" -> Mp4uploadExtractor(client).videosFromUrl(url, headers, suffix = " - $quality")
+                "pixeldrain" -> PixelDrainExtractor().videosFromUrl(url.substringBefore("?"), "$quality - ")
+                "filelions" -> VidHideExtractor(client, headers).videosFromUrl(url) { resolution -> "FileLions - $resolution" }
+                else -> emptyList()
             }
         }
-
-        return videoList
     }
+
+    @Serializable
+    private class SourcesRequest(val id: String)
+
+    @Serializable
+    private class SourcesResponse(val mirror: String? = null)
+
+    @Serializable
+    private class EncryptedMirror(val ct: String, val s: String)
+
+    @Serializable
+    private class Mirror(val embed: Map<String, Map<String, String?>> = emptyMap())
 
     override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
@@ -185,17 +174,6 @@ class Kuronime :
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        val hostSelection = MultiSelectListPreference(screen.context).apply {
-            key = "hoster_selection"
-            title = "Enable/Disable Hosts"
-            entries = arrayOf("Animeku", "Mp4Upload", "YourUpload", "Streamlare", "Hxfile", "Linkbox")
-            entryValues = arrayOf("animeku", "mp4upload", "yourupload", "streamlare", "hxfile", "linkbox")
-            setDefaultValue(setOf("animeku", "mp4upload", "yourupload", "streamlare", "linkbox"))
-
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putStringSet(key, newValue as Set<String>).commit()
-            }
-        }
         val videoQualityPref = ListPreference(screen.context).apply {
             key = "preferred_quality"
             title = "Preferred quality"
@@ -211,7 +189,12 @@ class Kuronime :
                 preferences.edit().putString(key, entry).commit()
             }
         }
-        screen.addPreference(hostSelection)
         screen.addPreference(videoQualityPref)
+    }
+
+    companion object {
+        private const val API_URL = "https://animeku.org/api/v9"
+        private const val MIRROR_KEY = "3&!Z0M,VIZ;dZW=="
+        private val ID_REGEX = Regex("""var _0x\w+ = "([A-Za-z0-9+/=]{40,})"""")
     }
 }
