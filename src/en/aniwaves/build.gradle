@@ -1,7 +1,8 @@
 ext {
     extName = 'AniWaves.ru'
     extClass = '.AniWaves'
-    extVersionCode = 2
+    libVersion = 16
+    extVersionCode = 3
     isNsfw = false
 }
 
