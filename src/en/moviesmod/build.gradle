@@ -2,12 +2,13 @@ ext {
     extName = 'MoviesMod'
     extClass = '.MoviesMod'
     libVersion = 16
-    extVersionCode = 4
+    extVersionCode = 5
     isNsfw = false
 }
 
 apply plugin: "kei.plugins.extension.legacy"
 
 dependencies {
+    implementation("com.github.komikku-app.nanohttpd:nanohttpd:gradle-upgrade-SNAPSHOT")
     implementation(project(':lib:playlistutils'))
 }

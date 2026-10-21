@@ -13,18 +13,22 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.network.get
 import keiyoushi.network.head
+import keiyoushi.network.post
 import keiyoushi.utils.Source
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelMapNotNullBlocking
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import okhttp3.CacheControl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MultipartBody
 import okhttp3.Response
+import org.jsoup.nodes.Document
 import java.util.concurrent.atomic.AtomicBoolean
 
 class MoviesMod : Source() {
@@ -246,6 +250,7 @@ class MoviesMod : Source() {
             ?.substringAfter(":")?.trim()?.let { " - $it" }
             .orEmpty()
         val title = "$resolution$size"
+        val zfileUrl = doc.selectFirst("div.card-body a.btn[href*=/zfile/]")?.attr("abs:href")
 
         // Resume Cloud serves a zip and Telegram File needs the Telegram bot, so neither is playable
         return doc.select("div.card-body a.btn").parallelCatchingFlatMap { btn ->
@@ -261,7 +266,15 @@ class MoviesMod : Source() {
                             playlistUtils.extractFromHls(finalUrl, videoNameGen = { q -> "$q$size" })
                         }.getOrDefault(listOf(Video(videoUrl = finalUrl, videoTitle = title)))
                     } else {
-                        listOf(Video(videoUrl = finalUrl, videoTitle = title, resolution = resolution.toVideoResolution()))
+                        listOf(
+                            Video(
+                                videoUrl = finalUrl,
+                                videoTitle = title,
+                                resolution = resolution.toVideoResolution(),
+                                internalData = zfileUrl.orEmpty(),
+                                initialized = zfileUrl == null,
+                            ),
+                        )
                     }
                     videos.map { server to it }
                 }
@@ -270,11 +283,52 @@ class MoviesMod : Source() {
                         playlistUtils.extractFromHls(href, videoNameGen = { q -> "$q$size" })
                     }.getOrDefault(emptyList()).map { server to it }
                 }
-                href.contains("/wfile/") -> extractWorkerLinks(href, resolution, size)
+                href.contains("/wfile/") -> extractWorkerLinks(href, resolution, size, zfileUrl)
                 else -> emptyList()
             }
         }
     }
+
+    // Instant links ignore Range and Direct links run out of quota partway through, so both are served on loopback
+    // with the Resume Cloud zip of the same file as a backup, and played as they are if that fails
+    override suspend fun resolveVideo(video: Video): Video? {
+        val zfileUrl = video.internalData
+        val videoUrl = runCatching {
+            VideoServer.register(client, headers, video.videoUrl) { getZipUrl(zfileUrl) }
+        }.getOrNull() ?: video.videoUrl
+        return video.copy(videoUrl = videoUrl, internalData = "", initialized = true)
+    }
+
+    // Most zips aren't made until someone asks for one; the site then needs about 30 s per GB before it links it
+    private suspend fun getZipUrl(zfileUrl: String): String? {
+        val doc = fetchZfile(zfileUrl)
+        doc.zipLink()?.let { return it }
+
+        val key = doc.selectFirst("script:containsData(action_token)")?.data()
+            ?.let { ZIP_KEY_REGEX.find(it)?.groupValues?.get(1) }
+        if (key != null) {
+            val body = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("action", "cloud")
+                .addFormDataPart("key", key)
+                .addFormDataPart("action_token", "")
+                .build()
+            val generateHeaders = headers.newBuilder().set("x-token", zfileUrl.toHttpUrl().host).build()
+            client.post(zfileUrl, generateHeaders, body).close()
+        } else if (doc.selectFirst("#fakeProgressBar") == null) {
+            return null
+        }
+
+        repeat(ZIP_POLL_ATTEMPTS) {
+            delay(ZIP_POLL_INTERVAL)
+            fetchZfile(zfileUrl).zipLink()?.let { return it }
+        }
+        return null
+    }
+
+    private suspend fun fetchZfile(url: String): Document = client.get(url, headers, CacheControl.FORCE_NETWORK).asJsoup()
+
+    private fun Document.zipLink(): String? = selectFirst("a[href*=workers.dev][href$=.zip]")?.attr("abs:href")
 
     // The instant links redirect to video-seed.dev?url=<stream>; that page is slow, so only read the Location header
     private suspend fun resolveRedirect(url: String): String = runCatching {
@@ -283,7 +337,7 @@ class MoviesMod : Source() {
         }
     }.getOrNull()?.let { it.queryParameter("url") ?: it.toString() } ?: url
 
-    private suspend fun extractWorkerLinks(wfileUrl: String, resolution: String, size: String): List<Pair<String, Video>> {
+    private suspend fun extractWorkerLinks(wfileUrl: String, resolution: String, size: String, zfileUrl: String?): List<Pair<String, Video>> {
         val servers = runCatching { client.get(wfileUrl, headers).asJsoup() }.getOrNull()
             ?.select("a[href*='?type=']")
             ?.distinctBy { it.attr("abs:href") }
@@ -297,6 +351,8 @@ class MoviesMod : Source() {
                     videoUrl = url,
                     videoTitle = "$resolution$size",
                     resolution = resolution.toVideoResolution(),
+                    internalData = zfileUrl.orEmpty(),
+                    initialized = zfileUrl == null,
                 )
             }
         }
@@ -396,6 +452,9 @@ class MoviesMod : Source() {
 
     companion object {
         private val RESOLUTION_REGEX = Regex("""\d{3,4}p""", RegexOption.IGNORE_CASE)
+        private val ZIP_KEY_REGEX = Regex("""append\(\s*["']key["']\s*,\s*["']([^"']+)""")
+        private const val ZIP_POLL_INTERVAL = 5000L
+        private const val ZIP_POLL_ATTEMPTS = 24
 
         private const val MMODLIST_URL = "https://mmodlist.org/?type=hollywood"
         private val MMODLIST_REGEX = Regex("""url=(https?://[^"'\s>]+)""", RegexOption.IGNORE_CASE)
