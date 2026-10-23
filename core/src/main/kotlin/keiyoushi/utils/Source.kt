@@ -25,7 +25,9 @@ abstract class Source :
 
     open val json: Json by injectLazy()
 
-    val preferences: SharedPreferences by getPreferencesLazy { migration }
+    // Invoked inside the lambda: passing `migration` itself would read it in this constructor,
+    // before a subclass has initialized its override
+    val preferences: SharedPreferences by getPreferencesLazy { migration() }
 
     protected val handler by lazy { Handler(Looper.getMainLooper()) }
 
