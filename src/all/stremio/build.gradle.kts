@@ -5,9 +5,10 @@ plugins {
 yuzono {
     name = "Stremio"
     className = "Stremio"
-    versionCode = 11
+    versionCode = 12
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
+    torrent = true
 }
 
 dependencies {

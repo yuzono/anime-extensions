@@ -5,9 +5,10 @@ plugins {
 yuzono {
     name = "Torrentio (Torrent / Debrid)"
     className = "Torrentio"
-    versionCode = 11
+    versionCode = 12
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
+    torrent = true
 
     deeplink {
         host("torrentio.strem.fun")
