@@ -134,7 +134,8 @@ A yuzono commit and its @secozzi copies share one status, and evidence for any o
 | Method | Status | Meaning |
 |--------|--------|---------|
 | `in history as …` | O | The upstream commit is reachable from the target branch |
-| `hash of …` | O | A target commit's message has `cherry picked from commit <hash>` (or a `github.com/…/commit/<hash>` link) |
+| `hash of …` | O | A target commit's message has `cherry picked from commit <hash>` (or a `github.com/…/commit/<hash>` link), and the commits that cite it carry all of its files (see [Partial picks](#partial-picks)) |
+| `hash of … (partial: N of M files not picked)` | ? | They cite it, but left out N of the M files that apply here. Title and PR matches on those same commits become `?` too |
 | `pr+title owner/repo#N` | O | A target commit line has `owner/repo#N` (or `…/pull/N`) and a similar title. Refs right after `Fixes`, `Closes`, `See` and similar words are ignored |
 | `title+author` | O | A target commit line has the same normalized title and the same author |
 | `pr only owner/repo#N` | ? | The PR is referenced but the title differs |
@@ -143,6 +144,25 @@ A yuzono commit and its @secozzi copies share one status, and evidence for any o
 Title matches only count if the title is unique among the listed upstream commits, has at least 3 words,
 and the target commit is at most 180 days older than the upstream commit.
 The title is normalized before comparing: lowercased, conventional-commit prefix removed, `(#N)` refs and quotes removed.
+
+### Partial picks
+
+`git cherry-pick -x` adds `cherry picked from commit <hash>` even when the pick keeps only part of the commit. For
+example, `274251e580` (CacheControlInterceptor) took 2 files of `453e52b243` (Add support for ext-lib 1.6 based
+extensions) and left out `KeiSource.kt`. So the script compares files: the files of the upstream commit against the
+files changed by every target commit that cites it.
+
+- Only files outside the upstream's `exclude_only_paths` and inside its `partial_check_paths` count (here: yuzono's
+  files outside `src/` and `lib-multisrc/`, and @secozzi's files under `src/`).
+- A file counts as picked when the citing commits changed it, or a file of the same name in the same module (a package
+  moved for this repo, like `lib/cryptoaes/src/keiyoushi/…` picked as `lib/cryptoaes/src/aniyomi/…`).
+- A file doesn't apply here, and doesn't count, when the target branch didn't have it before the first citing commit
+  and the upstream commit changes or deletes it, or adds it to a module the target branch didn't have (a manga-only lib).
+
+When files that apply are left out, the row gets `?` instead of `O`. It turns `O` by itself once later picks that cite
+the same hash carry the rest. If the rest will never be picked, mark the row `O` (or `X`) by hand.
+Rows already marked `O`, by the script or by hand, skip this check: they stay `O`, and their Details never show
+`partial: …`.
 
 ### Revert chains (flagged `?`)
 
@@ -198,6 +218,7 @@ row that turns out to be a bulk change to yuzono's own manga sources, not a chan
 | `additional_upstreams` | List of one or more `{name, remote, branch, github}`, each with the optional keys below. Their commits are paired with the main upstream's. Names must be unique |
 | `exclude_only_paths` | Per upstream, optional. List of repo-relative directories or files (leading / trailing `/` ignored). That upstream's commits that only change files under them are not listed. Here: `["src/", "lib-multisrc/"]` on yuzono only, because @secozzi's `src/` holds anime extensions this repo ships |
 | `repo_wide_min_modules` | Per upstream, optional, whole number. A commit dropped by `exclude_only_paths` is kept as [repo-wide](#repo-wide-commits) when it touches at least this many modules. `0` or absent = off. Here: `5` on yuzono |
+| `partial_check_paths` | Per upstream, optional. List of repo-relative directories or files. A pick of that upstream's commits must carry its files under them to count as `O` (see [Partial picks](#partial-picks)). Absent = all files. Here: `["src/"]` on @secozzi, whose README, CI and own `core` don't apply here |
 
 Tuning constants (similarity threshold, date limits, minimum title words, module folders) are at the top of the script.
 
@@ -224,12 +245,16 @@ The tests in `test_update_cherrypick_log.py` cover revert-chain flags (including
 the script's own flags (including notes with escaped characters and user text), manual `X` pins, the rerun status rules
 (`carry_over`: manual status kept, AI verdict kept unless `O` evidence appears), and the path filter (path matching,
 modules, config checks, and `Builder.build` dropping path-only commits, keeping repo-wide ones and keeping a copy of a
-dropped one), and the time order (reading committer time, interleaving upstreams, ties, copies at their own time).
-They need no git repository.
+dropped one), the time order (reading committer time, interleaving upstreams, ties, copies at their own time), and
+partial picks (which files count, a package moved for this repo, and a partial pick staying `?` even with a matching
+title until a later pick carries the rest). They need no git repository.
 
 ## Limitations
 
 - These are heuristics. A reworded, split or hand-ported change can show as empty or `?`. That's what the AI review is for.
+- The [partial-pick](#partial-picks) check compares file names, not contents. A citing commit that changes a file
+  counts as carrying all of that file's change. A file left out on purpose (a dependency bump this repo doesn't want)
+  still makes the row `?`, and the rest of a pick made by a commit that doesn't cite the hash isn't seen.
 - yuzono's `(#N)` refs are `keiyoushi/extensions-source` PR numbers, and its hashes differ from keiyoushi's. A pick that
   `master` records as `keiyoushi/extensions-source#N`, or with a keiyoushi hash, is only found through its title, so it can
   show `?` (e.g. `Docs: URL intent filter (#14330)`). Most such picks are still found through a yuzono hash or the title.

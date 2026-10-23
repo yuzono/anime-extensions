@@ -87,6 +87,14 @@ See `CONTRIBUTING.md` for full rules. Critical for agents:
   initializers – use `by lazy`. The repo publisher instantiates sources on a plain JVM where they
   throw `Stub!`, which blocks the publish for every extension. See `CONTRIBUTING.md#misc-notes`.
 
+## Referring to commits
+
+When you mention a commit while talking to the user (chat replies, summaries, reports), give its short hash followed by
+its subject in parentheses, with no quotes, like `git log --format=reference`. Shorten long subjects with `…`, and drop
+a trailing PR reference such as `(#17034)` so the parentheses don't nest: `d239a86987` (small cleanup in build logic),
+`8573282cf4` (Set output apk filename with variant api…). A bare hash can't be recognized at a glance. This is about
+conversation only; it doesn't apply to commit messages or PR descriptions.
+
 ## Porting upstream changes
 
 Build logic, CI, `core` and docs are mostly cherry-picked from the manga repos: `yuzono/tachiyomi-extensions` (a copy of
@@ -116,12 +124,29 @@ when resolving conflicts and add it to any rewritten script. `torrent = true` in
 `tachiyomi.animeextension.torrent` meta-data (Anikku's `ExtensionLoader`) → `torrent` in `index.min.json` (Anikku's
 `ExtensionApi`) and `isTorrent` in `index.json`/`index.pb`.
 
+**A pick commit holds only that upstream change**, plus its `O` row in `cherrypick_log.md`. Uncommitted changes that
+are already in the tree when you pick, such as notes added to `cherrypick_log.md` or work on another file, stay out of
+it, staged or not:
+1. Read the commit's row first, Notes included. Then stash those changes with
+   `git stash push -m "unrelated to <hash>"`. `git cherry-pick` refuses to start with staged changes, and a dirty
+   `cherrypick_log.md` would otherwise be committed along with the row.
+2. Stage only the pick's own files: `git add <path>` for each resolved file. Never use `git add -A`, `git add -u` or
+   `git commit -a` during a pick.
+3. After the commit, or as soon as you stop without one, restore your changes with `git stash pop`. If it conflicts,
+   keep both sides, leave the result unstaged and `git stash drop`. A note on the picked row and its new `O` mark
+   conflict like this.
+
+Untracked files can stay where they are, unless the pick adds a file at the same path.
+
 ## Versioning – bump once per PR, theme bump propagates
 
-Source of truth: `CONTRIBUTING.md:281-310` (individual) + `CONTRIBUTING.md:1179-1255` (themes) + `gradle/build-logic/src/main/kotlin/PluginExtension.kt:114`:
+Source of truth: `CONTRIBUTING.md:281-310` (individual) + `CONTRIBUTING.md:1179-1255` (themes) + `gradle/build-logic/src/main/kotlin/PluginExtension.kt:124-132`:
 
 ```kotlin
-versionCode = if (theme == null) keiyoushi.versionCode else theme.baseVersionCode + keiyoushi.versionCode
+val versionCodeProvider = themeExtension.flatMap { themeKeiyoushi ->
+    // ...
+    themeKeiyoushi.baseVersionCode.zip(keiyoushi.versionCode) { base, ext -> base + ext }
+}.orElse(keiyoushi.versionCode)
 ```
 
 Rules:

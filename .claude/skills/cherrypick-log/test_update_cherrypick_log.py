@@ -255,6 +255,99 @@ class ExcludeOnlyPathsTest(unittest.TestCase):
         self.assertEqual(fake_builder(cfg, {"prim": [wide], "sec": []}, changed).build(), [])
 
 
+def fake_target_git(log, changes, objects):
+    """`git` for TargetIndex: the target branch's `log`, commits' (status, path) `changes`, existing `rev:path` objects."""
+
+    def run(*args, cwd, check=True, stdin=None):
+        if args[0] == "rev-list":
+            return ""
+        if args[0] == "cat-file":  # a rev exists when some object is listed under it
+            revs = [line.removesuffix("^{tree}") for line in stdin.split()]
+            return "".join("tree\n" if any(o.startswith(f"{r}:") for o in objects) else f"{r}^{{tree}} missing\n" for r in revs)
+        if "ls-tree" in args:
+            rev, paths = args[args.index("--") - 1], args[args.index("--") + 1 :]
+            return "".join(f"{p}\0" for p in paths if f"{rev}:{p}" in objects)
+        if "--name-status" in args:
+            return "".join(f"\x1e{h}\n\n" + "".join(f"{st}\t{p}\n" for st, p in changes.get(h, [])) for h in stdin.split())
+        return "".join(f"{c.full}\x1f{c.date}\x1f{c.time}\x1fa\x1fa@x\x1fa\x1fa@x\x1f{c.message}\x1e" for c in log)
+
+    return run
+
+
+class PartialPickTest(unittest.TestCase):
+    def test_parse_name_status(self):
+        text = "\x1eaaa\n\nM\tcore/A.kt\nA\tlib/x/b c.kt\n\x1ebbb\n"
+        self.assertEqual(m.parse_name_status(text), {"aaa": [("M", "core/A.kt"), ("A", "lib/x/b c.kt")], "bbb": []})
+
+    def test_checked_paths(self):
+        changes = [("M", "src/en/a/A.kt"), ("M", "core/U.kt"), ("A", "README.md")]
+        self.assertEqual(m.checked_paths(m.Upstream("u", "u", "main", "o/r", ["src"]), changes), changes[1:])
+        sec = m.Upstream("s", "s", "main", "o/s", partial_check_paths=["/src/"])
+        self.assertEqual(sec.partial_check_paths, ["src"])
+        self.assertEqual(m.checked_paths(sec, changes), changes[:1])
+        with self.assertRaises(SystemExit):
+            m.Upstream("s", "s", "main", "o/s", partial_check_paths="src/")
+
+    def test_unpicked_files(self):
+        here = {"core", "core/Old.kt", "core/Kept.kt", "lib/x", "lib/x/src/main/X.kt"}
+        changes = [
+            ("A", "core/New.kt"),  # picked
+            ("M", "core/Kept.kt"),  # left out, the target has it
+            ("A", "core/Skipped.kt"),  # left out, added to a module the target has
+            ("D", "core/Old.kt"),  # left out, the target still has it
+            ("D", "core/Gone.kt"),  # n/a: the target never had it
+            ("M", "core/MangaOnly.kt"),  # n/a: changed upstream, but the target has no such file
+            ("A", "lib/manga/src/M.kt"),  # n/a: a lib the target doesn't have
+            ("A", "lib/x/src/keiyoushi/X.kt"),  # picked as lib/x/src/aniyomi/X.kt
+            ("M", "build.gradle.kts"),  # n/a: root file the target doesn't have
+        ]
+        picked = {"core/New.kt", "lib/x/src/aniyomi/X.kt"}
+        missing, applicable = m.unpicked_files(changes, picked, here.__contains__)
+        self.assertEqual(missing, ["core/Kept.kt", "core/Skipped.kt", "core/Old.kt"])
+        self.assertEqual(applicable, 5)
+        self.assertEqual(m.unpicked_files(changes[:1], picked, here.__contains__), ([], 1))
+
+    def test_load_objects_skips_a_root_commits_parent(self):
+        with mock.patch.object(m, "git", side_effect=fake_target_git([], {}, {"c^:core"})) as g:
+            target = m.TargetIndex(Path("."), "master", [])
+            target.load_objects({"c^:core", "c^:lib/x", "root^:core"})
+        self.assertEqual(target.objects, {"c^:core": True, "c^:lib/x": False, "root^:core": False})
+        ls_tree = [call for call in g.call_args_list if "ls-tree" in call.args]
+        self.assertEqual([call.args[call.args.index("--") - 1] for call in ls_tree], ["c^"])
+        self.assertTrue(all(call.kwargs.get("check", True) for call in ls_tree))
+
+    def test_partial_pick_is_maybe_until_the_rest_is_picked(self):
+        prim = m.Upstream("prim", "prim", "main", "o/prim", ["src"])
+        cfg = m.Config("master", "2026-01-01", "out.md", "", prim, [m.Upstream("sec", "sec", "main", "o/sec")])
+        up = mk("1", "Add support for the new lib", "2026-01-02", "prim")
+        part = mk("a", f"Add support for the new lib\n\n(cherry picked from commit {up.full})", "2026-01-03", "t", 300)
+        rest = mk("b", f"The rest of it\n\n(cherry picked from commit {up.full[:12]})", "2026-01-04", "t", 400)
+        changes = {
+            up.full: [("A", "core/Cache.kt"), ("M", "core/Source.kt"), ("M", "src/en/a/A.kt")],
+            part.full: [("A", "core/Cache.kt")],
+            rest.full: [("M", "core/Source.kt")],
+        }
+        objects = {f"{part.full}^:core", f"{part.full}^:core/Source.kt"}
+
+        def detect(log, done=()):
+            builder = fake_builder(cfg, {"prim": [up], "sec": []})
+            entries = builder.build()
+            with mock.patch.object(m, "git", side_effect=fake_target_git(log, changes, objects)):
+                builder.detect(entries, done)
+            return entries[0]
+
+        e = detect([part])
+        self.assertEqual(e.status, "?")  # the matching title doesn't make it O
+        self.assertEqual(e.details, [f"master `{part.short}` [hash of prim (partial: 1 of 2 files not picked), title+author]"])
+        e = detect([part], done={up.full})  # a row already marked O isn't checked
+        self.assertEqual(e.status, "O")
+        self.assertEqual(e.details, [f"master `{part.short}` [hash of prim, title+author]"])
+        e = detect([rest, part])
+        self.assertEqual(e.status, "O")
+        # the hash names the newest pick, even though it cites a short hash
+        self.assertEqual(e.details, [f"master `{rest.short}` [hash of prim]", f"master `{part.short}` [title+author]"])
+
+
 class OrderTest(unittest.TestCase):
     def test_parse_log_reads_committer_time(self):
         text = "\x1e".join(["a" * 40 + "\x1f2026-01-02\x1f1767312000\x1fAnn\x1fa@x\x1fBob\x1fb@x\x1fTitle\n\nBody", ""])

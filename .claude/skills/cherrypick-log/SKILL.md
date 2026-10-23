@@ -104,6 +104,11 @@ For upstream commit `H` (already fetched locally):
 1. `git show --stat --format=fuller H` and then the diff (`git show H -- <path>`) for the main files.
 2. If Details names target commits (``master `abc` [title]``, `[pr only …]`), inspect them:
    `git show --stat abc`, then compare the hunks with the upstream change.
+   - `hash of … (partial: N of M files not picked)`: commits here cite `H`, but left out some of its files (README
+     "Partial picks"). Compare `git show --name-status --format= H` with the files of every commit citing it
+     (`git log master --format=%h --grep=<full H>`), then check each left-out file as in step 3. **O** when the
+     left-out changes reached `master` another way, or don't apply here (manga-only code, a dependency this repo
+     doesn't use; say which in the note). Otherwise keep **?** with a note naming what is missing.
 3. Otherwise, search `master` for the change itself:
    - A yuzono `(#N)` is a keiyoushi PR. `master` often records picks as `keiyoushi/extensions-source#N`, sometimes
      inside a squashed commit: `git log master --oneline --grep='extensions-source#<N>'`.

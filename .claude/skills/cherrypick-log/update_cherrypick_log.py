@@ -27,6 +27,10 @@ How it works (full explanation in README.md next to this file):
 * Status column: ``O`` cherry-picked into the target branch, ``?`` maybe, empty = not
   found, ``X`` = will not pick (set by hand). Detection uses the target branch's history,
   ``cherry picked from commit`` markers, ``owner/repo#N`` PR references and titles.
+  A marker only proves ``O`` when the target commits citing the commit changed all of its
+  files that apply to the fork (outside ``exclude_only_paths``, inside ``partial_check_paths``);
+  otherwise it is a partial pick (``?``), and so are title or PR matches on those commits.
+  Rows already marked ``O`` skip this check.
   A commit and its copies in other upstreams share one status.
 * Re-running keeps ``O`` / ``X`` (and any other hand-written status) and the Notes
   column, re-checks empty / ``?`` rows, adds new upstream commits, and moves commits
@@ -57,6 +61,7 @@ import re
 import subprocess
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -125,10 +130,11 @@ def days_between(earlier: str, later: str) -> int:
 # --------------------------------------------------------------------------- git helpers
 
 
-def git(*args: str, cwd: Path, check: bool = True) -> str:
+def git(*args: str, cwd: Path, check: bool = True, stdin: str | None = None) -> str:
     proc = subprocess.run(
         ["git", *args],
         cwd=cwd,
+        input=stdin,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -234,6 +240,52 @@ def parse_name_only(text: str) -> dict[str, list[str]]:
     return changed
 
 
+def parse_name_status(text: str) -> dict[str, list[tuple[str, str]]]:
+    """(status letter, path) pairs per commit from ``git log --format=%x1e%H --name-status --no-renames`` output."""
+    changed = {}
+    for h, lines in parse_name_only(text).items():
+        pairs = [line.split("\t", 1) for line in lines]
+        changed[h] = [(st[:1], path) for st, path in pairs]
+    return changed
+
+
+def checked_paths(up: Upstream, changes: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """The (status letter, path) pairs of an `up` commit that a pick of it is expected to carry."""
+    return [
+        (status, path)
+        for status, path in changes
+        if not only_under([path], up.exclude_only_paths)
+        and (not up.partial_check_paths or only_under([path], up.partial_check_paths))
+    ]
+
+
+def unpicked_files(
+    changes: list[tuple[str, str]],
+    picked: set[str],
+    exists: Callable[[str], bool],
+) -> tuple[list[str], int]:
+    """Files of an upstream commit that the target commits citing it left out, and how many of its files apply here.
+
+    `changes` are the upstream commit's `checked_paths`, `picked` the paths changed by the target commits citing it,
+    `exists` tells whether a file or directory was in the target branch when the first of them was made. A file counts
+    as picked when they changed a file of the same name in the same module (a package adapted to this repo). A file the
+    target branch didn't have applies only when the upstream commit adds it to a module that was there: a file it
+    changes or deletes lives elsewhere here or not at all (a manga-only file), and so does a new manga-only lib.
+    """
+    picked_names = {(module_of(p), p.rsplit("/", 1)[-1]) for p in picked}
+    applicable, missing = 0, []
+    for status, path in changes:
+        module = module_of(path)
+        if path in picked or (module, path.rsplit("/", 1)[-1]) in picked_names:
+            applicable += 1
+            continue
+        if not exists(path) and (status != "A" or (module and not exists(module))):
+            continue
+        applicable += 1
+        missing.append(path)
+    return missing, applicable
+
+
 @dataclass
 class Upstream:
     name: str
@@ -242,11 +294,14 @@ class Upstream:
     github: str
     exclude_only_paths: list[str] = field(default_factory=list)  # repo-relative directories or files
     repo_wide_min_modules: int = 0  # keep a path-excluded commit touching this many modules (0 = never)
+    partial_check_paths: list[str] = field(default_factory=list)  # files a pick must carry (empty = all)
 
     def __post_init__(self) -> None:
-        if isinstance(self.exclude_only_paths, str):
-            sys.exit(f"config: `exclude_only_paths` of {self.name} must be a list of paths")
-        self.exclude_only_paths = [p.strip("/") for p in self.exclude_only_paths if p.strip("/")]
+        for key in ("exclude_only_paths", "partial_check_paths"):
+            paths = getattr(self, key)
+            if isinstance(paths, str):
+                sys.exit(f"config: `{key}` of {self.name} must be a list of paths")
+            setattr(self, key, [p.strip("/") for p in paths if p.strip("/")])
         if type(self.repo_wide_min_modules) is not int or self.repo_wide_min_modules < 0:
             sys.exit(f"config: `repo_wide_min_modules` of {self.name} must be a whole number (0 = off)")
 
@@ -298,17 +353,24 @@ class TargetIndex:
     """Everything known about the fork's target branch that can prove a commit was picked."""
 
     def __init__(self, root: Path, ref: str, githubs: list[str]) -> None:
+        self.root = root
+        self.ref = ref
         self.reachable = set(git("rev-list", ref, cwd=root).split())
-        self.hash_full: dict[str, str] = {}
-        self.hash_prefix: dict[str, str] = {}
+        # cited upstream hash -> full hashes of the target commits citing it, newest first
+        self.hash_full: dict[str, list[str]] = defaultdict(list)
+        self.hash_prefix: dict[str, list[str]] = defaultdict(list)
         self.pr_lines: dict[tuple[str, int], list[tuple[str, str]]] = defaultdict(list)
         self.titles: dict[str, list[tuple[str, str, str]]] = defaultdict(list)  # -> (short, author, date)
+        self.changes: dict[str, list[tuple[str, str]]] = {}  # commit -> (status letter, path), read on demand
+        self.objects: dict[str, bool] = {}  # "<rev>:<path>" -> exists, read on demand
+        self.age: dict[str, int] = {}  # target commit -> position in `git log`, newest first
         known = {g.lower() for g in githubs}
 
-        for c in parse_log(git("log", ref, f"--format={LOG_FORMAT}", cwd=root)):
-            for h in CHERRY_RE.findall(c.message) + [m[1] for m in COMMIT_URL_RE.findall(c.message)]:
-                h = h.lower()
-                (self.hash_full if len(h) == 40 else self.hash_prefix).setdefault(h, c.short)
+        for i, c in enumerate(parse_log(git("log", ref, f"--format={LOG_FORMAT}", cwd=root))):
+            self.age[c.full] = i
+            cited = CHERRY_RE.findall(c.message) + [m[1] for m in COMMIT_URL_RE.findall(c.message)]
+            for h in dict.fromkeys(h.lower() for h in cited):
+                (self.hash_full if len(h) == 40 else self.hash_prefix)[h].append(c.full)
             for line in c.message.splitlines():
                 text = BULLET_RE.sub("", line).strip()
                 if not text or text.startswith("#"):
@@ -322,13 +384,75 @@ class TargetIndex:
                 if len(n.split()) >= MIN_TITLE_WORDS:
                     self.titles[n].append((c.short, c.author, c.date))
 
-    def picked_as(self, full: str) -> str | None:
-        if full in self.hash_full:
-            return self.hash_full[full]
-        for prefix, short in self.hash_prefix.items():
+    def picks_of(self, full: str) -> list[str]:
+        """Target commits (full hashes) whose message cites `full`, newest first: ``cherry picked from commit`` or a commit link."""
+        hits = list(self.hash_full.get(full, []))
+        for prefix, commits in self.hash_prefix.items():
             if full.startswith(prefix):
-                return short
-        return None
+                hits += commits
+        return sorted(dict.fromkeys(hits), key=lambda h: self.age.get(h, -1))
+
+    def load_changes(self, hashes: set[str]) -> None:
+        """Read the changed files of `hashes` (upstream or target commits) in one git call."""
+        todo = sorted(hashes - self.changes.keys())
+        if not todo:
+            return
+        text = git(
+            "-c", "core.quotePath=false", "log", "--no-walk=unsorted", "--no-renames", "--format=%x1e%H",
+            "--name-status", "--stdin", cwd=self.root, stdin="\n".join(todo) + "\n",
+        )
+        self.changes.update(parse_name_status(text))
+        self.changes.update({h: [] for h in todo if h not in self.changes})
+
+    def load_objects(self, queries: set[str]) -> None:
+        """Record which ``<rev>:<path>`` queries name a file or directory, in one git call per rev.
+
+        `git ls-tree` reads only trees. `git cat-file` on ``<rev>:<path>`` would fetch every blob a blobless clone
+        lacks, one at a time, so it only checks that each rev's tree exists.
+        """
+        paths_by_rev: dict[str, set[str]] = defaultdict(set)
+        for q in queries - self.objects.keys():
+            rev, path = q.split(":", 1)
+            paths_by_rev[rev].add(path)
+        if not paths_by_rev:
+            return
+        revs = sorted(paths_by_rev)
+        kinds = git(
+            "cat-file", "--batch-check=%(objecttype)", cwd=self.root, stdin="".join(f"{r}^{{tree}}\n" for r in revs),
+        ).splitlines()
+        for rev, kind in zip(revs, kinds):
+            paths = paths_by_rev[rev]
+            listed: set[str] = set()
+            if kind == "tree":  # otherwise `rev` is a root commit's parent, and nothing was there before it
+                # -t lists the trees on the way too
+                out = git(
+                    "--literal-pathspecs", "ls-tree", "-z", "--name-only", "-t", rev, "--", *sorted(paths),
+                    cwd=self.root,
+                )
+                listed = set(out.split("\0"))
+            self.objects.update({f"{rev}:{p}": p in listed for p in paths})
+
+    def pick_queries(self, up: Upstream, full: str, picks: list[str]) -> set[str]:
+        """The ``<rev>:<path>`` queries `unpicked` needs for upstream commit `full` (changes must be loaded)."""
+        base = self.base(picks)
+        paths = {p for _, p in checked_paths(up, self.changes[full])}
+        return {f"{base}:{p}" for p in paths | {module_of(p) for p in paths} if p}
+
+    def base(self, picks: list[str]) -> str:
+        """The target branch as the first of `picks` found it: that commit's parent."""
+        return max(picks, key=lambda p: self.age.get(p, -1)) + "^"
+
+    def unpicked(self, up: Upstream, full: str, picks: list[str]) -> tuple[list[str], int]:
+        """`unpicked_files` of `up` commit `full`, given the target commits `picks` that cite it."""
+        self.load_changes({full, *picks})
+        self.load_objects(self.pick_queries(up, full, picks))
+        base = self.base(picks)
+        picked = {path for p in picks for _, path in self.changes[p]}
+
+        def exists(path: str) -> bool:
+            return self.objects.get(f"{base}:{path}", False)
+
+        return unpicked_files(checked_paths(up, self.changes[full]), picked, exists)
 
 
 # --------------------------------------------------------------------------- existing log
@@ -540,7 +664,8 @@ class Builder:
 
     # -- detection in the target branch ----------------------------------------------
 
-    def detect(self, entries: list[Entry]) -> None:
+    def detect(self, entries: list[Entry], done: Collection[str] = ()) -> None:
+        """Set each entry's status and evidence. Commits in `done` (rows already marked O) skip the partial-pick check."""
         target = TargetIndex(self.root, self.cfg.target_branch, [u.github for u in self.cfg.upstreams])
         cluster_title: dict[str, str] = {}
         for e in entries:
@@ -548,18 +673,34 @@ class Builder:
                 cluster_title[e.cluster] = e.commit.norm
         title_count = Counter(cluster_title.values())
         results: dict[str, tuple[str, list[str]]] = {}
+        # Read the files of every cited commit and its picks, and which of them the target had, up front.
+        cites = {e.commit.full: target.picks_of(e.commit.full) for e in entries}
+        cites = {h: picks for h, picks in cites.items() if picks}
+        checked = {h: picks for h, picks in cites.items() if h not in done}
+        target.load_changes({*checked, *(p for picks in checked.values() for p in picks)})
+        queries: set[str] = set()
+        for e in entries:
+            if e.commit.full in checked:
+                queries |= target.pick_queries(e.upstream, e.commit.full, checked[e.commit.full])
+        target.load_objects(queries)
 
         branch = self.cfg.target_branch
         for key, members in self.members.items():
             found: list[tuple[str, str, str]] = []  # (status, target commit, method)
+            partial: set[str] = set()  # target commits citing a member that left some of its files out
             head = next((m for m in members if m.kind in ("primary", "own")), members[0])
             for m in members:
                 c = m.commit
                 if c.full in target.reachable:
                     found.append((STATUS_DONE, c.short, f"in history as {m.upstream.name}"))
-                picked = target.picked_as(c.full)
-                if picked:
-                    found.append((STATUS_DONE, picked, f"hash of {m.upstream.name}"))
+                picks = cites.get(c.full)
+                if picks:
+                    missing, applicable = target.unpicked(m.upstream, c.full, picks) if c.full in checked else ([], 0)
+                    method = f"hash of {m.upstream.name}"
+                    if missing:
+                        partial.update(p[:SHORT_LEN] for p in picks)
+                        method += f" (partial: {len(missing)} of {applicable} files not picked)"
+                    found.append((STATUS_MAYBE if missing else STATUS_DONE, picks[0][:SHORT_LEN], method))
 
             pr_keys = []
             for gh, num in head.commit.prs:
@@ -586,6 +727,8 @@ class Builder:
                     else:
                         found.append((STATUS_MAYBE, short, "title"))
 
+            # A partial pick proves nothing, even when its title or PR ref matches too.
+            found = [(STATUS_MAYBE if s in partial else st, s, how) for st, s, how in found]
             if not found:
                 results[key] = ("", [])
                 continue
@@ -766,7 +909,7 @@ def cmd_update(root: Path, cfg: Config, args: argparse.Namespace) -> None:
             builder.members[entry.cluster].append(entry)
             pre_entries.append(entry)
         pre_entries.sort(key=lambda e: e.commit.time, reverse=True)
-    builder.detect(entries + pre_entries)
+    builder.detect(entries + pre_entries, done={full for full, row in old_rows.items() if row.status == STATUS_DONE})
 
     rendered: list[tuple[Entry, list[str]]] = []  # (entry, cells) in list order
     added = 0
