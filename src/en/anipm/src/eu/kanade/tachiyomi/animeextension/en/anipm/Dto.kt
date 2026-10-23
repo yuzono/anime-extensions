@@ -231,24 +231,22 @@ class RecommendItemDto(
     val routeId: String? = null,
 ) {
     fun toHandle(): String? {
-        val aniId = when {
-            titleId?.startsWith("ani:") == true -> titleId.removePrefix("ani:").toLongOrNull()
-            source == "anilist" -> routeId?.substringAfterLast('-')?.toLongOrNull()
+        val aniIdRaw = when {
+            titleId?.startsWith("ani:") == true -> titleId.removePrefix("ani:")
             else -> null
-        }?.takeIf { it in 1..<syntheticAniListBase }
-
+        }
+        val aniId = stableAnilistId(source, aniIdRaw, routeId)
         return aniId?.let { "ani-$it" }
             ?: id.takeIf { it in 1..<syntheticAniListBase }?.let { "set-$it" }
             ?: routeId?.takeIf(String::isNotBlank)
     }
 
     fun toThumbnailUrl(baseUrl: String): String? {
-        val aniIdStr = when {
+        val aniIdRaw = when {
             titleId?.startsWith("ani:") == true -> titleId.removePrefix("ani:")
-            source == "anilist" -> routeId?.substringAfterLast('-')
             else -> null
-        }?.takeIf { it.isNotBlank() }
-        return stableCoverUrl(baseUrl, source, aniIdStr, routeId, null, poster)
+        }
+        return stableCoverUrl(baseUrl, source, aniIdRaw, routeId, null, poster)
     }
 
     fun toSAnime(baseUrl: String): SAnime? {
@@ -308,18 +306,13 @@ class RelationDto(
     val routeId: String? = null,
 ) {
     fun toHandle(): String? {
-        val aniId = anilistId?.takeIf(String::isNotBlank)?.toLongOrNull()
-            ?: routeId?.takeIf { source == "anilist" || anilistId != null }?.substringAfterLast('-')?.toLongOrNull()
-        return aniId?.takeIf { it in 1..<syntheticAniListBase }?.let { "ani-$it" }
+        val aniId = stableAnilistId(source, anilistId, routeId)
+        return aniId?.let { "ani-$it" }
             ?: id.takeIf { it in 1..<syntheticAniListBase }?.let { "set-$it" }
             ?: routeId?.takeIf(String::isNotBlank)
     }
 
-    fun toThumbnailUrl(baseUrl: String): String? {
-        val aniIdStr = anilistId?.takeIf(String::isNotBlank)
-            ?: routeId?.takeIf { source == "anilist" || anilistId != null }?.substringAfterLast('-')?.takeIf(String::isNotBlank)
-        return stableCoverUrl(baseUrl, source, aniIdStr, routeId, null, poster)
-    }
+    fun toThumbnailUrl(baseUrl: String): String? = stableCoverUrl(baseUrl, source, anilistId, routeId, null, poster)
 }
 
 @Serializable
@@ -450,7 +443,7 @@ private fun stableAnilistId(source: String?, anilistId: String?, routeId: String
  * are consumed for extraction only and never persisted in SAnime.url.
  */
 internal fun stableMainHandle(source: String?, id: Long, anilistId: String?, routeId: String?): String? = when {
-    source == "anilist" -> stableAnilistId(source, anilistId, routeId)?.let { "ani-$it" }
+    source == "anilist" -> stableAnilistId(source, anilistId, routeId)?.let { "ani-$it" } ?: routeId?.takeIf(String::isNotBlank)
     id in 1..<syntheticAniListBase -> "set-$id"
     else -> routeId?.takeIf(String::isNotBlank)
 }

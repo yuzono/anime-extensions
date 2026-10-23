@@ -545,7 +545,7 @@ class AniPM :
      */
     private suspend fun resolveSeries(handle: String, title: String = ""): SeriesResponseDto {
         val cached = cachedHandle(handle)
-        if (cached != null && cleanHandle(cached) != cleanHandle(handle)) {
+        if (cached != null && handleCacheKey(cached) != handleCacheKey(handle)) {
             tryFetchSeries(cached, title)?.let { (resolvedHandle, dto) ->
                 cacheHandle(handle, resolvedHandle)
                 return dto
@@ -595,7 +595,7 @@ class AniPM :
             candidate == wanted || candidate.contains(wanted) || wanted.contains(candidate)
         }
         val verified = substringMatches.filter { item ->
-            val tailMatch = when {
+            val tailMatch = tail != null && when {
                 isAniHandle(handle) -> item.anilistId?.toLongOrNull() == tail
                 handle.startsWith("set-") -> item.id == tail
                 else -> item.id == tail || item.anilistId?.toLongOrNull() == tail
@@ -643,7 +643,7 @@ class AniPM :
         ?.takeIf(String::isNotBlank)
 
     private fun cacheHandle(oldHandle: String, newHandle: String) {
-        if (cleanHandle(newHandle) == cleanHandle(oldHandle)) return
+        if (handleCacheKey(newHandle) == handleCacheKey(oldHandle)) return
         preferences.edit().putString(handleCacheKey(oldHandle), newHandle).apply()
     }
 
