@@ -35,6 +35,8 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import okhttp3.FormBody
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import java.text.SimpleDateFormat
@@ -204,6 +206,15 @@ class Torrentio :
     override fun getFilterList(): AnimeFilterList = AniListFilters.FILTER_LIST
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        val queryUrl = query.toHttpUrlOrNull()
+        if (queryUrl != null && queryUrl.host == baseUrl.toHttpUrl().host) {
+            val segments = queryUrl.pathSegments
+            val id = segments.getOrNull(1)
+                ?.takeIf { segments.first() == "anime" && it.isNotEmpty() }
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "$PREFIX_SEARCH$id", filters)
+        }
+
         if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH).trim()
             val meta = fetchAioMeta(id) ?: return AnimesPage(emptyList(), false)

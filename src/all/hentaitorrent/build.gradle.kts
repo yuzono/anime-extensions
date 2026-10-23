@@ -5,13 +5,14 @@ plugins {
 yuzono {
     name = "Hentai Torrent (Torrent)"
     className = "HentaiTorrent"
-    versionCode = 4
+    versionCode = 5
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
     torrent = true
 
     deeplink {
-        host("nyaa.si")
-        path("/view/..*")
+        host("www.hentaitorrents.com")
+        host("hentaitorrents.com")
+        path("/..*\\\\.html")
     }
 }

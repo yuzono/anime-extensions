@@ -5,12 +5,12 @@ plugins {
 yuzono {
     name = "Goyabu"
     className = "Goyabu"
-    versionCode = 5
+    versionCode = 6
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
 
     deeplink {
-        host("goyabu.to")
+        host("goyabu.io")
         path("/..*")
         path("/anime/..*")
     }
