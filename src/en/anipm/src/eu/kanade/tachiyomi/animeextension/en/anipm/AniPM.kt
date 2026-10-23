@@ -284,7 +284,7 @@ class AniPM :
                     realTitle?.let { append(" - $it") }
                 }
                 summary = ep.description
-                preview_url = episodePreviewUrl(baseUrl, dto.anilistId, dto.routeId, numStr, ep.thumbnail)
+                preview_url = episodePreviewUrl(baseUrl, dto.source, dto.anilistId, dto.routeId, numStr, ep.thumbnail)
                 fillermark = ep.number in fillerSet
                 scanlator = when {
                     ep.sub && ep.dub -> "Sub & Dub"
@@ -498,22 +498,28 @@ class AniPM :
         }.distinct()
     }
 
-    private fun matchesHandle(handle: String, dto: SeriesResponseDto): Boolean {
+    private fun matchesHandle(handle: String, dto: SeriesResponseDto, title: String = ""): Boolean {
         val clean = cleanHandle(handle)
         val tail = clean.substringAfterLast('-').toLongOrNull()
         return when {
             isAniHandle(handle) -> dto.anilistId?.toLongOrNull() == tail || dto.routeId == clean
             handle.startsWith("set-") -> dto.id == tail || dto.routeId == clean
-            else -> tail == null || dto.id == tail || dto.anilistId?.toLongOrNull() == tail || dto.routeId == clean
+            else -> {
+                if (dto.routeId == clean) return true
+                val matchesTail = tail != null && (dto.id == tail || dto.anilistId?.toLongOrNull() == tail)
+                if (!matchesTail) return false
+                if (title.isBlank()) return true
+                normalizeTitle(dto.title) == normalizeTitle(title)
+            }
         }
     }
 
-    private suspend fun tryFetchSeries(handle: String): Pair<String, SeriesResponseDto>? {
+    private suspend fun tryFetchSeries(handle: String, title: String = ""): Pair<String, SeriesResponseDto>? {
         for (url in fetchUrls(handle)) {
             try {
                 client.get(url, apiHeaders()).use { response ->
                     val dto = response.parseAs<SeriesResponseDto>()
-                    if (matchesHandle(handle, dto)) {
+                    if (matchesHandle(handle, dto, title)) {
                         val stableHandle = stableMainHandle(dto.source, dto.id, dto.anilistId, dto.routeId)
                             ?: dto.routeId
                             ?: handle
@@ -540,13 +546,13 @@ class AniPM :
     private suspend fun resolveSeries(handle: String, title: String = ""): SeriesResponseDto {
         val cached = cachedHandle(handle)
         if (cached != null && cleanHandle(cached) != cleanHandle(handle)) {
-            tryFetchSeries(cached)?.let { (resolvedHandle, dto) ->
+            tryFetchSeries(cached, title)?.let { (resolvedHandle, dto) ->
                 cacheHandle(handle, resolvedHandle)
                 return dto
             }
         }
 
-        tryFetchSeries(handle)?.let { (resolvedHandle, dto) ->
+        tryFetchSeries(handle, title)?.let { (resolvedHandle, dto) ->
             cacheHandle(handle, resolvedHandle)
             return dto
         }
@@ -581,11 +587,11 @@ class AniPM :
         val clean = cleanHandle(handle)
         val tail = clean.substringAfterLast('-').toLongOrNull()
         val exactMatches = items.filter { item ->
-            val candidate = normalizeTitle(item.title.takeIf(String::isNotBlank) ?: return@filter false)
+            val candidate = normalizeTitle(item.title?.takeIf { it.isNotBlank() } ?: return@filter false)
             candidate == wanted
         }
         val substringMatches = items.filter { item ->
-            val candidate = normalizeTitle(item.title.takeIf(String::isNotBlank) ?: return@filter false)
+            val candidate = normalizeTitle(item.title?.takeIf { it.isNotBlank() } ?: return@filter false)
             candidate == wanted || candidate.contains(wanted) || wanted.contains(candidate)
         }
         val verified = substringMatches.filter { item ->
@@ -604,7 +610,7 @@ class AniPM :
             .firstNotNullOfOrNull { it.toHandle() }
             ?: return null
 
-        tryFetchSeries(bound)
+        tryFetchSeries(bound, title)
     } catch (e: Exception) {
         if (e is CancellationException) throw e
         null
