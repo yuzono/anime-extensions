@@ -23,6 +23,7 @@ import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -234,7 +235,7 @@ class AniPM :
             SAnime.create().apply {
                 url = handle
                 this.title = title
-                thumbnail_url = absoluteCover(baseUrl, rel.poster)
+                thumbnail_url = rel.toThumbnailUrl(baseUrl)
             }
         }
 
@@ -283,7 +284,7 @@ class AniPM :
                     realTitle?.let { append(" - $it") }
                 }
                 summary = ep.description
-                preview_url = episodePreviewUrl(baseUrl, dto.anilistId, numStr, ep.thumbnail)
+                preview_url = episodePreviewUrl(baseUrl, dto.anilistId, dto.routeId, numStr, ep.thumbnail)
                 fillermark = ep.number in fillerSet
                 scanlator = when {
                     ep.sub && ep.dub -> "Sub & Dub"
@@ -487,21 +488,40 @@ class AniPM :
                     numericTail?.let { add(apiPath(useAniEndpoint = false, key = it)) }
                 }
                 else -> {
-                    // Legacy raw routeId handles: family unknown, ids resolve on both endpoints
-                    numericTail?.let { add(apiPath(useAniEndpoint = false, key = it)) }
-                    numericTail?.let { add(apiPath(useAniEndpoint = true, key = it)) }
+                    // Legacy raw routeId handles: family unknown, try clean first, then numeric tail
                     add(apiPath(useAniEndpoint = false, key = clean))
                     add(apiPath(useAniEndpoint = true, key = clean))
+                    numericTail?.let { add(apiPath(useAniEndpoint = false, key = it)) }
+                    numericTail?.let { add(apiPath(useAniEndpoint = true, key = it)) }
                 }
             }
         }.distinct()
     }
 
-    private suspend fun tryFetchSeries(handle: String): SeriesResponseDto? {
+    private fun matchesHandle(handle: String, dto: SeriesResponseDto): Boolean {
+        val clean = cleanHandle(handle)
+        val tail = clean.substringAfterLast('-').toLongOrNull()
+        return when {
+            isAniHandle(handle) -> dto.anilistId?.toLongOrNull() == tail || dto.routeId == clean
+            handle.startsWith("set-") -> dto.id == tail || dto.routeId == clean
+            else -> tail == null || dto.id == tail || dto.anilistId?.toLongOrNull() == tail || dto.routeId == clean
+        }
+    }
+
+    private suspend fun tryFetchSeries(handle: String): Pair<String, SeriesResponseDto>? {
         for (url in fetchUrls(handle)) {
             try {
-                client.get(url, apiHeaders()).use { return it.parseAs<SeriesResponseDto>() }
-            } catch (_: Exception) {
+                client.get(url, apiHeaders()).use { response ->
+                    val dto = response.parseAs<SeriesResponseDto>()
+                    if (matchesHandle(handle, dto)) {
+                        val stableHandle = stableMainHandle(dto.source, dto.id, dto.anilistId, dto.routeId)
+                            ?: dto.routeId
+                            ?: handle
+                        return stableHandle to dto
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 // try the next candidate
             }
         }
@@ -520,10 +540,16 @@ class AniPM :
     private suspend fun resolveSeries(handle: String, title: String = ""): SeriesResponseDto {
         val cached = cachedHandle(handle)
         if (cached != null && cleanHandle(cached) != cleanHandle(handle)) {
-            tryFetchSeries(cached)?.let { return it }
+            tryFetchSeries(cached)?.let { (resolvedHandle, dto) ->
+                cacheHandle(handle, resolvedHandle)
+                return dto
+            }
         }
 
-        tryFetchSeries(handle)?.let { return it }
+        tryFetchSeries(handle)?.let { (resolvedHandle, dto) ->
+            cacheHandle(handle, resolvedHandle)
+            return dto
+        }
 
         if (title.isBlank()) {
             throw IOException("Series not found: $handle")
@@ -554,21 +580,33 @@ class AniPM :
         val wanted = normalizeTitle(title)
         val clean = cleanHandle(handle)
         val tail = clean.substringAfterLast('-').toLongOrNull()
-        val byTitle = items.filter { item ->
+        val exactMatches = items.filter { item ->
+            val candidate = normalizeTitle(item.title.takeIf(String::isNotBlank) ?: return@filter false)
+            candidate == wanted
+        }
+        val substringMatches = items.filter { item ->
             val candidate = normalizeTitle(item.title.takeIf(String::isNotBlank) ?: return@filter false)
             candidate == wanted || candidate.contains(wanted) || wanted.contains(candidate)
         }
-        val verified = byTitle.filter { it.id == tail || it.anilistId?.toLongOrNull() == tail || it.routeId == clean }
+        val verified = substringMatches.filter { item ->
+            val tailMatch = when {
+                isAniHandle(handle) -> item.anilistId?.toLongOrNull() == tail
+                handle.startsWith("set-") -> item.id == tail
+                else -> item.id == tail || item.anilistId?.toLongOrNull() == tail
+            }
+            tailMatch || item.routeId == clean
+        }
         val bound = when {
             verified.isNotEmpty() -> verified
-            tail == null && byTitle.size == 1 -> byTitle
+            tail == null && exactMatches.size == 1 -> exactMatches
             else -> emptyList()
         }
             .firstNotNullOfOrNull { it.toHandle() }
             ?: return null
 
-        tryFetchSeries(bound)?.let { bound to it }
-    } catch (_: Exception) {
+        tryFetchSeries(bound)
+    } catch (e: Exception) {
+        if (e is CancellationException) throw e
         null
     }
 
@@ -585,7 +623,14 @@ class AniPM :
      * The stored handle (not the site URL) is the identity the app keeps
      * for the entry, so it doubles as the cache key across refreshes.
      */
-    private fun handleCacheKey(handle: String): String = "handle_cache_${cleanHandle(handle)}"
+    private fun handleCacheKey(handle: String): String {
+        val prefix = when {
+            isAniHandle(handle) -> "ani"
+            handle.startsWith("set-") -> "set"
+            else -> "raw"
+        }
+        return "handle_cache_${prefix}_${cleanHandle(handle)}"
+    }
 
     private fun cachedHandle(handle: String?): String? = handle?.takeIf(String::isNotBlank)
         ?.let { preferences.getString(handleCacheKey(it), null) }
