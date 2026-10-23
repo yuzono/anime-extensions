@@ -31,6 +31,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.nanohttpd.protocols.http.NanoHTTPD
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -195,16 +196,20 @@ class AniPM :
 
     override fun animeDetailsParse(response: Response): SAnime = response.parseAs<SeriesResponseDto>().toSAnime(baseUrl)
 
+    /** Re-bound entries that 404 to the same anime automatically */
+    override suspend fun getAnimeDetails(anime: SAnime): SAnime = resolveSeries(anime.url, anime.title).toSAnime(baseUrl)
+
     override fun getAnimeUrl(anime: SAnime): String {
-        val prefix = if (isAniHandle(anime.url)) "ani" else "anime"
-        return "$baseUrl/$prefix/${cleanHandle(anime.url)}"
+        val fresh = cachedHandle(anime.url) ?: anime.url
+        val prefix = if (isAniHandle(fresh)) "ani" else "anime"
+        return "$baseUrl/$prefix/${cleanHandle(fresh)}"
     }
 
     // ============================ Related ============================
     override val disableRelatedAnimesBySearch = true
 
     override suspend fun fetchRelatedAnimeList(anime: SAnime): List<SAnime> {
-        val series = fetchSeries(anime.url)
+        val series = resolveSeries(anime.url, anime.title)
 
         val relationPriority = mapOf(
             "SEQUEL" to 0,
@@ -225,7 +230,7 @@ class AniPM :
 
         val related = sortedRelations.mapNotNull { rel ->
             val handle = rel.toHandle() ?: return@mapNotNull null
-            val title = rel.title?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+            val title = rel.title.takeIf(String::isNotBlank) ?: return@mapNotNull null
             SAnime.create().apply {
                 url = handle
                 this.title = title
@@ -262,7 +267,8 @@ class AniPM :
 
     // ============================== Episodes ==============================
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        val dto = fetchSeries(anime.url)
+        val dto = resolveSeries(anime.url, anime.title)
+        val handle = stableMainHandle(dto.source, dto.id, dto.anilistId, dto.routeId) ?: anime.url
 
         val fillerSet = fetchFillerSet(dto.anilistId?.toLongOrNull(), dto.title)
 
@@ -270,14 +276,14 @@ class AniPM :
             SEpisode.create().apply {
                 val numStr = fmtNum(ep.number)
                 episode_number = ep.number.toFloat()
-                url = "${anime.url}/$numStr"
+                url = "$handle/$numStr"
                 val realTitle = ep.title?.takeIf { it.isNotBlank() && !it.startsWith("Episode ", true) }
                 name = buildString {
                     append("Episode $numStr")
                     realTitle?.let { append(" - $it") }
                 }
                 summary = ep.description
-                preview_url = absoluteCover(baseUrl, ep.thumbnail)
+                preview_url = episodePreviewUrl(baseUrl, dto.anilistId, numStr, ep.thumbnail)
                 fillermark = ep.number in fillerSet
                 scanlator = when {
                     ep.sub && ep.dub -> "Sub & Dub"
@@ -304,11 +310,10 @@ class AniPM :
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val handle = episode.url.substringBefore('/')
         val epNum = episode.url.substringAfterLast('/')
-        val dto = fetchSeries(handle)
+        val dto = resolveSeries(handle)
         val ep = dto.episodes.firstOrNull { fmtNum(it.number) == epNum }
             ?: return emptyList()
 
-        val epParam = ep.routeId ?: epNum
         val provider = dto.source?.takeIf(String::isNotBlank) ?: "settlar"
 
         val bootPackage = try {
@@ -326,16 +331,16 @@ class AniPM :
 
         return buildList {
             if (hasSub && "[Sub]" !in excludedAudioTypes) {
-                add(Hoster(hosterName = "[Sub]", internalData = "anipm::$provider/${dto.id}/$epNum/sub/$epParam"))
+                add(Hoster(hosterName = "[Sub]", internalData = "anipm::$provider/${dto.id}/$epNum/sub"))
             }
             if (hasSubhard && "[Hard Sub]" !in excludedAudioTypes) {
-                add(Hoster(hosterName = "[Hard Sub]", internalData = "anipm::$provider/${dto.id}/$epNum/subhard/$epParam"))
+                add(Hoster(hosterName = "[Hard Sub]", internalData = "anipm::$provider/${dto.id}/$epNum/subhard"))
             }
             if (hasDub && "[Dub]" !in excludedAudioTypes) {
-                add(Hoster(hosterName = "[Dub]", internalData = "anipm::$provider/${dto.id}/$epNum/dub/$epParam"))
+                add(Hoster(hosterName = "[Dub]", internalData = "anipm::$provider/${dto.id}/$epNum/dub"))
             }
             if (hasDubhard && "[Hard Dub]" !in excludedAudioTypes) {
-                add(Hoster(hosterName = "[Hard Dub]", internalData = "anipm::$provider/${dto.id}/$epNum/dubhard/$epParam"))
+                add(Hoster(hosterName = "[Hard Dub]", internalData = "anipm::$provider/${dto.id}/$epNum/dubhard"))
             }
         }
     }
@@ -370,11 +375,10 @@ class AniPM :
         val id = parts[1]
         val epNum = parts[2]
         val lang = parts[3]
-        val epParam = parts.getOrNull(4) ?: epNum
 
         return try {
             // 1) Bootstrap
-            val boot = fetchBootstrap(provider, id, epParam, lang)
+            val boot = fetchBootstrap(provider, id, epNum, lang)
             val selection = boot.settlarSelection?.takeIf(String::isNotBlank)
                 ?: return emptyList()
 
@@ -459,32 +463,137 @@ class AniPM :
     private fun cleanHandle(handle: String): String = handle.removePrefix("ani-").removePrefix("ani/")
         .removePrefix("set-").removePrefix("series/").removePrefix("anime/")
 
-    private fun seriesUrl(handle: String): String = "$apiUrl/anime/${if (isAniHandle(handle)) "ani" else "series"}/${cleanHandle(handle)}?routes=e4"
+    private fun seriesUrl(handle: String): String = apiPath(useAniEndpoint = isAniHandle(handle), cleanHandle(handle))
 
-    private suspend fun fetchSeries(handle: String): SeriesResponseDto {
+    private fun apiPath(useAniEndpoint: Boolean, key: String): String = "$apiUrl/anime/${if (useAniEndpoint) "ani" else "series"}/$key?routes=e4"
+
+    /**
+     * Resolution URLs, primary first. Clean handles (stable ids) dissolve into
+     * a single request; legacy handles carry slugs that the site regenerates
+     * periodically, so their numeric tail is tried before the slug itself.
+     */
+    private fun fetchUrls(handle: String): List<String> {
         val clean = cleanHandle(handle)
+        val numericTail = clean.substringAfterLast('-').toLongOrNull()?.toString()
 
-        val urlsToTry = buildList {
-            add("$apiUrl/anime/series/$clean?routes=e4")
-            add("$apiUrl/anime/ani/$clean?routes=e4")
-
-            val numId = clean.substringAfterLast('-')
-            if (numId != clean && numId.toLongOrNull() != null) {
-                add("$apiUrl/anime/series/$numId?routes=e4")
-                add("$apiUrl/anime/ani/$numId?routes=e4")
+        return buildList {
+            when {
+                isAniHandle(handle) -> {
+                    add(apiPath(useAniEndpoint = true, key = clean))
+                    numericTail?.let { add(apiPath(useAniEndpoint = true, key = it)) }
+                }
+                handle.startsWith("set-") -> {
+                    add(apiPath(useAniEndpoint = false, key = clean))
+                    numericTail?.let { add(apiPath(useAniEndpoint = false, key = it)) }
+                }
+                else -> {
+                    // Legacy raw routeId handles: family unknown, ids resolve on both endpoints
+                    numericTail?.let { add(apiPath(useAniEndpoint = false, key = it)) }
+                    numericTail?.let { add(apiPath(useAniEndpoint = true, key = it)) }
+                    add(apiPath(useAniEndpoint = false, key = clean))
+                    add(apiPath(useAniEndpoint = true, key = clean))
+                }
             }
         }.distinct()
+    }
 
-        var lastException: Exception? = null
-        for (url in urlsToTry) {
+    private suspend fun tryFetchSeries(handle: String): SeriesResponseDto? {
+        for (url in fetchUrls(handle)) {
             try {
-                val res = client.get(url, apiHeaders())
-                return res.use { it.parseAs<SeriesResponseDto>() }
-            } catch (e: Exception) {
-                lastException = e
+                client.get(url, apiHeaders()).use { return it.parseAs<SeriesResponseDto>() }
+            } catch (_: Exception) {
+                // try the next candidate
             }
         }
-        throw lastException ?: Exception("Failed to fetch series for handle: $handle")
+        return null
+    }
+
+    /**
+     * Resolves any stored handle to a series. Library entries may still hold
+     * slugs rotated away by the site, so resolution is layered:
+     *  1. the re-bound handle cached for this stored handle, if any,
+     *  2. the id/slug chain of the stored handle itself,
+     *  3. only after every lookup 404s: a single /api/anime/search re-bind
+     *     against the entry's title, verified by id or accepted only on one
+     *     exact match.
+     */
+    private suspend fun resolveSeries(handle: String, title: String = ""): SeriesResponseDto {
+        val cached = cachedHandle(handle)
+        if (cached != null && cleanHandle(cached) != cleanHandle(handle)) {
+            tryFetchSeries(cached)?.let { return it }
+        }
+
+        tryFetchSeries(handle)?.let { return it }
+
+        if (title.isBlank()) {
+            throw IOException("Series not found: $handle")
+        }
+
+        val rebound = rescueSeries(handle, title)
+            ?: throw IOException("Series not found for '$title' (handle: $handle)")
+
+        cacheHandle(handle, rebound.first)
+        return rebound.second
+    }
+
+    /**
+     * Re-binds a dead handle via /api/anime/search. Prefer items whose ids
+     * match the old handle's numeric tail (family-proof); slugs-free handles
+     * (e.g. migrated hash URLs) can only be matched by title, so a single
+     * exact match is accepted and anything ambiguous is rejected — a wrong
+     * re-bind is worse than a failed entry.
+     */
+    private suspend fun rescueSeries(handle: String, title: String): Pair<String, SeriesResponseDto>? = try {
+        val items = client.get(
+            "$apiUrl/anime/search".toHttpUrl().newBuilder()
+                .addQueryParameter("q", title)
+                .build(),
+            apiHeaders(),
+        ).use { it.parseAs<CatalogResponseDto>().items }
+
+        val wanted = normalizeTitle(title)
+        val clean = cleanHandle(handle)
+        val tail = clean.substringAfterLast('-').toLongOrNull()
+        val byTitle = items.filter { item ->
+            val candidate = normalizeTitle(item.title.takeIf(String::isNotBlank) ?: return@filter false)
+            candidate == wanted || candidate.contains(wanted) || wanted.contains(candidate)
+        }
+        val verified = byTitle.filter { it.id == tail || it.anilistId?.toLongOrNull() == tail || it.routeId == clean }
+        val bound = when {
+            verified.isNotEmpty() -> verified
+            tail == null && byTitle.size == 1 -> byTitle
+            else -> emptyList()
+        }
+            .firstNotNullOfOrNull { it.toHandle() }
+            ?: return null
+
+        tryFetchSeries(bound)?.let { bound to it }
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun normalizeTitle(value: String): String = value.lowercase()
+        .map { char -> if (char.isLetterOrDigit()) char else ' ' }
+        .joinToString("")
+        .split(' ')
+        .filter(String::isNotBlank)
+        .joinToString(" ")
+
+    // ============================ Handle cache ============================
+
+    /**
+     * The stored handle (not the site URL) is the identity the app keeps
+     * for the entry, so it doubles as the cache key across refreshes.
+     */
+    private fun handleCacheKey(handle: String): String = "handle_cache_${cleanHandle(handle)}"
+
+    private fun cachedHandle(handle: String?): String? = handle?.takeIf(String::isNotBlank)
+        ?.let { preferences.getString(handleCacheKey(it), null) }
+        ?.takeIf(String::isNotBlank)
+
+    private fun cacheHandle(oldHandle: String, newHandle: String) {
+        if (cleanHandle(newHandle) == cleanHandle(oldHandle)) return
+        preferences.edit().putString(handleCacheKey(oldHandle), newHandle).apply()
     }
 
     private suspend fun fetchBootstrap(provider: String, id: String, epNum: String, lang: String): BootstrapDto {
