@@ -255,18 +255,19 @@ class ExcludeOnlyPathsTest(unittest.TestCase):
         self.assertEqual(fake_builder(cfg, {"prim": [wide], "sec": []}, changed).build(), [])
 
 
-def fake_target_git(log, changes, objects):
-    """`git` for TargetIndex: the target branch's `log`, commits' (status, path) `changes`, existing `rev:path` objects."""
+def fake_target_git(log, changes, files):
+    """`git` for TargetIndex: the target branch's `log`, commits' (status, path) `changes`, and `rev:path` files."""
 
     def run(*args, cwd, check=True, stdin=None):
         if args[0] == "rev-list":
             return ""
-        if args[0] == "cat-file":  # a rev exists when some object is listed under it
+        if args[0] == "cat-file":  # a rev exists when it has some file
             revs = [line.removesuffix("^{tree}") for line in stdin.split()]
-            return "".join("tree\n" if any(o.startswith(f"{r}:") for o in objects) else f"{r}^{{tree}} missing\n" for r in revs)
+            return "".join("tree\n" if any(f.startswith(f"{r}:") for f in files) else f"{r}^{{tree}} missing\n" for r in revs)
         if "ls-tree" in args:
-            rev, paths = args[args.index("--") - 1], args[args.index("--") + 1 :]
-            return "".join(f"{p}\0" for p in paths if f"{rev}:{p}" in objects)
+            rev, roots = args[args.index("--") - 1], args[args.index("--") + 1 :]
+            paths = [f.split(":", 1)[1] for f in files if f.startswith(f"{rev}:")]
+            return "".join(f"{p}\0" for p in paths if any(p == r or p.startswith(f"{r}/") for r in roots))
         if "--name-status" in args:
             return "".join(f"\x1e{h}\n\n" + "".join(f"{st}\t{p}\n" for st, p in changes.get(h, [])) for h in stdin.split())
         return "".join(f"{c.full}\x1f{c.date}\x1f{c.time}\x1fa\x1fa@x\x1fa\x1fa@x\x1f{c.message}\x1e" for c in log)
@@ -289,7 +290,7 @@ class PartialPickTest(unittest.TestCase):
             m.Upstream("s", "s", "main", "o/s", partial_check_paths="src/")
 
     def test_unpicked_files(self):
-        here = {"core", "core/Old.kt", "core/Kept.kt", "lib/x", "lib/x/src/main/X.kt"}
+        here = {"core/Old.kt", "core/Kept.kt", "lib/x/src/main/X.kt"}
         changes = [
             ("A", "core/New.kt"),  # picked
             ("M", "core/Kept.kt"),  # left out, the target has it
@@ -302,16 +303,33 @@ class PartialPickTest(unittest.TestCase):
             ("M", "build.gradle.kts"),  # n/a: root file the target doesn't have
         ]
         picked = {"core/New.kt", "lib/x/src/aniyomi/X.kt"}
-        missing, applicable = m.unpicked_files(changes, picked, here.__contains__)
+        missing, applicable = m.unpicked_files(changes, picked, here)
         self.assertEqual(missing, ["core/Kept.kt", "core/Skipped.kt", "core/Old.kt"])
         self.assertEqual(applicable, 5)
-        self.assertEqual(m.unpicked_files(changes[:1], picked, here.__contains__), ([], 1))
+        self.assertEqual(m.unpicked_files(changes[:1], picked, here), ([], 1))
 
-    def test_load_objects_skips_a_root_commits_parent(self):
-        with mock.patch.object(m, "git", side_effect=fake_target_git([], {}, {"c^:core"})) as g:
+    def test_unpicked_files_adapted_paths_and_new_modules(self):
+        here = {"lib/x/src/aniyomi/X.kt", "core/src/a/A.kt", "core/src/b/A.kt"}
+        changes = [
+            ("M", "lib/x/src/keiyoushi/X.kt"),  # the target has it at an adapted path
+            ("M", "core/src/a/A.kt"),  # the target has this path: a change to core/src/b/A.kt doesn't carry it
+            ("A", "lib/new/src/One.kt"),  # picked
+            ("A", "lib/new/src/Two.kt"),  # applies: the picks add the module
+            ("M", "lib/y/src/keiyoushi/Y.kt"),  # picked as lib/y/src/aniyomi/Y.kt, which the target didn't have yet
+        ]
+        picked = {"core/src/b/A.kt", "lib/new/src/One.kt", "lib/y/src/aniyomi/Y.kt"}
+        missing = ["lib/x/src/keiyoushi/X.kt", "core/src/a/A.kt", "lib/new/src/Two.kt"]
+        self.assertEqual(m.unpicked_files(changes, picked, here), (missing, 5))
+        self.assertEqual(m.unpicked_files(changes, picked | {"lib/x/src/aniyomi/X.kt"}, here), (missing[1:], 5))
+
+    def test_load_files_skips_a_root_commits_parent(self):
+        files = {"c^:core/A.kt", "c^:lib/y/B.kt"}
+        with mock.patch.object(m, "git", side_effect=fake_target_git([], {}, files)) as g:
             target = m.TargetIndex(Path("."), "master", [])
-            target.load_objects({"c^:core", "c^:lib/x", "root^:core"})
-        self.assertEqual(target.objects, {"c^:core": True, "c^:lib/x": False, "root^:core": False})
+            target.load_files({"c^:core", "c^:lib/x", "root^:core"})
+            target.load_files({"c^:core"})  # already read
+        self.assertEqual(target.files["c^"], {"core/A.kt"})
+        self.assertEqual(target.files["root^"], set())
         ls_tree = [call for call in g.call_args_list if "ls-tree" in call.args]
         self.assertEqual([call.args[call.args.index("--") - 1] for call in ls_tree], ["c^"])
         self.assertTrue(all(call.kwargs.get("check", True) for call in ls_tree))
@@ -327,12 +345,12 @@ class PartialPickTest(unittest.TestCase):
             part.full: [("A", "core/Cache.kt")],
             rest.full: [("M", "core/Source.kt")],
         }
-        objects = {f"{part.full}^:core", f"{part.full}^:core/Source.kt"}
+        files = {f"{part.full}^:core/Source.kt"}
 
         def detect(log, done=()):
             builder = fake_builder(cfg, {"prim": [up], "sec": []})
             entries = builder.build()
-            with mock.patch.object(m, "git", side_effect=fake_target_git(log, changes, objects)):
+            with mock.patch.object(m, "git", side_effect=fake_target_git(log, changes, files)):
                 builder.detect(entries, done)
             return entries[0]
 

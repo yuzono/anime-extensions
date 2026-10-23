@@ -132,9 +132,10 @@ it, staged or not:
    `cherrypick_log.md` would otherwise be committed along with the row.
 2. Stage only the pick's own files: `git add <path>` for each resolved file. Never use `git add -A`, `git add -u` or
    `git commit -a` during a pick.
-3. After the commit, or as soon as you stop without one, restore your changes with `git stash pop`. If it conflicts,
-   keep both sides, leave the result unstaged and `git stash drop`. A note on the picked row and its new `O` mark
-   conflict like this.
+3. After the commit, or as soon as you stop without one, restore your changes with `git stash pop`. If the pick is
+   still in progress, run `git cherry-pick --abort` first: `git stash pop` fails while it has unresolved conflicts.
+   If the pop conflicts, keep both sides, leave the result unstaged and `git stash drop`. A note on the picked row and
+   its new `O` mark conflict like this.
 
 Untracked files can stay where they are, unless the pick adds a file at the same path.
 

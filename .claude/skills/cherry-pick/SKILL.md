@@ -27,7 +27,8 @@ name a commit to the user, give its short hash and then its subject in parenthes
    keiyoushi hash is not in either branch: find yuzono's copy with `git log yuzono/main --format=%H --grep=<hash>`.
 3. Look up its row in the working tree's `cherrypick_log.md` (`grep "commit/<full-hash>" cherrypick_log.md`), so
    notes that aren't committed yet count too.
-   - `O`: already picked. Stop and say where (`git log --oneline --grep=<full-hash>`).
+   - `O`: already picked. Stop and say where (`git log --oneline -i --grep=<first 7 characters of the hash>`; a
+     citation can use a short hash, and a 7-character prefix can also match another commit, so check each hit).
    - `?` with `partial:` in its Details: part of it is already here (same `git log`). Say which part, and pick only
      the rest.
    - Any other `?`: the script matched only the title or PR number of the commit its Details names, or step 4 marked
@@ -43,8 +44,9 @@ name a commit to the user, give its short hash and then its subject in parenthes
 6. The pick commit holds only this upstream change (AGENTS.md, Porting upstream changes). If tracked files already
    have uncommitted changes, staged or not, list them and stash them with
    `git stash push -m "unrelated to <short-hash>"`. Pop the stash after step 4's commit, or as soon as you stop
-   without committing (an abort, or a "don't pick" decision). Untracked files can stay, unless the pick adds a file
-   at the same path; then ask.
+   without committing (a "don't pick" decision, or after `git cherry-pick --abort` if the pick is in progress, since
+   `git stash pop` fails while it has unresolved conflicts). Untracked files can stay, unless the pick adds a file at
+   the same path; then ask.
 
 When the user decides something about a commit that isn't being picked now (pick it later with a change, skip it,
 fold part of it into another pick), record it in that commit's row, not only in chat or private memory:
@@ -304,7 +306,7 @@ previous run.
    repo's `fb83cf789a` (Create index file in new format) writes it, so the pick had to wait for a publish that
    included `fb83cf789a`.
 3. Name the split point, i.e. the last commit of the first PR, and how to confirm its publish ran (for example
-   `curl -s https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.json | head -c 20`). Suggest a branch
+   `curl -fsSL https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.json | head -c 20`). Suggest a branch
    for the first PR at that point, named after the current branch: `git branch <branch>-prepare <split-commit>`, as
    with `store-prepare` and `store`.
 4. Note that the later PR's "Check extension repo" job must be re-run once that publish reaches `yuzono/anime-repo`.

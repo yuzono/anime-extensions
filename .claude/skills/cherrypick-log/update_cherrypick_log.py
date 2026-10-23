@@ -61,7 +61,7 @@ import re
 import subprocess
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Callable, Collection
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -259,30 +259,44 @@ def checked_paths(up: Upstream, changes: list[tuple[str, str]]) -> list[tuple[st
     ]
 
 
+def name_key(path: str) -> tuple[str, str]:
+    """A file's module and name, which match it with a copy that moved to another package here."""
+    return module_of(path), path.rsplit("/", 1)[-1]
+
+
 def unpicked_files(
     changes: list[tuple[str, str]],
     picked: set[str],
-    exists: Callable[[str], bool],
+    here: set[str],
 ) -> tuple[list[str], int]:
     """Files of an upstream commit that the target commits citing it left out, and how many of its files apply here.
 
     `changes` are the upstream commit's `checked_paths`, `picked` the paths changed by the target commits citing it,
-    `exists` tells whether a file or directory was in the target branch when the first of them was made. A file counts
-    as picked when they changed a file of the same name in the same module (a package adapted to this repo). A file the
-    target branch didn't have applies only when the upstream commit adds it to a module that was there: a file it
-    changes or deletes lives elsewhere here or not at all (a manga-only file), and so does a new manga-only lib.
+    `here` the files the target branch had (in the modules of `changes`) when the first of them was made.
+    A file the target branch had at the same path counts as picked only when they changed that path. One it had only
+    at an adapted path (a file of the same name in the same module: a package moved for this repo) counts as picked
+    when they changed a file of that name in that module. A new file applies when its module was there or the citing
+    commits change it. Anything else changes or deletes a file that isn't here (a manga-only file), or adds one to a
+    manga-only lib.
     """
-    picked_names = {(module_of(p), p.rsplit("/", 1)[-1]) for p in picked}
+    here_names = {name_key(p) for p in here}
+    here_dirs = {"/".join(p.split("/")[:i]) for p in here for i in range(1, p.count("/") + 1)}
+    picked_names = {name_key(p) for p in picked}
+    picked_modules = {module_of(p) for p in picked}
     applicable, missing = 0, []
     for status, path in changes:
-        module = module_of(path)
-        if path in picked or (module, path.rsplit("/", 1)[-1]) in picked_names:
-            applicable += 1
-            continue
-        if not exists(path) and (status != "A" or (module and not exists(module))):
-            continue
+        key = name_key(path)
+        if path in here:
+            carried = path in picked
+        elif key in here_names or key in picked_names:
+            carried = key in picked_names
+        elif status == "A" and (not key[0] or key[0] in here_dirs or key[0] in picked_modules):
+            carried = False  # a new file in a module the target has
+        else:
+            continue  # a manga-only file, or a new file in a manga-only lib
         applicable += 1
-        missing.append(path)
+        if not carried:
+            missing.append(path)
     return missing, applicable
 
 
@@ -362,7 +376,8 @@ class TargetIndex:
         self.pr_lines: dict[tuple[str, int], list[tuple[str, str]]] = defaultdict(list)
         self.titles: dict[str, list[tuple[str, str, str]]] = defaultdict(list)  # -> (short, author, date)
         self.changes: dict[str, list[tuple[str, str]]] = {}  # commit -> (status letter, path), read on demand
-        self.objects: dict[str, bool] = {}  # "<rev>:<path>" -> exists, read on demand
+        self.files: dict[str, set[str]] = defaultdict(set)  # rev -> its files under the roots read so far
+        self.roots: dict[str, set[str]] = defaultdict(set)  # rev -> roots (modules, files outside one) read
         self.age: dict[str, int] = {}  # target commit -> position in `git log`, newest first
         known = {g.lower() for g in githubs}
 
@@ -404,39 +419,37 @@ class TargetIndex:
         self.changes.update(parse_name_status(text))
         self.changes.update({h: [] for h in todo if h not in self.changes})
 
-    def load_objects(self, queries: set[str]) -> None:
-        """Record which ``<rev>:<path>`` queries name a file or directory, in one git call per rev.
+    def load_files(self, queries: set[str]) -> None:
+        """Read the files under each ``<rev>:<root>`` query (a module, or a file outside one), in one git call per rev.
 
         `git ls-tree` reads only trees. `git cat-file` on ``<rev>:<path>`` would fetch every blob a blobless clone
         lacks, one at a time, so it only checks that each rev's tree exists.
         """
-        paths_by_rev: dict[str, set[str]] = defaultdict(set)
-        for q in queries - self.objects.keys():
+        roots_by_rev: dict[str, set[str]] = defaultdict(set)
+        for q in queries:
             rev, path = q.split(":", 1)
-            paths_by_rev[rev].add(path)
-        if not paths_by_rev:
+            if path not in self.roots[rev]:
+                roots_by_rev[rev].add(path)
+        if not roots_by_rev:
             return
-        revs = sorted(paths_by_rev)
+        revs = sorted(roots_by_rev)
         kinds = git(
             "cat-file", "--batch-check=%(objecttype)", cwd=self.root, stdin="".join(f"{r}^{{tree}}\n" for r in revs),
         ).splitlines()
         for rev, kind in zip(revs, kinds):
-            paths = paths_by_rev[rev]
-            listed: set[str] = set()
+            roots = roots_by_rev[rev]
             if kind == "tree":  # otherwise `rev` is a root commit's parent, and nothing was there before it
-                # -t lists the trees on the way too
                 out = git(
-                    "--literal-pathspecs", "ls-tree", "-z", "--name-only", "-t", rev, "--", *sorted(paths),
+                    "--literal-pathspecs", "ls-tree", "-r", "-z", "--name-only", rev, "--", *sorted(roots),
                     cwd=self.root,
                 )
-                listed = set(out.split("\0"))
-            self.objects.update({f"{rev}:{p}": p in listed for p in paths})
+                self.files[rev].update(p for p in out.split("\0") if p)
+            self.roots[rev] |= roots
 
     def pick_queries(self, up: Upstream, full: str, picks: list[str]) -> set[str]:
-        """The ``<rev>:<path>`` queries `unpicked` needs for upstream commit `full` (changes must be loaded)."""
+        """The ``<rev>:<root>`` queries `unpicked` needs for upstream commit `full` (changes must be loaded)."""
         base = self.base(picks)
-        paths = {p for _, p in checked_paths(up, self.changes[full])}
-        return {f"{base}:{p}" for p in paths | {module_of(p) for p in paths} if p}
+        return {f"{base}:{module_of(p) or p}" for _, p in checked_paths(up, self.changes[full])}
 
     def base(self, picks: list[str]) -> str:
         """The target branch as the first of `picks` found it: that commit's parent."""
@@ -445,14 +458,9 @@ class TargetIndex:
     def unpicked(self, up: Upstream, full: str, picks: list[str]) -> tuple[list[str], int]:
         """`unpicked_files` of `up` commit `full`, given the target commits `picks` that cite it."""
         self.load_changes({full, *picks})
-        self.load_objects(self.pick_queries(up, full, picks))
-        base = self.base(picks)
+        self.load_files(self.pick_queries(up, full, picks))
         picked = {path for p in picks for _, path in self.changes[p]}
-
-        def exists(path: str) -> bool:
-            return self.objects.get(f"{base}:{path}", False)
-
-        return unpicked_files(checked_paths(up, self.changes[full]), picked, exists)
+        return unpicked_files(checked_paths(up, self.changes[full]), picked, self.files[self.base(picks)])
 
 
 # --------------------------------------------------------------------------- existing log
@@ -682,7 +690,7 @@ class Builder:
         for e in entries:
             if e.commit.full in checked:
                 queries |= target.pick_queries(e.upstream, e.commit.full, checked[e.commit.full])
-        target.load_objects(queries)
+        target.load_files(queries)
 
         branch = self.cfg.target_branch
         for key, members in self.members.items():

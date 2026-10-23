@@ -154,10 +154,15 @@ files changed by every target commit that cites it.
 
 - Only files outside the upstream's `exclude_only_paths` and inside its `partial_check_paths` count (here: yuzono's
   files outside `src/` and `lib-multisrc/`, and @secozzi's files under `src/`).
-- A file counts as picked when the citing commits changed it, or a file of the same name in the same module (a package
-  moved for this repo, like `lib/cryptoaes/src/keiyoushi/…` picked as `lib/cryptoaes/src/aniyomi/…`).
-- A file doesn't apply here, and doesn't count, when the target branch didn't have it before the first citing commit
-  and the upstream commit changes or deletes it, or adds it to a module the target branch didn't have (a manga-only lib).
+- A file the target branch had at the same path before the first citing commit counts as picked only when the citing
+  commits changed that path.
+- A file it had only in another package (a file of the same name in the same module, like upstream's
+  `gradle/build-logic/…/io/github/keiyoushi/gradle/internal/extensions/DependencyHandlerScope.kt`, here
+  `…/keiyoushi/gradle/extensions/DependencyHandlerScope.kt`) counts as picked when they changed a file of that name in
+  that module.
+- A new file applies when its module was there, or when the citing commits change files in it.
+- Anything else doesn't apply here, and doesn't count: a changed or deleted file the target branch didn't have in any
+  package, or a new file in a module that neither the target branch nor the citing commits have (a manga-only lib).
 
 When files that apply are left out, the row gets `?` instead of `O`. It turns `O` by itself once later picks that cite
 the same hash carry the rest. If the rest will never be picked, mark the row `O` (or `X`) by hand.
@@ -246,8 +251,9 @@ the script's own flags (including notes with escaped characters and user text), 
 (`carry_over`: manual status kept, AI verdict kept unless `O` evidence appears), and the path filter (path matching,
 modules, config checks, and `Builder.build` dropping path-only commits, keeping repo-wide ones and keeping a copy of a
 dropped one), the time order (reading committer time, interleaving upstreams, ties, copies at their own time), and
-partial picks (which files count, a package moved for this repo, and a partial pick staying `?` even with a matching
-title until a later pick carries the rest). They need no git repository.
+partial picks (which files count, a package moved for this repo, a file kept at the same path, a module the picks add,
+reading the files a root commit's parent doesn't have, a partial pick staying `?` even with a matching title until a
+later pick carries the rest, and rows already `O` skipping the check). They need no git repository.
 
 ## Limitations
 
