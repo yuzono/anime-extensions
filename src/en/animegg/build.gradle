@@ -1,7 +1,0 @@
-ext {
-    extName = 'AnimeGG'
-    extClass = '.AnimeGG'
-    extVersionCode = 2
-}
-
-apply plugin: "kei.plugins.extension.legacy"

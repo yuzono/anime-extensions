@@ -13,11 +13,11 @@ import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okio.ByteString
-import java.util.concurrent.TimeUnit.MINUTES
+import kotlin.time.Duration.Companion.minutes
 
 // TODO: Remove with ext lib 16
 
-private val DEFAULT_CACHE_CONTROL = CacheControl.Builder().maxAge(10, MINUTES).build()
+private val DEFAULT_CACHE_CONTROL = CacheControl.Builder().maxAge(10.minutes).build()
 private val DEFAULT_HEADERS = Headers.Builder().build()
 private val DEFAULT_BODY: RequestBody = FormBody.Builder().build()
 

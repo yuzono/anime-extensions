@@ -6,7 +6,7 @@ import keiyoushi.utils.get
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 object FlixCloudDdl {
 
@@ -52,9 +52,9 @@ object FlixCloudDdl {
      */
     suspend fun resolveUrl(client: OkHttpClient, headers: Headers, data: DdlData): String? {
         val progressClient = client.newBuilder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(PROGRESS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .callTimeout((PROGRESS_TIMEOUT_SECONDS + 2L), TimeUnit.SECONDS)
+            .connectTimeout(5.seconds)
+            .readTimeout(PROGRESS_TIMEOUT_SECONDS.seconds)
+            .callTimeout((PROGRESS_TIMEOUT_SECONDS + 2L).seconds)
             .build()
 
         var ready = false

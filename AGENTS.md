@@ -26,7 +26,7 @@ Module paths are colon-separated and mirror the directory layout: `:src:en:mirur
 
 The repo's only unit tests are in `core/src/test/kotlin/keiyoushi/utils/`, `lib/unpacker/test/kotlin/`
 and `lib/megaextractor/test/`. Extensions have none – they are verified by compiling and running
-against the live site (`CONTRIBUTING.md#submitting-the-changes` ~ `1369`).
+against the live site (`CONTRIBUTING.md#submitting-the-changes` ~ `1435`).
 
 ```bash
 ./gradlew --continue :core:testDebugUnitTest :lib:unpacker:testDebugUnitTest :lib:megaextractor:testDebugUnitTest
@@ -47,9 +47,9 @@ loadIndividualExtension("en", "miruro")
 
 ## Structure
 
-- `src/<lang>/<source>/build.gradle` – extension metadata (`extName`, `extClass`, `extVersionCode` **or** `themePkg`+`overrideVersionCode`, `isNsfw`, optional `libVersion`)
+- `src/<lang>/<source>/build.gradle.kts` – extension metadata in the `yuzono { }` block (`name`, `className`, `versionCode`, `contentWarning`, `libVersion`, optional `torrent`, `deeplink { }`, plus `theme`/`baseUrl` for themed extensions)
 - `src/<lang>/<source>/src/eu/kanade/tachiyomi/animeextension/<lang>/<source>/` – source code (package must match)
-- `lib-multisrc/<theme>/build.gradle.kts` – theme base (`baseVersionCode`, `alias(kei.plugins.multisrc)`)
+- `lib-multisrc/<theme>/build.gradle.kts` – theme base (`alias(kei.plugins.multisrc)`, `yuzono { baseVersionCode; libVersion; deeplink { } }`)
 - `lib-multisrc/<theme>/src/.../multisrc/<theme>/` – abstract theme class `extends AnimeHttpSource`
 - `lib/` – reusable libs (`lib-cryptoaes`, `lib-playlistutils`, extractors, etc.)
 - `core` – `keiyoushi.utils` (`parseAs`, `toJsonRequestBody`, `tryParse`, `extractNextJs`, `absUrl`) and `keiyoushi.network` (`rateLimit`, `addCookie`, `OkHttpClient.get`/`post`) – use these, no custom JSON/regex/date/interceptor helpers
@@ -64,7 +64,7 @@ See `CONTRIBUTING.md` for full rules. Critical for agents:
 - Use `response.parseAs<T>()`, `response.asJsoup()`, `SimpleDateFormat(...).tryParse()`, `element.absUrl("href")` + `setUrlWithoutDomain()`.
 - No hardcoded `User-Agent`, no `Thread.sleep()`, no manual Cloudflare checks, no `buildJsonObject` for requests.
 - Preserve `id` when renaming `name`/`lang`; keep package name stable.
-- New or migrated extensions target extensions-lib 16: extend `AnimeHttpSource` directly (not the `keiyoushi.utils.AnimeHttpLegacySource`/`ParsedAnimeHttpLegacySource` shims), implement hosters (`getHosterList`/`getVideoList(hoster)`), use the named `Video(videoUrl =, videoTitle =, ...)` constructor, and set `libVersion = 16` in `build.gradle`. See `CONTRIBUTING.md#extensions-lib-16`.
+- New or migrated extensions target extensions-lib 16: extend `AnimeHttpSource` directly (not the `keiyoushi.utils.AnimeHttpLegacySource`/`ParsedAnimeHttpLegacySource` shims), implement hosters (`getHosterList`/`getVideoList(hoster)`), use the named `Video(videoUrl =, videoTitle =, ...)` constructor, and set `libVersion = "16"` in `build.gradle.kts`. See `CONTRIBUTING.md#extensions-lib-16`.
 
 ### `keiyoushi.network` client helpers
 
@@ -87,20 +87,49 @@ See `CONTRIBUTING.md` for full rules. Critical for agents:
   initializers – use `by lazy`. The repo publisher instantiates sources on a plain JVM where they
   throw `Stub!`, which blocks the publish for every extension. See `CONTRIBUTING.md#misc-notes`.
 
+## Porting upstream changes
+
+Build logic, CI, `core` and docs are mostly cherry-picked from the manga repos: `yuzono/tachiyomi-extensions` (a copy of
+`keiyoushi/extensions-source`) and `Secozzi/aniyomi-extensions` – see the `cherrypick-log` skill. Pick with
+`git cherry-pick -x` so the message keeps its `(cherry picked from commit …)` line, and qualify the upstream PR reference
+in the subject – `(keiyoushi/extensions-source#16992)`, not a bare `(#16992)`, which GitHub would link to this repo's own
+PR. Keep upstream's code and layout so later picks still apply, and change only what is manga- or upstream-specific:
+
+- **Manga → anime:** `eu.kanade.tachiyomi.extension` → `eu.kanade.tachiyomi.animeextension` (package, namespace,
+  `tachiyomi.animeextension.*` meta-data, icon names); `Source`/`HttpSource`/`SManga`/`SChapter`/`fetchSearchManga`
+  → `AnimeSource`/`AnimeHttpSource`/`SAnime`/`SEpisode`/`getSearchAnime`; intent action `eu.kanade.tachiyomi.SEARCH`
+  → `eu.kanade.tachiyomi.ANIMESEARCH`; manga wording in docs → anime/episode wording.
+- **keiyoushi/yuzono manga → Aniyomi:** `Tachiyomi: <name>` / `tachiyomi-<lang>.<ext>-v….apk` → `Aniyomi: <name>` /
+  `aniyomi-…`; keiyoushi or manga-repo URLs, store name, badge and signing key → this repo's (`yuzono/anime-repo`,
+  `Yūzōnō`); the Gradle DSL block is `yuzono { }` here, `keiyoushi { }` upstream.
+- **Versions:** `libVersion` is `"14"`/`"16"` (versionName `<lib>.<code>`), not upstream's `"1.4"`; drop KMK-only
+  fields (`kmkVersionCode`, `// KMK -->` blocks).
+- **Index schema:** `.github/scripts/index_pb2.py` follows the Aniyomi spec (`aniyomiorg/extensions-lib`
+  `index/index.proto`), not Mihon's – `Extension.isTorrent = 8`, `sources = 9`, `Source.message = 6`. Keep these
+  numbers when a pick regenerates the bindings.
+- **CI:** `build_pull_request.yml` has an anime-only `publish` job ("Check extension repo") that runs `create-repo.py`
+  and `merge-repo.py` the same way `build_push.yml` does. Upstream has no such job, so mirror into it any dependency or
+  argument change a pick makes to `build_push.yml`.
+
+**Torrent is the exception:** it is anime-only and has no manga counterpart, so no upstream change carries it – keep it
+when resolving conflicts and add it to any rewritten script. `torrent = true` in `yuzono { }` → the
+`tachiyomi.animeextension.torrent` meta-data (Anikku's `ExtensionLoader`) → `torrent` in `index.min.json` (Anikku's
+`ExtensionApi`) and `isTorrent` in `index.json`/`index.pb`.
+
 ## Versioning – bump once per PR, theme bump propagates
 
-Source of truth: `CONTRIBUTING.md:287-309` (individual) + `CONTRIBUTING.md:1124-1176` (themes) + `gradle/build-logic/src/main/kotlin/PluginExtensionLegacy.kt:61`:
+Source of truth: `CONTRIBUTING.md:281-310` (individual) + `CONTRIBUTING.md:1179-1255` (themes) + `gradle/build-logic/src/main/kotlin/PluginExtension.kt:114`:
 
 ```kotlin
-versionCode = if (theme == null) extVersionCode else theme.baseVersionCode + overrideVersionCode
+versionCode = if (theme == null) keiyoushi.versionCode else theme.baseVersionCode + keiyoushi.versionCode
 ```
 
 Rules:
 
-- Individual extension (no theme): increment `extVersionCode` by **1** if code affecting users changed. Bump **once per PR** – do not increment multiple times across commits.
+- Individual extension (no theme): increment `versionCode` by **1** if code affecting users changed. Bump **once per PR** – do not increment multiple times across commits.
 - Theme (`lib-multisrc/<theme>/build.gradle.kts`): increment `baseVersionCode` by **1** when theme logic changes.
-- When `baseVersionCode` is bumped, **do not** bump `overrideVersionCode` for extensions using that theme in the same PR – the addition already bumps every extension's effective `versionCode`. Only bump `overrideVersionCode` when the individual extension itself changed independently of the theme.
-- Checklist mirrors this: `CONTRIBUTING.md#pull-request-checklist` ~ `1376-1377` and `.github/pull_request_template.md:3-4`.
+- When `baseVersionCode` is bumped, **do not** bump `versionCode` for extensions using that theme in the same PR – the addition already bumps every extension's effective version code. Only bump the extension's `versionCode` when the extension itself changed independently of the theme.
+- Checklist mirrors this: `CONTRIBUTING.md#pull-request-checklist` ~ `1458-1459` and `.github/pull_request_template.md:3-4`.
 
 ## CI – what it bumps and builds for you
 
@@ -115,13 +144,13 @@ From `.github/workflows/build_pull_request.yml` + `.github/scripts/`:
 
 ## Boundaries
 
-- Do not change `versionName` manually (generated `<libVersion>.<versionCode>`, lib version defaults to `14`).
+- Do not change `versionName` manually (generated `<libVersion>.<versionCode>`; set `libVersion = "14"` unless the extension uses the lib 16 API, and never lower than its theme's `libVersion`).
 - Do not commit `web_hi_res_512.png` (delete after Icon Generator).
-- Do not push to `upstream` (`no_pushing` – fork workflow `CONTRIBUTING.md:170-196`). Use `origin` (your fork) for PRs.
+- Do not push to `upstream` (`no_pushing` – fork workflow `CONTRIBUTING.md:171-203`). Use `origin` (your fork) for PRs.
 - Never commit secrets, keystore, or `local.properties`.
 
 ## PR Instructions
 
-- Follow `CONTRIBUTING.md#submitting-the-changes` ~ `1353-1384` checklist; test build in Android Studio.
+- Follow `CONTRIBUTING.md#submitting-the-changes` ~ `1435-1466` checklist; test build in Android Studio.
 - Title: keep concise; reference issues (`Closes #xyz`).
 - One version bump per module per PR as above.

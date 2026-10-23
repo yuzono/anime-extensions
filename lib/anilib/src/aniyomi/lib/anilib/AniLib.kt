@@ -14,7 +14,7 @@ import kotlinx.serialization.json.put
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * AniLib — AniList GraphQL client library for anime metadata interaction.
@@ -64,8 +64,8 @@ object AniLib {
      */
     private val defaultClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(30.seconds)
+            .readTimeout(30.seconds)
             .build()
     }
 

@@ -8,7 +8,7 @@ import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 object Filters {
     private const val GENRE_PARAM = "genre"
@@ -36,8 +36,8 @@ object Filters {
     fun fetchAndCacheFilters(client: OkHttpClient, headers: Headers, apiUrl: String) {
         try {
             val filterClient = client.newBuilder()
-                .connectTimeout(3, TimeUnit.SECONDS)
-                .readTimeout(5, TimeUnit.SECONDS)
+                .connectTimeout(3.seconds)
+                .readTimeout(5.seconds)
                 .build()
 
             filterClient.newCall(Request.Builder().url("$apiUrl/filters").headers(headers).build()).execute().use { response ->

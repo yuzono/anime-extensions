@@ -33,6 +33,7 @@ import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration.Companion.seconds
 
 class KissKH : Source() {
 
@@ -44,8 +45,8 @@ class KissKH : Source() {
 
     override val client = network.client.newBuilder()
         .rateLimit(5)
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(30.seconds)
+        .readTimeout(30.seconds)
         .build()
 
     override var baseUrl: String

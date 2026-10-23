@@ -36,7 +36,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 class Rezka :
     AnimeHttpSource(),
@@ -72,7 +72,7 @@ class Rezka :
     // get_cdn_series either answers within a second or hangs; cap it so a hang falls
     // through to the error path instead of holding the player for the app's 2-minute limit.
     private val ajaxClient: OkHttpClient by lazy {
-        client.newBuilder().callTimeout(AJAX_TIMEOUT_SECONDS, TimeUnit.SECONDS).build()
+        client.newBuilder().callTimeout(AJAX_TIMEOUT_SECONDS.seconds).build()
     }
 
     private fun ajaxHeaders(): Headers = headers.newBuilder()

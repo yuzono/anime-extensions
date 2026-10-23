@@ -133,7 +133,7 @@ class Movy :
             return getSearchAnime(page, "${PREFIX_ID}$type/$rawId", filters)
         }
 
-        // Deep link from MovyUrlActivity: "id:<type>/<id>"
+        // Deep link, resolved from the URL above: "id:<type>/<id>"
         if (query.startsWith(PREFIX_ID)) {
             val rawPath = query.substringAfter(PREFIX_ID)
             if (!DEEP_LINK_PATH_REGEX.matches(rawPath)) {
@@ -746,7 +746,7 @@ class Movy :
     }.getOrDefault(0L)
 
     companion object {
-        // Deep-link prefix shared with MovyUrlActivity.
+        // Deep-link prefix.
         const val PREFIX_ID = "id:"
 
         private val DEEP_LINK_PATH_REGEX = Regex("""(movie|tv)/\d+""")

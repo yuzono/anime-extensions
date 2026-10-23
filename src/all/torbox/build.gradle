@@ -1,9 +1,0 @@
-ext {
-    extName = 'Torbox'
-    extClass = '.Torbox'
-    extVersionCode = 1
-    extNames = ["Torbox"]
-    versionId = 2
-}
-
-apply plugin: "kei.plugins.extension.legacy"

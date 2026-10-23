@@ -1,9 +1,0 @@
-ext {
-    extName = 'YFantasy'
-    extClass = '.YFantasy'
-    libVersion = 16
-    extVersionCode = 3
-    isNsfw = true
-}
-
-apply plugin: "kei.plugins.extension.legacy"

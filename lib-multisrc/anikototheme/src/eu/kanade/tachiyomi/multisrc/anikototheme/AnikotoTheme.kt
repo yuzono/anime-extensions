@@ -43,6 +43,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.seconds
 
 abstract class AnikotoTheme(
     override val lang: String,
@@ -103,7 +104,7 @@ abstract class AnikotoTheme(
         .build()
 
     private fun buildPlaylistClient() = client.newBuilder()
-        .readTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30.seconds)
         .protocols(listOf(Protocol.HTTP_1_1))
         .build()
 

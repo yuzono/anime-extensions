@@ -1,9 +1,0 @@
-ext {
-    extName = 'WcoTv'
-    extClass = '.WcoTv'
-    themePkg = 'wcotheme'
-    baseUrl = 'https://www.wco.tv'
-    overrideVersionCode = 2
-}
-
-apply plugin: "kei.plugins.extension.legacy"

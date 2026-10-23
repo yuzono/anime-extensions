@@ -1,9 +1,0 @@
-ext {
-    extName = 'WcoAnimeSub'
-    extClass = '.WcoAnimeSub'
-    themePkg = 'wcotheme'
-    baseUrl = 'https://www.wcoanimesub.tv'
-    overrideVersionCode = 2
-}
-
-apply plugin: "kei.plugins.extension.legacy"

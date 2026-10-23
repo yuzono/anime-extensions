@@ -1,14 +1,26 @@
 import json
 import os
 import re
+import struct
 import subprocess
 from pathlib import Path
 from zipfile import ZipFile
 
+def hex_to_float(hex_str):
+    int_val = int(hex_str, 16)
+    float_val = struct.unpack('>f', struct.pack('>I', int_val))[0]
+    return round(float_val, 1)
+
+# aapt prints an integer meta-data value ("14") in decimal and a float one ("1.4") as its raw hex bits
+def parse_extension_lib(value):
+    return str(hex_to_float(value)) if value.startswith("0x") else value
+
 PACKAGE_NAME_REGEX = re.compile(r"package: name='([^']+)'")
 VERSION_CODE_REGEX = re.compile(r"versionCode='([^']+)'")
 VERSION_NAME_REGEX = re.compile(r"versionName='([^']+)'")
-IS_NSFW_REGEX = re.compile(r"'tachiyomi.animeextension.nsfw' value='([^']+)'")
+CONTENT_WARNING_REGEX = re.compile(r"'tachiyomix.contentWarning' value='([^']+)'")
+EXTENSION_LIB_REGEX = re.compile(r"'tachiyomix.extensionLib' value='([^']+)'")
+TORRENT_REGEX = re.compile(r"'tachiyomi.animeextension.torrent' value='([^']+)'")
 APPLICATION_LABEL_REGEX = re.compile(r"^application-label:'([^']+)'", re.MULTILINE)
 APPLICATION_ICON_320_REGEX = re.compile(r"^application-icon-320:'([^']+)'", re.MULTILINE)
 LANGUAGE_REGEX = re.compile(r"aniyomi-([^.]+)")
@@ -23,7 +35,7 @@ REPO_ICON_DIR.mkdir(parents=True, exist_ok=True)
 with open("output.json", encoding="utf-8") as f:
     inspector_data = json.load(f)
 
-index_min_data = []
+index_data = []
 
 for apk in REPO_APK_DIR.iterdir():
     badging = subprocess.check_output(
@@ -58,32 +70,32 @@ for apk in REPO_APK_DIR.iterdir():
         ):
             language = source_language
 
-    common_data = {
-        "name": APPLICATION_LABEL_REGEX.search(badging)[1],
+    content_warning = int(CONTENT_WARNING_REGEX.search(badging).group(1))
+    extension_lib = parse_extension_lib(EXTENSION_LIB_REGEX.search(badging).group(1).strip())
+    torrent = int(TORRENT_REGEX.search(badging).group(1))
+
+    extension_data = {
+        "name": APPLICATION_LABEL_REGEX.search(badging).group(1),
         "pkg": package_name,
         "apk": apk.name,
         "lang": language,
-        "code": int(VERSION_CODE_REGEX.search(package_info)[1]),
-        "version": VERSION_NAME_REGEX.search(package_info)[1],
-        "nsfw": int(IS_NSFW_REGEX.search(badging)[1]),
-    }
-    min_data = {
-        **common_data,
-        "sources": [],
-    }
-
-    for source in sources:
-        min_data["sources"].append(
+        "code": int(VERSION_CODE_REGEX.search(package_info).group(1)),
+        "version": VERSION_NAME_REGEX.search(package_info).group(1),
+        "contentWarning": content_warning,
+        "libVersion": extension_lib,
+        "torrent": torrent,
+        "sources": [
             {
                 "name": source["name"],
                 "lang": source["lang"],
                 "id": source["id"],
                 "baseUrl": source["baseUrl"],
-                "versionId": source["versionId"],
             }
-        )
+            for source in sources
+        ],
+    }
 
-    index_min_data.append(min_data)
+    index_data.append(extension_data)
 
-with REPO_DIR.joinpath("index.min.json").open("w", encoding="utf-8") as index_file:
-    json.dump(index_min_data, index_file, ensure_ascii=False, separators=(",", ":"))
+with REPO_DIR.joinpath("index.json").open("w", encoding="utf-8") as index_file:
+    json.dump(index_data, index_file, ensure_ascii=False, separators=(",", ":"))

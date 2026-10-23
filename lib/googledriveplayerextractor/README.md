@@ -13,9 +13,9 @@ This extractor uses a WebView to intercept Google Drive's player API requests an
 
 ## Installation
 
-Add the dependency to your extension's `build.gradle`:
+Add the dependency to your extension's `build.gradle.kts`:
 
-```gradle
+```kotlin
 dependencies {
     implementation(project(":lib:googledriveplayerextractor"))
 }

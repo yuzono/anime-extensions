@@ -161,7 +161,7 @@ jobs:
     needs: [prepare, build]
     # Matches the APK upload condition, so fork PRs also run the inspector
     if: "github.repository == 'yuzono/anime-extensions'"
-    runs-on: 'ubuntu-26.04'
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repo branch
         id: checkout-repo
@@ -214,6 +214,7 @@ jobs:
       - name: Merge repo
         run: |
           cd repo
+          pip install "protobuf>=7.35.1,<8"
           python ../PR/.github/scripts/merge-repo.py '${{ needs.prepare.outputs.delete }}' 'PR/repo'
 
       # Showing which extensions are to be updated with this PR

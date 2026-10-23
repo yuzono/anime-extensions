@@ -9,20 +9,20 @@ import aniyomi.lib.doodextractor.DoodExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
-import keiyoushi.utils.AnimeHttpLegacySource
+import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CancellationException
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -36,10 +36,10 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import java.text.SimpleDateFormat
 import java.util.Locale
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 class AniWaves :
-    AnimeHttpLegacySource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val name = "AniWaves.ru"
@@ -63,7 +63,7 @@ class AniWaves :
 
     private val http1Client by lazy {
         client.newBuilder()
-            .readTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30.seconds)
             .protocols(listOf(Protocol.HTTP_1_1))
             .build()
     }
@@ -81,19 +81,16 @@ class AniWaves :
     private val scorePosition get() = preferences.getString(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)!!
 
     // ============================== Popular ===============================
-
     override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/trending/page/$page", siteHeaders())
 
     override fun popularAnimeParse(response: Response): AnimesPage = response.asJsoup().toAnimePage()
 
     // =============================== Latest ===============================
-
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/filter?sort_by=last_updated&page=$page", siteHeaders())
 
     override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     // =============================== Search ===============================
-
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         // "#tag" queries route to the site's exact tag pages
         if (query.startsWith("#")) {
@@ -127,7 +124,6 @@ class AniWaves :
     override fun getFilterList(): AnimeFilterList = Filters.FILTER_LIST
 
     // =========================== Anime Details ============================
-
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup().resolveIfSearch()
         val titleElement = document.selectFirst("h1.title, h2.title")
@@ -248,7 +244,6 @@ class AniWaves :
     }.trim()
 
     // ============================== Related ===============================
-
     override val disableRelatedAnimesBySearch = true
 
     override fun relatedAnimeListRequest(anime: SAnime): Request {
@@ -311,9 +306,9 @@ class AniWaves :
 
     private fun recommendedAnime(animeId: String, referer: String, seenPaths: MutableSet<String>): List<SAnime> {
         val recHeaders = headers.newBuilder().apply {
-            add("Accept", "*/*")
-            add("Referer", referer)
-            add("X-Requested-With", "XMLHttpRequest")
+            set("Accept", "*/*")
+            set("Referer", referer)
+            set("X-Requested-With", "XMLHttpRequest")
         }.build()
 
         val result = mutableListOf<SAnime>()
@@ -337,11 +332,10 @@ class AniWaves :
     }
 
     // ============================== Episodes ==============================
-
     private fun ajaxHeaders(referer: String): Headers = headers.newBuilder().apply {
-        add("Accept", "application/json, text/javascript, */*; q=0.01")
-        add("Referer", referer)
-        add("X-Requested-With", "XMLHttpRequest")
+        set("Accept", "application/json, text/javascript, */*; q=0.01")
+        set("Referer", referer)
+        set("X-Requested-With", "XMLHttpRequest")
     }.build()
 
     override fun episodeListRequest(anime: SAnime): Request {
@@ -372,6 +366,7 @@ class AniWaves :
             emptyList()
         }
     }
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     private fun episodeFromElement(element: Element, animeUrl: String): SEpisode {
         val releaseTitle = element.parent()?.attr("title") ?: ""
@@ -398,41 +393,30 @@ class AniWaves :
         }
     }
 
-    // ============================= Video Links =============================
-
-    override fun videoListRequest(episode: SEpisode): Request {
+    // ============================= Hosters ================================
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         // episode.url = "<serverIds>&epurl=<path>/episode/<num>"
         val serverParams = episode.url.substringBefore("&epurl=")
-        val epurlPart = episode.url.substringAfter("epurl=").substringBefore("&mal=")
-        return GET("$baseUrl/ajax/server/list?servers=$serverParams", ajaxHeaders("$baseUrl$epurlPart"))
-    }
-
-    class VideoData(
-        val type: String,
-        val serverId: String,
-        val serverName: String,
-    )
-
-    override fun videoListParse(response: Response): List<Video> = runBlocking { parseServers(response) }
-
-    private suspend fun parseServers(response: Response): List<Video> {
-        val epUrl = response.request.header("Referer")?.toHttpUrlOrNull()?.encodedPath ?: return emptyList()
+        val epUrl = episode.url.substringAfter("epurl=").substringBefore("&mal=")
 
         val document = try {
-            response.parseAs<AjaxHtmlResponse>().toDocument()
+            client.get(
+                "$baseUrl/ajax/server/list?servers=$serverParams",
+                ajaxHeaders("$baseUrl$epUrl"),
+            ).parseAs<AjaxHtmlResponse>().toDocument()
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse video list: ${e.message}")
+            Log.e(TAG, "Failed to parse hoster list: ${e.message}")
             return emptyList()
         }
 
         return document.select(SERVER_TYPE_SELECTOR).flatMap { typeElement ->
-            val label = when (val type = typeElement.attr("data-type").lowercase(Locale.US)) {
+            val typeLabel = when (val type = typeElement.attr("data-type").lowercase(Locale.US)) {
                 "sub" -> "Sub"
                 "dub" -> "Dub"
                 "ssub" -> "Soft Sub"
                 else -> type.replaceFirstChar { it.uppercase() }
             }
-            if (label in excludedTypes) return@flatMap emptyList()
+            if (typeLabel in excludedTypes) return@flatMap emptyList()
 
             typeElement.select("li").mapNotNull { serverElement ->
                 val rawName = serverElement.text().trim()
@@ -444,45 +428,56 @@ class AniWaves :
                 val serverId = serverElement.attr("data-link-id")
                 if (serverId.isBlank()) return@mapNotNull null
 
-                VideoData(label, serverId, serverName)
+                Hoster(
+                    hosterName = "$serverName - $typeLabel",
+                    internalData = "$serverId|$serverName|$typeLabel|$epUrl",
+                )
             }
-        }.parallelCatchingFlatMap { extractVideo(it, epUrl) }
-    }
-
-    // ============================= Utilities ==============================
-
-    private suspend fun extractVideo(server: VideoData, epUrl: String): List<Video> {
-        val embedUrl = getEmbedUrl(server.serverId, epUrl)
-
-        // Note: myvidplay contains "vidplay" — the dood check must come first
-        return when {
-            embedUrl.contains("dood", true) || embedUrl.contains("myvidplay", true) ->
-                extractFromDood(embedUrl, server)
-
-            embedUrl.contains("gn1r5n", true) ||
-                embedUrl.contains("byfms", true) ||
-                embedUrl.contains("filemoon", true) ->
-                extractFromByse(embedUrl, server, epUrl)
-
-            else -> extractFromEchoVideo(embedUrl, server)
         }
     }
 
-    private fun videoLabel(server: VideoData): String {
-        val typeSuffix = server.type.takeIf(String::isNotBlank)?.let { " - $it" }.orEmpty()
-        return server.serverName + typeSuffix
-    }
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
 
-    /**
-     * Dood pages here are titled with a file hash and expose no resolution
-     * metadata; the stream is mostly 1080p, which is why we hardcode it here.
-     */
-    private fun extractFromDood(embedUrl: String, server: VideoData): List<Video> {
-        val label = videoLabel(server)
-        return doodExtractor.videosFromUrl(embedUrl, label).map { video ->
-            video.copy(
-                videoTitle = "$label - Doodstream 1080p",
-            )
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val parts = hoster.internalData.split("|")
+        if (parts.size < 4) return emptyList()
+        val serverId = parts[0]
+        val serverName = parts[1]
+        val typeLabel = parts[2]
+        val epUrl = parts[3]
+
+        val embedUrl = try {
+            getEmbedUrl(serverId, epUrl)
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.e(TAG, "Failed to get embed URL for $serverName: ${e.message}")
+            return emptyList()
+        }
+
+        return try {
+            // Note: myvidplay contains "vidplay" — the dood check must come first
+            val videos = when {
+                embedUrl.contains("dood", true) ||
+                    embedUrl.contains("myvidplay", true) ||
+                    embedUrl.contains("playmogo", true) ||
+                    serverName.equals("DGHG", ignoreCase = true) ->
+                    extractFromDood(embedUrl, serverName, typeLabel)
+
+                embedUrl.contains("mfw09", true) ||
+                    embedUrl.contains("gn1r5n", true) ||
+                    embedUrl.contains("byfms", true) ||
+                    embedUrl.contains("filemoon", true) ||
+                    serverName.equals("BYFMS", ignoreCase = true) ->
+                    extractFromByse(embedUrl, serverName, typeLabel, epUrl)
+
+                else -> extractFromEchoVideo(embedUrl, serverName, typeLabel)
+            }
+
+            videos.sortVideosByPreference(serverName, typeLabel)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            Log.e(TAG, "Failed to extract videos for $serverName: ${e.message}")
+            emptyList()
         }
     }
 
@@ -490,18 +485,24 @@ class AniWaves :
         val requestHeaders = ajaxHeaders(baseUrl + epUrl)
 
         // Current API - data-link-id is already VRF-encoded, send as-is
-        val response = client.newCall(
-            GET("$baseUrl/ajax/sources?id=$serverLinkId&asi=0&autoPlay=0", requestHeaders),
-        ).awaitSuccess()
+        val response = try {
+            client.get(
+                "$baseUrl/ajax/sources?id=$serverLinkId&asi=0&autoPlay=0",
+                requestHeaders,
+            )
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            throw e
+        }
 
         return response.parseAs<SourcesResponse>().result?.url
             ?.takeIf(String::isNotBlank)
             ?: throw Exception("No embed URL returned for link id $serverLinkId")
     }
-    // ==================== EchoVideo Family Extractor ======================
-    // Vidplay / MyCloud / DatSaV — all resolve to play.echovideo.ru embeds.
 
-    private suspend fun extractFromEchoVideo(embedUrl: String, server: VideoData): List<Video> {
+    // ==================== EchoVideo Family Extractor ======================
+    // Vidplay / MyCloud / DatSaV / MuL-AuD — all resolve to play.echovideo.ru embeds.
+    private suspend fun extractFromEchoVideo(embedUrl: String, serverName: String, typeLabel: String): List<Video> {
         val httpUrl = embedUrl.toHttpUrlOrNull() ?: run {
             Log.e(TAG, "Invalid EchoVideo URL: $embedUrl")
             return emptyList()
@@ -513,11 +514,12 @@ class AniWaves :
         // Preserve the dynamic embed path segment (embed-0/embed-1/embed-20/…)
         val sourcesUrl = embedUrl.substringBeforeLast("/") + "/getSources?id=$videoId"
 
-        val data = client.newCall(
-            GET(sourcesUrl, okHeaders("Accept" to "*/*", "Referer" to embedUrl)),
-        ).awaitSuccess().parseAs<VidplaySourcesResponse>()
+        val data = client.get(
+            sourcesUrl,
+            okHeaders("Accept" to "*/*", "Referer" to embedUrl),
+        ).parseAs<VidplaySourcesResponse>()
 
-        val label = videoLabel(server)
+        val label = "$serverName - $typeLabel"
         val videoReferer = "https://${httpUrl.host}/"
         val videoHeaders = okHeaders(
             "Referer" to videoReferer,
@@ -531,9 +533,8 @@ class AniWaves :
             return qualityFiles.flatMap { (quality, urls) ->
                 urls.map { url ->
                     Video(
-                        url = url,
-                        quality = "$label - ${DATSAV_QUALITY_LABELS[quality] ?: quality}",
                         videoUrl = url,
+                        videoTitle = "$label - ${DATSAV_QUALITY_LABELS[quality] ?: quality}",
                         headers = videoHeaders,
                         subtitleTracks = subtitles,
                     )
@@ -575,7 +576,7 @@ class AniWaves :
             "User-Agent" to ByseExtractor.USER_AGENT,
         )
 
-        suspend fun fetchPlaylistText(url: String): String = client.newCall(GET(url, fetchHeaders)).awaitSuccess().use {
+        suspend fun fetchPlaylistText(url: String): String = client.get(url, fetchHeaders).use {
             decodeNumericHls(it.body.string())
         }
 
@@ -627,9 +628,8 @@ class AniWaves :
                 }
                 val localUrl = playlistServer.register(text)
                 Video(
-                    url = localUrl,
-                    quality = "$label - ${quality ?: "auto"}",
                     videoUrl = localUrl,
+                    videoTitle = "$label - ${quality ?: "auto"}",
                     headers = videoHeaders,
                     subtitleTracks = subtitles,
                 )
@@ -686,18 +686,32 @@ class AniWaves :
 
     // ========================= Byse (BYFMS) Extractor =====================
 
-    private suspend fun extractFromByse(embedUrl: String, server: VideoData, epUrl: String): List<Video> {
+    /**
+     * Dood pages here are titled with a file hash and expose no resolution
+     * metadata; the stream is mostly 1080p, which is why we hardcode it here.
+     */
+    private fun extractFromDood(embedUrl: String, serverName: String, typeLabel: String): List<Video> {
+        val label = "$serverName - $typeLabel"
+        return doodExtractor.videosFromUrl(embedUrl, label).map { video ->
+            video.copy(
+                videoTitle = "$label - Doodstream 1080p",
+            )
+        }
+    }
+
+    private suspend fun extractFromByse(embedUrl: String, serverName: String, typeLabel: String, epUrl: String): List<Video> {
         val sources = try {
             byseExtractor.extract(embedUrl, embedParent = "$baseUrl$epUrl", embedOrigin = baseUrl)
         } catch (e: Exception) {
-            Log.e(TAG, "Byse extraction failed for ${server.serverName}: ${e.message}")
+            Log.e(TAG, "Byse extraction failed for $serverName: ${e.message}")
             return emptyList()
         }
 
+        val label = "$serverName - $typeLabel"
         return sources.flatMap { source ->
             hlsVideosFromPlaylist(
                 m3u8Url = source.url,
-                label = videoLabel(server),
+                label = label,
                 referer = "https://${embedUrl.toHttpUrl().host}/",
                 subtitles = source.subtitles,
                 proxySegments = true,
@@ -706,9 +720,8 @@ class AniWaves :
     }
 
     // ========================= Shared Utilities ===========================
-
     private fun siteHeaders(): Headers = headers.newBuilder()
-        .add("Referer", "$baseUrl/")
+        .set("Referer", "$baseUrl/")
         .build()
 
     private fun okHeaders(vararg pairs: Pair<String, String>): Headers = Headers.Builder().apply {
@@ -748,16 +761,33 @@ class AniWaves :
         return ANIME_PATH_REGEX.find(path)?.value
     }
 
-    override fun List<Video>.sortVideos(): List<Video> {
-        val qualityTiers = PREF_QUALITY_VALUES.reversed()
-        val typePattern = Regex(""" - ${Regex.escape(preferredType)}(?:\s|$)""", RegexOption.IGNORE_CASE)
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val server = preferredServer
+        val type = preferredType
+        val typePattern = Regex(""" - ${Regex.escape(type)}$""", RegexOption.IGNORE_CASE)
 
         return sortedWith(
-            compareByDescending<Video> { it.videoTitle.contains(preferredQuality) }
-                .thenByDescending { video -> qualityTiers.indexOfLast { tier -> video.videoTitle.contains(tier) } }
-                .thenByDescending { it.videoTitle.contains(preferredServer, ignoreCase = true) }
-                .thenByDescending { typePattern.containsMatchIn(it.videoTitle) },
+            compareByDescending<Hoster> { hoster ->
+                val hosterBase = hoster.hosterName.substringBefore(" - ").trim()
+                hosterBase.equals(server, ignoreCase = true)
+            }.thenByDescending { typePattern.containsMatchIn(it.hosterName) },
         )
+    }
+
+    private fun List<Video>.sortVideosByPreference(serverName: String, typeLabel: String): List<Video> {
+        val quality = preferredQuality
+        val prefServer = preferredServer
+        val prefType = preferredType
+        val qualityTiers = PREF_QUALITY_VALUES.reversed()
+        val isPreferredHoster = serverName.equals(prefServer, ignoreCase = true) &&
+            typeLabel.equals(prefType, ignoreCase = true)
+
+        return sortedWith(
+            compareByDescending<Video> { it.videoTitle.contains(quality) }
+                .thenByDescending { video -> qualityTiers.indexOfLast { tier -> video.videoTitle.contains(tier) } },
+        ).mapIndexed { index, video ->
+            video.copy(preferred = index == 0 && isPreferredHoster)
+        }
     }
 
     private fun parseStatus(statusString: String): Int {
@@ -822,13 +852,14 @@ class AniWaves :
         private const val PREF_SERVER_EXCLUDE_KEY = "excluded_servers"
         private val PREF_SERVER_EXCLUDE_DEFAULT = emptySet<String>()
 
-        private val HOSTERS = arrayOf("Vidplay", "BYFMS", "DGHG", "MyCloud", "DatSaV")
+        private val HOSTERS = arrayOf("Vidplay", "BYFMS", "DGHG", "MyCloud", "DatSaV", "MuL-AuD")
         private val HOSTER_LABELS = mapOf(
             "vidplay" to "Vidplay",
             "byfms" to "BYFMS",
             "dghg" to "DGHG",
             "mycloud" to "MyCloud",
             "datsav" to "DatSaV",
+            "mul-aud" to "MuL-AuD",
         )
 
         private const val PREF_TYPE_EXCLUDE_KEY = "excluded_types"
@@ -849,7 +880,6 @@ class AniWaves :
     }
 
     // ============================== Settings ==============================
-
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
             key = PREF_DOMAIN_KEY
@@ -873,7 +903,7 @@ class AniWaves :
             key = PREF_QUALITY_KEY
             title = "Preferred Quality"
             entries = arrayOf("1080p", "720p", "480p", "360p")
-            entryValues = arrayOf("1080", "720", "480", "360")
+            entryValues = PREF_QUALITY_VALUES.toTypedArray()
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
         }.also(screen::addPreference)

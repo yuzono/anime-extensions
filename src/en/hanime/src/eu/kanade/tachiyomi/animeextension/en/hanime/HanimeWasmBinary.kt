@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import kotlin.time.Duration.Companion.seconds
 
 // ---------------------------------------------------------------------------
 // WASM Binary Extractor — Fetches and decodes the inline WASM from vendor.js
@@ -214,8 +215,8 @@ object HanimeWasmBinary {
             .build()
 
         val timeoutClient = client.newBuilder()
-            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .connectTimeout(15.seconds)
+            .readTimeout(30.seconds)
             .build()
 
         val response = timeoutClient.newCall(request).execute()

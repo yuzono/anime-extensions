@@ -1,9 +1,0 @@
-ext {
-    extName = 'PTorrent (Torrent)'
-    extClass = '.PTorrent'
-    extVersionCode = 4
-    isTorrent = true
-    isNsfw = true
-}
-
-apply plugin: "kei.plugins.extension.legacy"

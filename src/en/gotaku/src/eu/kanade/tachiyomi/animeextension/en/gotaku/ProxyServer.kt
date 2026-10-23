@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * STATELESS local proxy — every request carries its own crypto params in the
@@ -48,8 +49,8 @@ class ProxyServer(
         .build()
     private val proxyClient by lazy {
         OkHttpClient.Builder()
-            .readTimeout(30, TimeUnit.SECONDS)
-            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(30.seconds)
+            .connectTimeout(10.seconds)
             .connectionPool(ConnectionPool(30, 2, TimeUnit.MINUTES))
             .retryOnConnectionFailure(true)
             .followRedirects(false)

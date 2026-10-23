@@ -13,7 +13,7 @@ import okhttp3.Request
 import java.io.File
 import java.net.URLDecoder
 import java.net.URLEncoder
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 // Downloads the ASS fonts in the embed page's extracted_fonts[] into
 // mpv's fonts dir, so HLS subtitles render with the right positioning.
@@ -61,8 +61,8 @@ object FlixFontCache {
         cleanOldFonts(cacheRoot, mpvFontsDir)
 
         val fontClient = client.newBuilder()
-            .readTimeout(10, TimeUnit.SECONDS)
-            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(10.seconds)
+            .connectTimeout(5.seconds)
             .build()
 
         supervisorScope {

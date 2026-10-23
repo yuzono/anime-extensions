@@ -11,7 +11,7 @@ import org.nanohttpd.protocols.http.response.Response
 import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
 import org.nanohttpd.protocols.http.response.Status
 import java.net.URLEncoder
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 class EM3u8Proxy(
     private val baseHeaders: Headers,
@@ -19,8 +19,8 @@ class EM3u8Proxy(
 ) : NanoHTTPD("127.0.0.1", 0) {
 
     private val proxyClient = client.newBuilder()
-        .readTimeout(30, TimeUnit.SECONDS)
-        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30.seconds)
+        .connectTimeout(10.seconds)
         .followRedirects(true)
         .build()
 

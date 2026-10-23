@@ -67,8 +67,8 @@ log, before section 3, and when the user asks for it.
    to this repo's extensions too.
    - **Repo-wide:** moving to a shared helper or API (`keiyoushi.utils` / `keiyoushi.network` helpers, rate limit,
      preferences, `network.client` / `cloudflareClient`), removing an unsafe or deprecated usage (OkHttp internals,
-     regex named groups), Kotlin or lint cleanups (`TimeUnit` to `Duration`), or a `build.gradle` convention that this
-     repo's extensions also use (check with `git grep -n '<field>' master -- 'src/*/*/build.gradle' | head`).
+     regex named groups), Kotlin or lint cleanups (`TimeUnit` to `Duration`), or a `build.gradle.kts` convention that this
+     repo's extensions also use (check with `git grep -n '<field>' master -- 'src/*/*/build.gradle.kts' | head`).
    - **Not repo-wide:** changes to particular manga sources or themes, however many: removing dead or broken sources,
      adding sources, domain or package updates, moving sources between themes, migrating a theme or a batch of
      sources to a new ext-lib or build DSL. The shared part of such a migration (`gradle/`, `core/`, `lib/`) is its own

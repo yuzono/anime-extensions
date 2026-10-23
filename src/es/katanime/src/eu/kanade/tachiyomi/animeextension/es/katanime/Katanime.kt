@@ -94,7 +94,7 @@ class Katanime :
         val document = response.useAsJsoup()
         return SAnime.create().apply {
             title = document.selectFirst(".comics-title")?.ownText() ?: ""
-            description = document.selectFirst("#sinopsis p")?.ownText()
+            description = document.selectFirst(".anime-synopsis")?.ownText()
             genre = document.select(".anime-genres a").joinToString { it.text() }
             status = with(document.select(".details-by #estado").text()) {
                 when {

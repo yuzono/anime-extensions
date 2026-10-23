@@ -28,7 +28,7 @@ import okhttp3.Response
 import org.jsoup.nodes.Element
 import java.net.URLDecoder
 import java.text.Normalizer
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 class AnimeToki : AnimeHttpSource() {
 
@@ -40,7 +40,7 @@ class AnimeToki : AnimeHttpSource() {
     override val client = network.client.newBuilder()
         .addInterceptor(SessionWarmUpInterceptor())
         // Drive folder listings can take ~1min server-side to generate.
-        .readTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(60.seconds)
         .build()
 
     override fun headersBuilder(): okhttp3.Headers.Builder = okhttp3.Headers.Builder()

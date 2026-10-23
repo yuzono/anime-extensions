@@ -1,0 +1,27 @@
+plugins {
+    alias(kei.plugins.extension)
+}
+
+yuzono {
+    name = "LaMovie"
+    className = "LaMovie"
+    versionCode = 2
+    contentWarning = ContentWarning.SAFE
+    libVersion = "14"
+    theme = "dopeflix"
+    baseUrl = "https://la.movie"
+}
+
+dependencies {
+    implementation(project(":lib:playlistutils"))
+    implementation(project(":lib:doodextractor"))
+    implementation(project(":lib:streamwishextractor"))
+    implementation(project(":lib:vidhideextractor"))
+    implementation(project(":lib:voeextractor"))
+    implementation(project(":lib:pixeldrainextractor"))
+    implementation(project(":lib:mp4uploadextractor"))
+    implementation(project(":lib:youruploadextractor"))
+    implementation(project(":lib:filemoonextractor"))
+    implementation(project(":lib:goodstreamextractor"))
+    implementation(project(":lib:unpacker"))
+}
