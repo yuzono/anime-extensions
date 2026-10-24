@@ -665,7 +665,7 @@ class ReAnime :
             val html = response.body.string()
             val anilistId = ANILIST_ID_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             val tmdbId = TMDB_ID_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-            val isMovie = FORMAT_MOVIE_REGEX.containsMatchIn(html) || html.contains("\"format\":\"MOVIE\"", true)
+            val isMovie = isMovieRecord(html, slug)
             val seasonNum = if (isMovie) {
                 0
             } else {
@@ -698,6 +698,15 @@ class ReAnime :
         }
 
         return parseFlixServersResponse(response)
+    }
+
+    private fun isMovieRecord(html: String, slug: String): Boolean {
+        val index = html.indexOf(slug)
+        if (index == -1) return false
+        val start = (index - 500).coerceAtLeast(0)
+        val end = (index + 500).coerceAtMost(html.length)
+        val snippet = html.substring(start, end)
+        return FORMAT_MOVIE_REGEX.containsMatchIn(snippet) || snippet.contains("\"format\":\"MOVIE\"", true)
     }
 
     private suspend fun parseFlixServersResponse(response: Response): List<Hoster> {
