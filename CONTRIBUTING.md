@@ -21,6 +21,12 @@ or fixing it directly by submitting a Pull Request.
     - [Loading a subset of Gradle modules](#loading-a-subset-of-gradle-modules)
       - [Extension file structure](#extension-file-structure)
       - [build.gradle.kts](#buildgradlekts)
+    - [Source declaration](#source-declaration)
+      - [Annotate your source class](#annotate-your-source-class)
+      - [Declare sources in build.gradle.kts](#declare-sources-in-buildgradlekts)
+      - [baseUrl modes](#baseurl-modes)
+      - [Multiple sources from one class](#multiple-sources-from-one-class)
+      - [Keeping name and baseUrl in the class](#keeping-name-and-baseurl-in-the-class)
     - [Core dependencies](#core-dependencies)
       - [Extension API](#extension-api)
       - [lib tools](#lib-tools)
@@ -289,25 +295,161 @@ plugins {
 
 yuzono {
     name = "<My source name>"
-    className = "<MySourceName>"
     versionCode = 1
     contentWarning = ContentWarning.NSFW // Options: ContentWarning.SAFE, ContentWarning.MIXED, ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "en"
+        baseUrl = "https://example.com"
+    }
 }
 ```
 
 | Field            | Description                                                                                                                                                                                                          |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`           | The name of the extension. Should be romanized if site name is not in English.                                                                                                                                       |
-| `className`      | Points to the class that implements `AnimeSource`. The relative path starting with a dot is inferred automatically. This is used to find and instantiate the source(s).                                              |
 | `versionCode`    | The extension version code. This must be a positive integer and incremented with any change to the code. Do not bump for changes that do not affect users, such as changing a private function to a public function. |
 | `contentWarning` | Content safety classification. Must be set explicitly to one of `ContentWarning.SAFE`, `ContentWarning.MIXED`, or `ContentWarning.NSFW`.                                                                             |
 | `libVersion`     | The extension library version. Must be set explicitly: `"14"`, or `"16"` for extensions that implement the [lib 16](#extensions-lib-16) API.                                                                         |
+| `theme`          | Optional. Name of a multi-source theme from `lib-multisrc/` to inherit from. See [Using a Theme](#using-a-theme).                                                                                                    |
 | `torrent`        | Optional. Set to `true` if the extension serves torrents (magnet or `.torrent` links, or `TorrentUtils`): the app starts its torrent server for it and shows a Torrent badge.                                        |
+| `source {}`      | Declares one source, or several for multi-language or multi-site extensions. See [Source declaration](#source-declaration).                                                                                          |
 | `deeplink {}`    | Declares a URL deeplink intent filter. See [URL intent filter](#url-intent-filter).                                                                                                                                  |
 
 The extension's version name is generated automatically by concatenating `libVersion` and the calculated version code.
 With the example used above, the version would be `14.1`.
+
+> [!NOTE]
+> `className` (and `baseUrl` for themed extensions) in the `yuzono {}` block is the legacy way to point at the source
+> class. Only `src/all/jellyfin`, `src/all/streamingcommunity` and `src/es/cuevana` still use it; every other extension
+> declares its sources with `source {}`.
+
+### Source declaration
+
+Sources are registered through `source {}` blocks in `build.gradle.kts`, combined with the `@Source` annotation on
+your source class. The build uses KSP to generate a subclass of it, `ExtensionGenerated`, that provides `name`, `lang`,
+`id` and `baseUrl`, so you don't declare them in Kotlin.
+
+#### Annotate your source class
+
+Add `@Source` to your main class, make it `abstract`, and don't declare `name`, `lang`, `id`, `versionId` or `baseUrl`:
+
+```kotlin
+import keiyoushi.annotation.Source
+
+@Source
+abstract class MySource : AnimeHttpSource() {
+    // name, lang, id and baseUrl are generated - don't declare them here.
+}
+```
+
+Each module has exactly one `@Source` class. If it extends `keiyoushi.utils.Source`, write the annotation as
+`@keiyoushi.annotation.Source`, since the two names clash.
+
+#### Declare sources in build.gradle.kts
+
+| Field         | Description                                                                                                                                                                            |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`        | The source name shown in the app. Optional; defaults to the extension `name`.                                                                                                          |
+| `lang`        | Language code, as described in [Main class key variables](#main-class-key-variables). Required.                                                                                        |
+| `baseUrl`     | The source's base URL. See [baseUrl modes](#baseurl-modes) below.                                                                                                                      |
+| `id`          | Explicit source ID, written as a `Long` (`id = 1234L`). Optional; computed from `name`, `lang` and `versionId` when omitted. Set it when renaming a source to keep users' libraries. |
+| `versionId`   | Seed used to compute `id`. Defaults to `1`. Only bump it if the source's URL structure fundamentally changes and old entries can no longer be redirected.                              |
+| `skipCodeGen` | Optional. Leaves `name`, `lang`, `id` and `baseUrl` to the class. See [Keeping name and baseUrl in the class](#keeping-name-and-baseurl-in-the-class).                                 |
+
+#### baseUrl modes
+
+**Static**, a single URL with no preference:
+
+```kotlin
+source {
+    lang = "en"
+    baseUrl = "https://example.com"
+}
+```
+
+**Mirrors**, where the user picks one URL from a list. The URL passed to `baseUrl(...)` is the default, and the picker
+shows each mirror's host:
+
+```kotlin
+source {
+    lang = "en"
+    baseUrl("https://example.com") {
+        mirrors = listOf(
+            "https://mirror1.com",
+            "https://mirror2.com",
+        )
+    }
+}
+```
+
+**Custom URL**, where the user can enter any URL:
+
+```kotlin
+source {
+    lang = "en"
+    baseUrl("https://example.com") {
+        withCustom = true
+    }
+}
+```
+
+For both, the generated class implements `ConfigurableAnimeSource` and adds the preference (a "Preferred Mirror"
+`ListPreference` that stores the mirror index, or a validated "Custom Base URL" `EditTextPreference`) before your own
+preferences, calling `super.setupPreferenceScreen(screen)` when your class already has some. The custom URL is reset when
+the default URL changes in an update. Their titles are translated in `core/translations/strings.json`.
+
+> [!IMPORTANT]
+> When using `mirrors` or `withCustom`, **do not** add your own domain preference or read one from `SharedPreferences`:
+> the generated code handles it, and doing both creates duplicate preferences.
+>
+> The generated `baseUrl` reads a preference that the generated subclass creates, so it is not available while your
+> class (or its theme) is being constructed. Don't read `baseUrl`, or `headers` built from it, in a property initializer
+> or an `init` block: use a getter (`private val apiUrl get() = "$baseUrl/api"`) or `by lazy` instead. A getter also
+> picks up a new mirror at once, while anything built once keeps the old one until the app restarts.
+
+#### Multiple sources from one class
+
+Use several `source {}` blocks instead of an `AnimeSourceFactory`. The generated class becomes the factory, and creates
+one subclass of your `@Source` class per block:
+
+```kotlin
+yuzono {
+    // ...
+
+    listOf("en", "ja").forEach {
+        source {
+            lang = it
+            baseUrl = "https://example.com"
+        }
+    }
+
+    source {
+        name = "Example Mirror"
+        lang = "en"
+        baseUrl = "https://mirror.example.com"
+    }
+}
+```
+
+Anything that used to be a constructor parameter is derived from `name` or `lang` in the class, for example
+`private val siteLang get() = when (lang) { ... }`.
+
+#### Keeping name and baseUrl in the class
+
+When the class must compute these values itself, for example a `baseUrl` that follows the site's redirects to a new
+domain, set `skipCodeGen = true`. The generated class then adds nothing, and the class declares `name`, `lang`,
+`baseUrl` and, when it differs from the computed one, `id`. Keep the `source {}` values in step with the class: they are
+still used for the deeplink hosts. `skipCodeGen` only works with a single `source {}` block and a static `baseUrl`.
+
+```kotlin
+source {
+    lang = "fr"
+    baseUrl = "https://example.com"
+    skipCodeGen = true
+}
+```
 
 ### Core dependencies
 
@@ -722,24 +864,26 @@ the main app has at the expense of app size.
 
 ### Extension main class
 
-The class which is referenced and defined by `className` in `build.gradle.kts`. This class should implement
-either `AnimeSourceFactory` or `AnimeHttpSource`.
+The class annotated with `@Source` (see [Source declaration](#source-declaration)). It extends `AnimeHttpSource`, or
+a theme or shim based on it. Multiple sources are declared with several `source {}` blocks, so you don't write an
+`AnimeSourceFactory` yourself.
 
 | Class                   | Description                                                                                                                              |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `AnimeSourceFactory`    | Used to expose multiple `AnimeSource`s. Use this in case of a source that supports multiple languages or mirrors of the same website.    |
 | `AnimeHttpSource`       | For online source, where requests are made using HTTP. New extensions should extend it directly and implement the lib 16 API.            |
 | `AnimeHttpLegacySource` | `keiyoushi.utils` shim that keeps the pre-lib 16 `videoListRequest(episode)` / `videoListParse(response)` flow. Do not use for new code. |
 | `ParsedAnimeHttpSource` | Deprecated, use `AnimeHttpSource` instead (`ParsedAnimeHttpLegacySource` is its legacy shim).                                            |
 
 #### Main class key variables
 
+These are generated from the `source {}` block; don't declare them in the class.
+
 | Field     | Description                                                                                                                                                     |
 | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`    | Name displayed in the "Sources" tab in the app.                                                                                                                 |
 | `baseUrl` | Base URL of the source without any trailing slashes.                                                                                                            |
 | `lang`    | An ISO 639-1 compliant language code (two letters in lower case in most cases, but can also include the country/dialect part by using a simple dash character). |
-| `id`      | Identifier of your source, automatically set in `AnimeHttpSource`. It should only be manually overridden if you need to copy an existing autogenerated ID.      |
+| `id`      | Identifier of your source, computed from `name`, `lang` and `versionId`. Only set it in the `source {}` block if you need to keep an existing ID.               |
 
 ### Extensions lib 16
 
@@ -1015,17 +1159,15 @@ open class UriPartFilter(displayName: String, private val vals: Array<Pair<Strin
 - **Self-hosted sources:** If you are adding a source for a self-hosted server (e.g., StashApp, Komga, Suwayomi), make your class implement the `UnmeteredSource` interface. This tells the app not to apply standard rate-limiting to the user's own local server.
 - **Preference listeners:** When implementing `ConfigurableAnimeSource`, you do not need to manually save values inside `setOnPreferenceChangeListener`. The Android preference framework saves the value to `SharedPreferences` automatically.
 - **Update Strategy:** For gallery sources or sources where entries are completed upon upload, set `update_strategy = AnimeUpdateStrategy.ONLY_FETCH_ONCE` to prevent unnecessary update checks.
-- **Preserving Source ID:** If you change a source's `name` or `lang`, its auto-generated `id` will change, which disconnects existing users' libraries. To prevent this, override `id` with the old value (found in the repository's `index.json`).
+- **Preserving Source ID:** If you change a source's `name` or `lang`, its auto-generated `id` will change, which disconnects existing users' libraries. To prevent this, set `id` in the `source {}` block to the old value (found in the repository's `index.json`).
 - **Avoid hardcoded host checks:** When checking URLs in deep links or search overrides, avoid hardcoding the host string (e.g., `queryUrl.host == "site.com"`). This breaks if mirrors are added. Prefer checking against the source's `baseUrl` dynamically.
 - **Empty Lists vs Exceptions:** If `videoListParse` or `episodeListParse` finds no items (e.g., a locked or empty episode), return `emptyList()` instead of throwing a hardcoded exception. The app will display a properly localized error message to the user.
 - **Avoid excessive comments:** Do not add verbose, redundant, or AI-generated comments that explain obvious code. Keep the code clean and self-documenting.
 
 #### Configurable Sources and Preferences
 
-- **Mirror selection preferences:** When implementing a mirror selector, save the _index_ of the mirror instead of the URL string. This allows code updates to change the list of mirrors, and users will automatically reflect those changes.
-- **Base URL getter:** When `baseUrl` is configurable via preferences, use a custom getter (e.g., `override val baseUrl: String get() = ...`) instead of `by lazy`. Using `by lazy` requires the user to restart the app for the domain change to take effect.
-- **Preference migration for base URLs:** To handle default URL changes in updates, use the `getPreferences` inline migration block to update the stored preference if the hardcoded default URL changes.
-- **Coerce mirror index:** When reading the mirror index from preferences, use `.coerceAtMost(mirrorUrls.size - 1)` to prevent `ArrayIndexOutOfBoundsException` if mirrors are removed in a code update.
+- **Mirrors and custom URLs:** Declare a mirror list or a user-editable base URL with `mirrors` or `withCustom` in the `source {}` block (see [baseUrl modes](#baseurl-modes)) instead of writing the preference yourself. The generated preferences store the mirror index, clamp it when mirrors are removed, and reset a custom URL when the default changes.
+- **Base URL getter:** If the class still computes `baseUrl` from its own preferences (with `skipCodeGen`, for example to follow a domain redirect), use a custom getter (e.g., `override val baseUrl: String get() = ...`) instead of `by lazy`. Using `by lazy` requires the user to restart the app for the domain change to take effect.
 
 #### URL intent filter
 
@@ -1048,7 +1190,7 @@ yuzono {
 
 | DSL call              | Description                                                                                                                                                                                                                                                                   |
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `host("example.com")` | A hostname to match. Call multiple times to register multiple hosts. If omitted, the host is derived from `baseUrl` automatically.                                                                                                                                            |
+| `host("example.com")` | A hostname to match. Call multiple times to register multiple hosts. If omitted, the hosts are derived from the `source {}` base URLs, mirrors included.                                                                                                                      |
 | `path("/anime/..*")`  | A path pattern in Android [`pathPattern`](https://developer.android.com/guide/topics/manifest/data-element#path) syntax. Call multiple times to match multiple paths. At least one `path()` call is required — a `deeplink {}` block with no paths produces no intent filter. |
 
 Multiple `deeplink {}` blocks create independent intent filters, which is useful when different hosts or path groups need to be handled separately:
@@ -1126,14 +1268,19 @@ it will get changed by the new `name` value and users will be forced to migrate 
 
 To get the current `id` value before the name change, you can search the source name in the [repository JSON file](https://github.com/yuzono/anime-repo/blob/repo/index.json)
 by looking at the `sources` attribute of the extension. When you have the `id` copied, you can
-override it in the source:
+set it in the `source {}` block:
 
 ```kotlin
-override val id: Long = <the-id>
+source {
+    name = "<New name>"
+    lang = "en"
+    id = <the-id>L
+    baseUrl = "https://example.com"
+}
 ```
 
-Then the class name and the `name` attribute value can be changed. Also don't forget to update the
-extension name and class name in the individual Gradle file.
+Then the class name and the `name` value can be changed. Also don't forget to update the extension
+name in the individual Gradle file.
 
 > [!IMPORTANT]
 > The package name **needs** to be the same (even if it has the old name), otherwise users will not
@@ -1143,8 +1290,8 @@ The `id` also needs to be explicitly set to the old value if you're changing the
 
 > [!NOTE]
 > If the source has also changed their theme you can instead just change
-> the `name` field in the source class and in the Gradle file. By doing so
-> a new `id` will be generated and users will be forced to migrate.
+> the `name` in the Gradle file. By doing so a new `id` will be generated
+> and users will be forced to migrate.
 
 ## Multi-source themes
 
@@ -1205,7 +1352,7 @@ yuzono {
 }
 ```
 
-When no `host()` is specified in a theme `deeplink {}` block, the host is resolved at build time from each individual extension's `baseUrl`, so the same path patterns apply to every site without hardcoding hostnames in the theme.
+When no `host()` is specified in a theme `deeplink {}` block, the host is resolved at build time from each individual extension's `source {}` base URLs, so the same path patterns apply to every site without hardcoding hostnames in the theme.
 
 | Field             | Description                                                                                                                                                                    |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -1217,16 +1364,16 @@ When no `host()` is specified in a theme `deeplink {}` block, the host is resolv
 
 The main class of the theme (e.g., `<ThemeName>.kt`) contains the default implementation for the source sites. It should be declared as an `abstract class` extending `AnimeHttpSource`, allowing individual extensions to inherit and override its properties and methods.
 
+`name`, `lang`, `id` and `baseUrl` come from each extension's `source {}` block, so the theme neither takes them as
+constructor parameters nor overrides them. The theme only reads them, and not while it is being constructed (see
+[baseUrl modes](#baseurl-modes)).
+
 ```kotlin
 package eu.kanade.tachiyomi.multisrc.<theme_name>
 
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 
-abstract class <ThemeName>(
-    override val name: String,
-    override val baseUrl: String,
-    override val lang: String,
-) : AnimeHttpSource() {
+abstract class <ThemeName> : AnimeHttpSource() {
 
     // Theme default implementation...
 
@@ -1244,17 +1391,27 @@ plugins {
 
 yuzono {
     name = "<My source name>"
-    className = "<MySourceName>"
     theme = "<theme_name>"
     versionCode = 1
     contentWarning = ContentWarning.NSFW // Options: ContentWarning.SAFE, ContentWarning.MIXED, ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "en"
+        baseUrl = "https://example.com"
+    }
 }
 ```
 
 The final extension version code is automatically calculated during the build process as `theme.baseVersionCode + versionCode`.
 
-Because themes are provided as libraries, your extension's main class will directly inherit from the theme's base class.
+Because themes are provided as libraries, your extension's main class will directly inherit from the theme's base class,
+annotated with `@Source` like any other source class:
+
+```kotlin
+@Source
+abstract class MySourceName : ThemeName()
+```
 
 Any site-specific overrides, custom functions, or custom icons are implemented directly in your extension's module (`src/<lang>/<mysourcename>`) by overriding the inherited theme properties and functions.
 

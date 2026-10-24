@@ -47,7 +47,7 @@ loadIndividualExtension("en", "miruro")
 
 ## Structure
 
-- `src/<lang>/<source>/build.gradle.kts` – extension metadata in the `yuzono { }` block (`name`, `className`, `versionCode`, `contentWarning`, `libVersion`, optional `torrent`, `deeplink { }`, plus `theme`/`baseUrl` for themed extensions)
+- `src/<lang>/<source>/build.gradle.kts` – extension metadata in the `yuzono { }` block (`name`, `versionCode`, `contentWarning`, `libVersion`, optional `theme`, `torrent`, `deeplink { }`) and one `source { }` block per source (`lang`, `baseUrl` – static `baseUrl = "…"`, `baseUrl("…") { mirrors = listOf(…) }` or `baseUrl("…") { withCustom = true }` – and optional `name`, `id`, `versionId`, `skipCodeGen`). The source class is `@Source abstract class` with no `name`/`lang`/`id`/`baseUrl` overrides; KSP generates `ExtensionGenerated` from the blocks (`CONTRIBUTING.md#source-declaration`). Only `src/all/jellyfin`, `src/all/streamingcommunity` and `src/es/cuevana` still use the legacy `className`
 - `src/<lang>/<source>/src/eu/kanade/tachiyomi/animeextension/<lang>/<source>/` – source code (package must match)
 - `lib-multisrc/<theme>/build.gradle.kts` – theme base (`alias(kei.plugins.multisrc)`, `yuzono { baseVersionCode; libVersion; deeplink { } }`)
 - `lib-multisrc/<theme>/src/.../multisrc/<theme>/` – abstract theme class `extends AnimeHttpSource`
@@ -77,10 +77,16 @@ See `CONTRIBUTING.md` for full rules. Critical for agents:
 - Many overloads use Kotlin **context parameters** (`context(source: AnimeHttpSource)`). Inside a
   class that *is* an `AnimeHttpSource` the implicit receiver satisfies them, so `client.get(url)` and
   `.addCookie("k" to "v")` work with no `with(...)` wrapper and pick up `headers`/`baseUrl`.
-- A source whose `baseUrl` is preference-backed must rebuild everything derived from it when the
-  preference changes. Use `keiyoushi.utils.LazyMutable` (a read/write lazy delegate) for `client`,
-  `headers` and anything built from them, and reassign them all in the `baseUrl` setter – a plain
-  `by lazy` keeps serving the stale client. See `lib-multisrc/anikototheme/.../AnikotoTheme.kt`.
+- Mirror lists and user-editable base URLs belong in `source { baseUrl("…") { mirrors = listOf(…) } }` /
+  `{ withCustom = true }`, not in hand-written preferences. The generated `baseUrl` reads a preference
+  holder that the generated subclass creates, so it throws while the `@Source` class or its theme is
+  constructed: never read `baseUrl` (or `headers` that add a `Referer`) in a property initializer or
+  `init` block – use a getter or `by lazy`. Build what depends on it at use (a getter), as `docHeaders`
+  does in `lib-multisrc/anikototheme/.../AnikotoTheme.kt`, so a mirror change applies at once.
+- A source that owns a preference-backed `baseUrl` itself (`skipCodeGen = true` plus `override var
+  baseUrl`, e.g. to follow a domain redirect) must rebuild everything derived from it when it changes.
+  Use `keiyoushi.utils.LazyMutable` (a read/write lazy delegate) and reassign it in the setter – a plain
+  `by lazy` keeps serving the stale value. See `src/fr/animesama`.
 - Do not eagerly initialize `client` in a theme base class: the initializer runs before subclass
   constructors, so an overridden `open val rateLimit` reads `0`.
 - Do not create `android.*` objects (e.g. `LruCache`) in a source's constructor or property
