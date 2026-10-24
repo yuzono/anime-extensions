@@ -669,8 +669,8 @@ class ReAnime :
             val seasonNum = if (isMovie) {
                 0
             } else {
-                TMDB_SEASON_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull()
-                    ?: SEASON_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull()
+                TMDB_SEASON_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it > 0 }
+                    ?: SEASON_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it > 0 }
                     ?: 1
             }
 
