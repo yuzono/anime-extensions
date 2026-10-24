@@ -4,8 +4,14 @@ plugins {
 
 yuzono {
     name = "Jable"
-    className = "JableFactory"
     versionCode = 2
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    listOf("zh", "en", "ja").forEach {
+        source {
+            lang = it
+            baseUrl = "https://jable.tv"
+        }
+    }
 }

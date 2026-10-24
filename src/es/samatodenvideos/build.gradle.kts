@@ -4,8 +4,12 @@ plugins {
 
 yuzono {
     name = "Samato's Den: Videos"
-    className = "SamatoDenVideosFactory"
     versionCode = 1
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://samatoden.blogspot.com"
+    }
 }

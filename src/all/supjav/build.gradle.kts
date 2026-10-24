@@ -4,10 +4,16 @@ plugins {
 
 yuzono {
     name = "SupJav"
-    className = "SupJavFactory"
     versionCode = 31
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    listOf("en", "ja", "zh").forEach {
+        source {
+            lang = it
+            baseUrl = "https://supjav.com"
+        }
+    }
 
     deeplink {
         host("supjav.com")

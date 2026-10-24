@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -23,13 +24,18 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-open class TioanimeH(override val name: String, override val baseUrl: String) :
+@Source
+abstract class TioanimeH :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val lang = "es"
-
     override val supportsLatest = true
+
+    private val origen: TioAnimeHFilters.TioAnimeHFiltersData.ORIGEN
+        get() = when (name) {
+            "TioAnime" -> TioAnimeHFilters.TioAnimeHFiltersData.ORIGEN.ANIME
+            else -> TioAnimeHFilters.TioAnimeHFiltersData.ORIGEN.HENTAI
+        }
 
     private val preferences by getPreferencesLazy()
 
@@ -131,7 +137,7 @@ open class TioanimeH(override val name: String, override val baseUrl: String) :
     }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val params = TioAnimeHFilters.getSearchParameters(filters, TioAnimeHFilters.TioAnimeHFiltersData.ORIGEN.HENTAI)
+        val params = TioAnimeHFilters.getSearchParameters(filters, origen)
 
         return when {
             query.isNotBlank() -> GET("$baseUrl/directorio?q=$query&p=$page", headers)
@@ -175,7 +181,7 @@ open class TioanimeH(override val name: String, override val baseUrl: String) :
 
     override fun latestUpdatesSelector() = ".episodes li"
 
-    override fun getFilterList(): AnimeFilterList = TioAnimeHFilters.getFilterList(TioAnimeHFilters.TioAnimeHFiltersData.ORIGEN.HENTAI)
+    override fun getFilterList(): AnimeFilterList = TioAnimeHFilters.getFilterList(origen)
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {

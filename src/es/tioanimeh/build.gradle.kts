@@ -4,10 +4,20 @@ plugins {
 
 yuzono {
     name = "TioanimeH"
-    className = "TioanimeHFactory"
     versionCode = 39
     contentWarning = ContentWarning.MIXED
     libVersion = "14"
+
+    source {
+        name = "TioAnime"
+        lang = "es"
+        baseUrl = "https://tioanime.com"
+    }
+    source {
+        name = "TioHentai"
+        lang = "es"
+        baseUrl = "https://tiohentai.com"
+    }
 }
 
 dependencies {

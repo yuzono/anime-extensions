@@ -2,13 +2,13 @@ package eu.kanade.tachiyomi.animeextension.es.samatodenvideos
 
 import android.text.Html
 import android.util.Base64
-import eu.kanade.tachiyomi.animesource.AnimeSourceFactory
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.bodyString
 import okhttp3.Headers
@@ -20,17 +20,10 @@ import org.json.JSONObject
 import java.net.URLEncoder
 import java.time.OffsetDateTime
 
-class SamatoDenVideosFactory : AnimeSourceFactory {
-    override fun createSources() = listOf(SamatoDenVideos())
-}
+@Source
+abstract class SamatoDenVideos : AnimeHttpLegacySource() {
 
-class SamatoDenVideos : AnimeHttpLegacySource() {
-
-    override val name = "Samato's Den: Videos"
-    override val baseUrl = "https://samatoden.blogspot.com"
-    override val lang = "es"
     override val supportsLatest = false
-    override val versionId = 1
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .add("Referer", "$baseUrl/")
