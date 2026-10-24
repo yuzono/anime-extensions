@@ -5,15 +5,19 @@ plugins {
 yuzono {
     name = "WIT ANIME"
     className = "WitAnime"
-    versionCode = 65
+    versionCode = 66
     contentWarning = ContentWarning.SAFE
-    libVersion = "14"
+    libVersion = "16"
 }
 
 dependencies {
+    implementation(project(":lib:cloudflareinterceptor"))
     implementation(project(":lib:dailymotionextractor"))
     implementation(project(":lib:doodextractor"))
-    implementation(project(":lib:okruextractor"))
     implementation(project(":lib:mp4uploadextractor"))
-    implementation(project(":lib:vidbomextractor"))
+    implementation(project(":lib:okruextractor"))
+    implementation(project(":lib:playlistutils"))
+    implementation(project(":lib:streamtapeextractor"))
+    implementation(project(":lib:universalextractor"))
+    implementation(project(":lib:unpacker"))
 }
