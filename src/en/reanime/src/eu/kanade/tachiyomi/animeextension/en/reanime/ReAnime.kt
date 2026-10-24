@@ -113,7 +113,13 @@ class ReAnime :
 
     private val playlistUtils by lazy { PlaylistUtils(network.client, headers) }
 
-    private data class AnimeMeta(val anilistId: Int, val subbed: Int, val dubbed: Int)
+    private data class AnimeMeta(
+        val anilistId: Int,
+        val tmdbId: Int,
+        val seasonNumber: Int,
+        val subbed: Int,
+        val dubbed: Int,
+    )
 
     private val animeMetaCache by lazy { LruCache<String, AnimeMeta>(64) }
     private val animeMetaMutex = Mutex()
@@ -127,8 +133,11 @@ class ReAnime :
             try {
                 client.get("$detailsFromApiUrl/$animeSlug", apiHeaders("$detailsUrl/$animeSlug")).use { res ->
                     val dto = res.parseAs<AnimeDetailDto>()
+                    val sNum = dto.season?.toIntOrNull()?.takeIf { it > 0 } ?: 1
                     AnimeMeta(
                         anilistId = dto.anilistId ?: 0,
+                        tmdbId = dto.tmdbId ?: 0,
+                        seasonNumber = sNum,
                         subbed = dto.subbed ?: 0,
                         dubbed = dto.dubbed ?: 0,
                     ).also { animeMetaCache.put(animeSlug, it) }
@@ -254,11 +263,16 @@ class ReAnime :
         val dto = response.parseAs<AnimeDetailDto>()
 
         // Cache metadata for episode/video logic
-        if (dto.anilistId != null && dto.anilistId > 0) {
+        val anilistId = dto.anilistId ?: 0
+        val tmdbId = dto.tmdbId ?: 0
+        if (anilistId > 0 || tmdbId > 0) {
+            val sNum = dto.season?.toIntOrNull()?.takeIf { it > 0 } ?: 1
             animeMetaCache.put(
                 dto.animeId,
                 AnimeMeta(
-                    anilistId = dto.anilistId,
+                    anilistId = anilistId,
+                    tmdbId = tmdbId,
+                    seasonNumber = sNum,
                     subbed = dto.subbed ?: 0,
                     dubbed = dto.dubbed ?: 0,
                 ),
@@ -616,11 +630,21 @@ class ReAnime :
         val meta = animeMetaCache.get(slug) ?: fetchAnimeMeta(slug)
         val referer = "$baseUrl/watch/$slug?ep=$epNumber"
 
-        val response = if (meta != null && meta.anilistId > 0) {
-            client.get("$flixUrl/${meta.anilistId}/$epNumber", apiHeaders(referer))
-        } else {
-            // Fallback to HTML page if API completely failed to get Anilist ID
-            client.get("$detailsUrl/$slug?_ep=$epNumber")
+        val response = when {
+            meta != null && meta.anilistId > 0 -> {
+                client.get("$flixUrl/${meta.anilistId}/$epNumber", apiHeaders(referer))
+            }
+            meta != null && meta.tmdbId > 0 -> {
+                val url = "$flixUrl/0/$epNumber".toHttpUrl().newBuilder()
+                    .addQueryParameter("tmdb", meta.tmdbId.toString())
+                    .addQueryParameter("season", meta.seasonNumber.toString())
+                    .build()
+                client.get(url, apiHeaders(referer))
+            }
+            else -> {
+                // Fallback to HTML page if API completely failed
+                client.get("$detailsUrl/$slug?_ep=$epNumber")
+            }
         }
 
         return parseFlixHosters(response, slug, epNumber)
@@ -631,15 +655,28 @@ class ReAnime :
 
         if (!requestUrl.contains("/api/flix/")) {
             val html = response.body.string()
-            val anilistId = ANILIST_ID_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull()
-                ?: return emptyList()
+            val anilistId = ANILIST_ID_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val tmdbId = TMDB_ID_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val seasonNum = SEASON_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it > 0 } ?: 1
 
             val subbed = SUBBED_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             val dubbed = DUBBED_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-            animeMetaCache.put(slug, AnimeMeta(anilistId, subbed, dubbed))
+            animeMetaCache.put(slug, AnimeMeta(anilistId, tmdbId, seasonNum, subbed, dubbed))
 
             val referer = "$baseUrl/watch/$slug?ep=$epNumber"
-            val flixRes = client.get("$flixUrl/$anilistId/$epNumber", apiHeaders(referer))
+            val flixRes = when {
+                anilistId > 0 -> {
+                    client.get("$flixUrl/$anilistId/$epNumber", apiHeaders(referer))
+                }
+                tmdbId > 0 -> {
+                    val url = "$flixUrl/0/$epNumber".toHttpUrl().newBuilder()
+                        .addQueryParameter("tmdb", tmdbId.toString())
+                        .addQueryParameter("season", seasonNum.toString())
+                        .build()
+                    client.get(url, apiHeaders(referer))
+                }
+                else -> return emptyList()
+            }
             return parseFlixServersResponse(flixRes)
         }
 
@@ -1190,7 +1227,9 @@ class ReAnime :
 
         private val BR_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
         private val HTML_TAG_REGEX = Regex("""</?(i|b|em)>""", RegexOption.IGNORE_CASE)
-        private val ANILIST_ID_REGEX = Regex("""anilist_id:\s*(\d+)""")
+        private val ANILIST_ID_REGEX = Regex(""""?anilist_id"?\s*:\s*(\d+)""")
+        private val TMDB_ID_REGEX = Regex("""(?:"?themoviedb_id"?|"?tmdb_id"?|"?tmdb"?)\s*:\s*(\d+)""")
+        private val SEASON_REGEX = Regex(""""?season"?\s*:\s*"?(\d+)"?""")
         private val SUBBED_REGEX = Regex(""",\s*subbed:\s*(\d+)""")
         private val DUBBED_REGEX = Regex(""",\s*dubbed:\s*(\d+)""")
         private val EMBED_DATA_REGEX = Regex("""type:\s*"data",\s*data:\s*(\{.*?\})\s*,\s*uses:""", RegexOption.DOT_MATCHES_ALL)
