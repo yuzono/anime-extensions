@@ -106,16 +106,38 @@ class AnimeAv1 :
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.useAsJsoup()
-        val elements = document.select("article[class*=\"group/item\"]")
-        val nextPage = document.select(".pointer-events-none:not([class*=\"max-sm:hidden\"]) ~ a").any()
-        val animeList = elements.map { element ->
+        val elements = document.select("article")
+
+        val animeList = elements.mapNotNull { element ->
+            val link = element.selectFirst("a[href*='/media/']") ?: return@mapNotNull null
+            val img = element.selectFirst("img")
+            val titleElement = element.selectFirst("h3, h4, .title, span, p")
+
             SAnime.create().apply {
-                setUrlWithoutDomain(element.selectFirst("a")?.attr("abs:href").orEmpty())
-                title = element.select("header h3").text()
-                thumbnail_url = element.selectFirst(".bg-current img")?.attr("abs:src")
+                setUrlWithoutDomain(link.attr("abs:href"))
+                title = titleElement?.text()?.takeIf { it.isNotBlank() }
+                    ?: img?.attr("alt")?.takeIf { it.isNotBlank() }
+                    ?: "Anime sin título"
+                thumbnail_url = img?.attr("abs:src")?.ifBlank { img.attr("abs:data-src") } ?: ""
             }
         }
-        return AnimesPage(animeList, nextPage)
+
+        // DETECCIÓN DINÁMICA DE PAGINACIÓN ROBUSTA
+        val paginationLinks = document.select("a[href*='page=']")
+        val currentPage = response.request.url.queryParameter("page")?.toIntOrNull() ?: 1
+        var maxPageFound = currentPage
+
+        for (link in paginationLinks) {
+            val href = link.attr("href")
+            val pageParam = href.substringAfter("page=").substringBefore("&").toIntOrNull()
+            if (pageParam != null && pageParam > maxPageFound) {
+                maxPageFound = pageParam
+            }
+        }
+
+        val hasNext = maxPageFound > currentPage && animeList.isNotEmpty()
+
+        return AnimesPage(animeList, hasNext)
     }
 
     override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/catalogo?order=latest_released&page=$page", headers)
@@ -126,7 +148,7 @@ class AnimeAv1 :
         val params = AnimeAv1Filters.getSearchParameters(filters)
         return when {
             query.isNotBlank() -> GET("$baseUrl/catalogo?search=$query&page=$page", headers)
-            params.filter.isNotBlank() -> GET("$baseUrl/catalogo${params.getQuery().run { if (isNotBlank()) "$this&page=$page" else this }}", headers)
+            params.filter.isNotBlank() -> GET("$baseUrl/catalogo${params.getQuery().run { if (isNotBlank()) "$this&page=$page" else "$this?page=$page" }}", headers)
             else -> popularAnimeRequest(page)
         }
     }
