@@ -12,14 +12,20 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.tryParse
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 class Rule34Video :
     ParsedAnimeHttpLegacySource(),
@@ -48,21 +54,26 @@ class Rule34Video :
         if (uploaderId.isNotBlank()) {
             val url = "$baseUrl/members/$uploaderId/videos/?mode=async&function=get_block&block_id=list_videos_uploaded_videos&sort_by=&from_videos=$page"
             Log.e("Rule34Video", "Loading popular videos from uploader ID: $uploaderId, page: $page, URL: $url")
-            GET(url)
+            GET(url, headers)
         } else {
             Log.e("Rule34Video", "Uploader filter enabled but ID is blank, loading latest updates.")
-            GET("$baseUrl/latest-updates/$page/")
+            GET("$baseUrl/latest-updates/$page/", headers)
         }
     } else {
-        GET("$baseUrl/latest-updates/$page/")
+        GET("$baseUrl/latest-updates/$page/", headers)
     }
 
-    override fun popularAnimeSelector() = "div.item.thumb"
+    // Ad cards share the "item thumb" markup but have no video id.
+    // Listing pages use "item thumb" cards, uploader pages use "item ma-v" cards.
+    override fun popularAnimeSelector() = "div.item[data-video-card-id]"
 
     override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        setUrlWithoutDomain(element.selectFirst("a.th")!!.attr("href"))
-        title = element.selectFirst("a.th div.thumb_title")!!.text()
-        thumbnail_url = element.selectFirst("a.th div.img img")?.attr("abs:data-original")
+        setUrlWithoutDomain(element.selectFirst("a.th, a.ma-thumb")!!.absUrl("href"))
+        title = element.selectFirst("div.thumb_title, a.ma-v__t")!!.text()
+        // Lazy-loaded cards keep a placeholder data: URI in src and the real image in data-rd-src
+        thumbnail_url = element.selectFirst("img.thumb")?.let { img ->
+            THUMBNAIL_ATTRS.map(img::absUrl).firstOrNull { it.startsWith("http") }
+        }
     }
 
     override fun popularAnimeNextPageSelector() = "div.item.pager.next a"
@@ -82,12 +93,14 @@ class Rule34Video :
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.startsWith("https://")) {
             val url = query.toHttpUrl()
-            if (url.host != baseUrl.toHttpUrl().host) {
+            val segments = url.pathSegments
+            if (url.host != baseUrl.toHttpUrl().host || segments.size < 3 || segments[0] !in VIDEO_PATHS) {
                 throw Exception("Unsupported url")
             }
-            val slug = url.pathSegments.getOrNull(2)
-                ?: throw Exception("Unsupported url")
-            return getSearchAnime(page, "$PREFIX_SEARCH$slug", filters)
+            // Keep the incoming /video/ or legacy /videos/ path so saved entries still match
+            val anime = SAnime.create().apply { this.url = "/${segments[0]}/${segments[1]}/${segments[2]}/" }
+            val details = getAnimeDetails(anime).apply { this.url = anime.url }
+            return AnimesPage(listOf(details), false)
         }
         return super.getSearchAnime(page, query, filters)
     }
@@ -111,14 +124,9 @@ class Rule34Video :
         val tagSearch = filters.getUriPart<TagSearch>()
 
         return if (query.isNotEmpty()) {
-            if (query.startsWith(PREFIX_SEARCH)) {
-                val newQuery = query.removePrefix(PREFIX_SEARCH).dropLastWhile { it.isDigit() }
-                GET("$baseUrl/search/$newQuery")
-            } else {
-                GET("$baseUrl/search/${query.replace(Regex("\\s"), "-")}/?flag1=$categoryFilter&sort_by=$sortType&from_videos=$page&tag_ids=all%2C$tagSearch")
-            }
+            GET("$baseUrl/search/${query.replace(WHITESPACE_REGEX, "-")}/?flag1=$categoryFilter&sort_by=$sortType&from_videos=$page&tag_ids=all%2C$tagSearch", headers)
         } else {
-            GET("$baseUrl/search/?flag1=$categoryFilter&sort_by=$sortType&from_videos=$page&tag_ids=all%2C$tagSearch")
+            GET("$baseUrl/search/?flag1=$categoryFilter&sort_by=$sortType&from_videos=$page&tag_ids=all%2C$tagSearch", headers)
         }
     }
 
@@ -128,70 +136,69 @@ class Rule34Video :
 
     // =========================== Anime Details ============================
     override fun animeDetailsParse(document: Document) = SAnime.create().apply {
-        title = document.selectFirst("h1.title_video")?.text().toString()
+        title = document.selectFirst("h1.title_video")!!.text()
 
-        val infoRow = document.selectFirst("div.info.row")
-        val detailRows = document.select("div.row")
+        val videoObject = document.videoObject()
+        val meta = document.select("div.vp-meta span.item_info > span").eachText()
+        val artists = document.select("div.vp-group:has(> div.label:contains(Artist)) a.item span.name").eachText().joinToString()
 
-        val artistElement = detailRows.select("div.col:has(div.label:contains(Artist)) a.item span.name").firstOrNull()
-        author = artistElement?.text().orEmpty()
+        author = artists
+        thumbnail_url = videoObject?.thumbnailUrl
 
         description = buildString {
-            detailRows.select("div.row:has(div.label > em) > div.label > em").html()
-                .replace("<br>", "\n") // Ensure single <br> tags are followed by a newline
-                .let { text ->
-                    append(text)
-                }
-            append("\n\n") // Add extra spacing
-
-            infoRow?.selectFirst("div.item_info:nth-child(1) > span")?.text()?.let {
-                append("Uploaded: $it\n")
+            val about = videoObject?.description?.replace("\r\n", "\n")
+                ?: document.selectFirst("div.vp-desc")?.wholeText()
+            if (!about.isNullOrBlank()) {
+                append(about.trim())
+                append("\n\n")
             }
 
-            val artist = detailRows.select("div.col:has(div.label:contains(Artist)) a.item span.name")
-                .eachText()
-                .joinToString()
-            if (artist.isNotEmpty()) {
-                append("Artists: $artist\n")
+            (videoObject?.uploadDate ?: meta.getOrNull(0))?.let { append("Uploaded: $it\n") }
+
+            if (artists.isNotEmpty()) {
+                append("Artists: $artists\n")
             }
 
-            val categories = detailRows.select("div.col:has(div.label:contains(Categories)) a.item span")
+            val categories = document.select("div.vp-group:has(> div.label:contains(Categories)) a.item span")
                 .eachText()
                 .joinToString()
             if (categories.isNotEmpty()) {
                 append("Categories: $categories\n")
             }
 
-            val uploader = detailRows.select("div.col:has(div.label:contains(Uploaded by)) a.item").text()
-            if (uploader.isNotEmpty()) {
+            val uploader = document.selectFirst("div.col:has(> div.label:contains(Uploaded by)) a.item")?.text()
+            if (!uploader.isNullOrEmpty()) {
                 append("Uploader: $uploader\n")
             }
 
-            infoRow?.select("div.item_info:nth-child(2) > span")?.text()?.let {
-                val views = it.substringBefore(" ").replace(",", "")
-                append("Views: $views\n")
-            }
-            infoRow?.select("div.item_info:nth-child(3) > span")?.text()?.let { append("Duration: $it\n") }
-            document.select("div.row:has(div.label:contains(Download)) a.tag_item")
-                .eachText()
-                .joinToString { it.substringAfter(" ") }
+            meta.getOrNull(1)?.let { append("Views: $it\n") }
+            meta.getOrNull(2)?.let { append("Duration: $it\n") }
+            document.select(DOWNLOAD_SELECTOR)
+                .joinToString { it.ownText().substringAfter(" ") }
                 .also { append("Quality: $it") }
         }
 
-        genre = document.select("div.row_spacer:has(div.label:contains(Tags)) a.tag_item:not(:contains(Suggest))")
+        // Characters and tags both link to /tags/; categories and artists are listed above
+        genre = document.select("div.vp-tags a.tag_item[href*=/tags/]")
             .eachText()
             .joinToString()
 
         status = SAnime.COMPLETED
     }
 
+    private fun Document.videoObject(): VideoObjectDto? = selectFirst("script[type=application/ld+json]")?.data()?.parseAs<VideoObjectDto>()
+
     // ============================== Episodes ==============================
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = listOf(
-        SEpisode.create().apply {
-            url = anime.url
-            name = "Video"
-        },
-    )
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val document = client.newCall(episodeListRequest(anime)).awaitSuccess().asJsoup()
+        return listOf(
+            SEpisode.create().apply {
+                url = anime.url
+                name = "Video"
+                date_upload = dateFormat.tryParse(document.videoObject()?.uploadDate)
+            },
+        )
+    }
 
     override fun episodeListParse(response: Response) = throw UnsupportedOperationException()
 
@@ -205,34 +212,40 @@ class Rule34Video :
 
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
-        val headers = headersBuilder()
+        val pageUrl = response.request.url
+        val playerHeaders = headersBuilder()
+            .add("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
+            .add("Referer", pageUrl.toString())
+            .add("Accept-Language", "en-US,en;q=0.5")
+            .build()
+        // Site cookies are only sent to the site's own get_file endpoint, never to the CDN
+        val siteHeaders = playerHeaders.newBuilder()
             .apply {
-                val cookies = client.cookieJar.loadForRequest(response.request.url)
+                val cookies = client.cookieJar.loadForRequest(pageUrl)
                     .filterNot { it.name in listOf("__ddgid_", "__ddgmark_") }
                     .map { "${it.name}=${it.value}" }
                     .joinToString("; ")
                 val xsrfToken = cookies.split("XSRF-TOKEN=").getOrNull(1)?.substringBefore(";")?.replace("%3D", "=")
                 xsrfToken?.let { add("X-XSRF-TOKEN", it) }
                 add("Cookie", cookies)
-                add("Accept", "video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5")
-                add("Referer", response.request.url.toString())
-                add("Accept-Language", "en-US,en;q=0.5")
             }.build()
 
         val document = response.asJsoup()
 
-        return document.select("div.label:contains(Download) ~ a.tag_item")
+        return document.select(DOWNLOAD_SELECTOR)
             .mapNotNull { element ->
-                val originalUrl = element.attr("href")
+                val originalUrl = element.absUrl("href").toHttpUrlOrNull()
+                    ?.takeIf { it.isHttps && it.host == pageUrl.host }
+                    ?: return@mapNotNull null
                 // We need to do that because this url returns a http 403 error
                 // if you try to connect using http/1.1, which is the protocol
                 // that the player uses. OkHttp uses http/2 by default, so we
                 // fetch the video url first via okhttp and then pass it for the player.
-                val url = noRedirectClient.newCall(GET(originalUrl, headers)).execute()
+                val url = noRedirectClient.newCall(GET(originalUrl, siteHeaders)).execute()
                     .use { it.headers["location"] }
                     ?: return@mapNotNull null
-                val quality = element.text().substringAfter(" ")
-                Video(url, quality, url, headers)
+                val quality = element.ownText().substringAfter(" ")
+                Video(url, quality, url, playerHeaders)
             }
     }
 
@@ -241,7 +254,7 @@ class Rule34Video :
     override fun videoFromElement(element: Element) = throw UnsupportedOperationException()
 
     override fun List<Video>.sortVideos(): List<Video> {
-        val quality = preferences.getString("preferred_quality", "720p") ?: return this
+        val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT) ?: return this
         return sortedWith(compareByDescending { it.videoTitle == quality })
     }
 
@@ -347,7 +360,12 @@ class Rule34Video :
     }
 
     companion object {
-        const val PREFIX_SEARCH = "slug:"
+        private val THUMBNAIL_ATTRS = listOf("data-rd-src", "src", "data-rd-jpg", "data-original")
+        private val VIDEO_PATHS = listOf("video", "videos")
+        private val WHITESPACE_REGEX = Regex("\\s")
+        private const val DOWNLOAD_SELECTOR = "a.tag_item_download[href]"
+
+        private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT)
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
