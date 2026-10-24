@@ -22,7 +22,6 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.get
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.network.rateLimit
-import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
@@ -46,31 +45,13 @@ import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.seconds
 
 abstract class AnikotoTheme(
-    override val lang: String,
-    override val name: String,
-    private val domainEntries: List<String>,
     private val hosterNames: List<String>,
 ) : AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = true
 
-    private val defaultBaseUrl = "https://${domainEntries.first()}"
-
     protected val preferences by getPreferencesLazy { clearOldPrefs() }
-
-    override var baseUrl: String
-        get() = preferences.getString(PREF_DOMAIN_KEY, defaultBaseUrl) ?: defaultBaseUrl
-        set(value) {
-            if (value == baseUrl) return
-            preferences.edit().putString(PREF_DOMAIN_KEY, value).apply()
-            docHeaders = headersBuilder().build()
-            client = buildClient()
-            playlistClient = buildPlaylistClient()
-            playlistUtils = PlaylistUtils(playlistClient, headers)
-        }
-
-    private val domainValues = domainEntries.map { "https://$it" }
 
     protected open val rateLimit = 5
 
@@ -88,16 +69,17 @@ abstract class AnikotoTheme(
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .add("Referer", "$baseUrl/")
 
-    protected var docHeaders by LazyMutable { headersBuilder().build() }
+    // Built on each use, so a change of the mirror preference applies at once
+    protected val docHeaders: Headers
+        get() = headersBuilder().build()
 
     // Don't eagerly initialize client in multi-src class since subclass overwrite rateLimit will get 0 instead
-    override var client by LazyMutable { buildClient() }
+    override val client by lazy { buildClient() }
 
     // Don't eagerly initialize client in multi-src class since subclass overwrite rateLimit will get 0 instead
-    // Derived from [client], so both are rebuilt by the [baseUrl] setter on a domain change
-    internal var playlistClient by LazyMutable { buildPlaylistClient() }
+    internal val playlistClient by lazy { buildPlaylistClient() }
 
-    internal var playlistUtils by LazyMutable { PlaylistUtils(playlistClient, headers) }
+    internal val playlistUtils by lazy { PlaylistUtils(playlistClient, headers) }
 
     private fun buildClient() = network.client.newBuilder()
         .rateLimit(rateLimit)
@@ -843,9 +825,6 @@ abstract class AnikotoTheme(
 
     private fun SharedPreferences.clearOldPrefs(): SharedPreferences {
         try {
-            val domain = (getString(PREF_DOMAIN_KEY, defaultBaseUrl) ?: defaultBaseUrl).removePrefix("https://")
-            val invalidDomain = domain !in domainEntries
-
             val validServers = (
                 (getStringSet(PREF_DISCOVERED_HTML_SERVERS_KEY, null) ?: emptySet()) +
                     (getStringSet(PREF_DISCOVERED_MAPPER_SERVERS_KEY, null) ?: emptySet())
@@ -883,9 +862,8 @@ abstract class AnikotoTheme(
                 savedPrefServer !in validServers &&
                 savedPrefServer !in hosterNames
 
-            if (invalidDomain || invalidHosters || invalidTypes || invalidPrefType || invalidPrefServer) {
+            if (invalidHosters || invalidTypes || invalidPrefType || invalidPrefServer) {
                 edit().also { editor ->
-                    if (invalidDomain) editor.putString(PREF_DOMAIN_KEY, defaultBaseUrl)
                     if (invalidHosters) {
                         editor.putStringSet(
                             PREF_HOSTER_EXCLUDE_KEY,
@@ -917,15 +895,6 @@ abstract class AnikotoTheme(
                 .putString(PREF_SERVER_KEY, discoveredServers.firstOrNull() ?: hosterNames.firstOrNull() ?: "")
                 .apply()
         }
-
-        ListPreference(screen.context).apply {
-            key = PREF_DOMAIN_KEY
-            title = "Preferred Domain"
-            entries = domainEntries.toTypedArray()
-            entryValues = domainValues.toTypedArray()
-            setDefaultValue(defaultBaseUrl)
-            summary = "%s"
-        }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
             key = PREF_TITLE_LANG_KEY
@@ -1020,7 +989,6 @@ abstract class AnikotoTheme(
         val EP_URL_SUFFIX_REGEX = Regex("""/ep-\d+$""")
         private val DATE_FORMATTER = SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.ENGLISH)
 
-        private const val PREF_DOMAIN_KEY = "preferred_domain"
         private const val INTERNAL_DATA_SEPARATOR = "\u0000"
 
         private const val PREF_TITLE_LANG_KEY = "preferred_title_lang"

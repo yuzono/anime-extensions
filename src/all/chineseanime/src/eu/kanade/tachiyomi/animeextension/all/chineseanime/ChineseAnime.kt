@@ -8,15 +8,12 @@ import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animeextension.all.chineseanime.extractors.VatchusExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
+import keiyoushi.annotation.Source
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 
-class ChineseAnime :
-    AnimeStream(
-        "all",
-        "ChineseAnime",
-        "https://www.chineseanime.in",
-    ) {
+@Source
+abstract class ChineseAnime : AnimeStream() {
 
     // =============================== Search ===============================
     override fun searchAnimeNextPageSelector() = "div.hpage > a.r"

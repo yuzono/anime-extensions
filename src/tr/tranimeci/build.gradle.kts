@@ -4,10 +4,13 @@ plugins {
 
 yuzono {
     name = "TRAnimeCI"
-    className = "TRAnimeCI"
     versionCode = 2
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "animestream"
-    baseUrl = "https://tranimaci.com"
+
+    source {
+        lang = "tr"
+        baseUrl = "https://tranimaci.com"
+    }
 }

@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
+import keiyoushi.annotation.Source
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
 import okhttp3.Response
@@ -21,12 +22,8 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.abs
 
-class AnimeKhor :
-    AnimeStream(
-        "en",
-        "AnimeKhor",
-        "https://animekhor.org",
-    ) {
+@Source
+abstract class AnimeKhor : AnimeStream() {
     // =========================== Anime Details ============================
 
     override fun animeDetailsParse(document: Document): SAnime = super.animeDetailsParse(document).apply {

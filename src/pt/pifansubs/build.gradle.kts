@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "Pi Fansubs"
-    className = "PiFansubs"
     versionCode = 31
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
     theme = "dooplay"
-    baseUrl = "https://pifansubs.club"
+
+    source {
+        lang = "pt-BR"
+        baseUrl = "https://pifansubs.club"
+    }
 }
 
 dependencies {

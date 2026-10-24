@@ -4,10 +4,22 @@ plugins {
 
 yuzono {
     name = "Anikoto"
-    className = "Anikoto"
     versionCode = 0
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
     theme = "anikototheme"
-    baseUrl = "https://anikototv.to"
+
+    source {
+        lang = "en"
+        // https://anikoto.site/#domains and https://megaplay.buzz/domains
+        baseUrl("https://anikototv.to") {
+            mirrors = listOf(
+                "https://anikoto.bz",
+                "https://anikoto.cz",
+                "https://anikoto.me",
+                "https://anikoto.net",
+                "https://anikototv.se",
+            )
+        }
+    }
 }

@@ -4,11 +4,11 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.multisrc.wcotheme.Filters
 import eu.kanade.tachiyomi.multisrc.wcotheme.WcoTheme
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import okhttp3.Request
 
-class WcoAnimeSub : WcoTheme() {
-    override val name = "WcoAnimeSub"
-    override val baseUrl = "https://www.wcoanimesub.tv"
+@Source
+abstract class WcoAnimeSub : WcoTheme() {
 
     override val useOldIframeExtractor = true
 

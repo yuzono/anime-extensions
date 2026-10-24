@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "AnimeIndo"
-    className = "AnimeIndo"
     versionCode = 24
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "animestream"
-    baseUrl = "https://animeindo.skin"
+
+    source {
+        lang = "id"
+        baseUrl = "https://animeindo.skin"
+    }
 }
 
 dependencies {

@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
@@ -19,12 +20,8 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 
-class DonghuaStream :
-    AnimeStream(
-        "en",
-        "DonghuaStream",
-        "https://donghuastream.org",
-    ) {
+@Source
+abstract class DonghuaStream : AnimeStream() {
 
     override val fetchFilters = false
 

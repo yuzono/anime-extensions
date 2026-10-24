@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "SoloLatino"
-    className = "SoloLatino"
     versionCode = 25
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "dooplay"
-    baseUrl = "https://sololatino.net"
+
+    source {
+        lang = "es"
+        baseUrl = "https://sololatino.net"
+    }
 }
 
 dependencies {

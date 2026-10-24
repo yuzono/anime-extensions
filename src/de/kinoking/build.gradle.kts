@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "Kinoking"
-    className = "Kinoking"
     versionCode = 33
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "dooplay"
-    baseUrl = "https://kinoking.cc"
+
+    source {
+        lang = "de"
+        baseUrl = "https://kinoking.cc"
+    }
 }
 
 dependencies {

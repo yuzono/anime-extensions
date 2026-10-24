@@ -5,17 +5,14 @@ import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
+import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.utils.useAsJsoup
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class AnimeIto :
-    AnimeStream(
-        "pt-BR",
-        "Animeito",
-        "https://animesonline.io",
-    ) {
+@Source
+abstract class AnimeIto : AnimeStream() {
 
     override val prefQualityValues = listOf("1080p", "720p", "480p", "360p", "240p")
 

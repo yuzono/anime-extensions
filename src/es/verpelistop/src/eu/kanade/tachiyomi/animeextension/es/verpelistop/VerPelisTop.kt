@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.flatMapCatching
@@ -29,12 +30,8 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.Normalizer
 
-class VerPelisTop :
-    DooPlay(
-        "es",
-        "VerPelisTop",
-        "https://www1.verpelis.top",
-    ) {
+@Source
+abstract class VerPelisTop : DooPlay() {
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET(baseUrl)

@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "Animenosub"
-    className = "Animenosub"
     versionCode = 23
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
     theme = "animestream"
-    baseUrl = "https://animenosub.to"
+
+    source {
+        lang = "en"
+        baseUrl = "https://animenosub.to"
+    }
 }
 
 dependencies {

@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "ChineseAnime"
-    className = "ChineseAnime"
     versionCode = 28
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "animestream"
-    baseUrl = "https://www.chineseanime.in"
+
+    source {
+        lang = "all"
+        baseUrl = "https://www.chineseanime.in"
+    }
 }
 
 dependencies {

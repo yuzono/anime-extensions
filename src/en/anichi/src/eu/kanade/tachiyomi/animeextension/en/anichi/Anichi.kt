@@ -5,20 +5,16 @@ import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoTheme
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.ResultResponse
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.parseAs
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Anichi :
+@Source
+abstract class Anichi :
     AnikotoTheme(
-        "en",
-        "Anichi",
-        // https://megaplay.buzz/domains
-        domainEntries = listOf(
-            "anichi.to",
-        ),
         hosterNames = listOf("HD-1", "Vidstream-2", "VidCloud-1", "Kiwi-Stream", "VidPlay-1"), // seed/fallback only
     ) {
     override val hasSourceFilter = true

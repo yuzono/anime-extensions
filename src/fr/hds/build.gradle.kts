@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "HDS"
-    className = "Hds"
-    versionCode = 16
+    versionCode = 17
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "dooplay"
-    baseUrl = "https://www.hds.quest"
+
+    source {
+        lang = "fr"
+        baseUrl = "https://on1.hds.quest"
+    }
 }
 
 dependencies {

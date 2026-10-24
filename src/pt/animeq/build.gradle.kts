@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "AnimeQ"
-    className = "AnimeQ"
     versionCode = 5
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
     theme = "dooplay"
-    baseUrl = "https://animeq.cloud"
+
+    source {
+        lang = "pt-BR"
+        baseUrl = "https://animeq.cloud"
+    }
 }
 
 dependencies {

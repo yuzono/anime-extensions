@@ -9,6 +9,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.useAsJsoup
@@ -19,12 +20,8 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeQ :
-    DooPlay(
-        "pt-BR",
-        "AnimeQ",
-        "https://animeq.cloud",
-    ) {
+@Source
+abstract class AnimeQ : DooPlay() {
     // ============================== Popular ===============================
     override fun popularAnimeSelector() = "article.w_item_a > a, article.w_item_b > a"
 

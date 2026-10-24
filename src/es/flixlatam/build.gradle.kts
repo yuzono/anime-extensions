@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "FlixLatam"
-    className = "FlixLatam"
     versionCode = 25
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "dooplay"
-    baseUrl = "https://flixlatam.com"
+
+    source {
+        lang = "es"
+        baseUrl = "https://flixlatam.com"
+    }
 }
 
 dependencies {

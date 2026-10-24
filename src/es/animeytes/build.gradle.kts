@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "AnimeYT.es"
-    className = "AnimeYTES"
-    versionCode = 23
+    versionCode = 24
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "animestream"
-    baseUrl = "https://animeyt.pro"
+
+    source {
+        lang = "es"
+        baseUrl = "https://animeyt.es"
+    }
 }
 
 dependencies {

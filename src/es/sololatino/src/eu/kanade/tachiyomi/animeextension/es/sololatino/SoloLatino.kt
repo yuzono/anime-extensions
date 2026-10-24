@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.lib.cryptoaes.CryptoAES
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parallelCatchingFlatMap
@@ -41,12 +42,8 @@ import java.net.URLDecoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class SoloLatino :
-    DooPlay(
-        "es",
-        "SoloLatino",
-        "https://sololatino.net",
-    ) {
+@Source
+abstract class SoloLatino : DooPlay() {
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/tendencias/page/$page")

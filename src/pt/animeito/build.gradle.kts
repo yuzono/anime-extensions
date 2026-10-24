@@ -4,12 +4,16 @@ plugins {
 
 yuzono {
     name = "AnimeIto"
-    className = "AnimeIto"
     versionCode = 10
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
     theme = "animestream"
-    baseUrl = "https://animesonline.io"
+
+    source {
+        name = "Animeito"
+        lang = "pt-BR"
+        baseUrl = "https://animesonline.io"
+    }
 }
 
 dependencies {

@@ -4,12 +4,16 @@ plugins {
 
 yuzono {
     name = "AnimesOnlineCloud"
-    className = "AnimesOnlineCloud"
     versionCode = 6
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
     theme = "dooplay"
-    baseUrl = "https://animesonline.cloud"
+
+    source {
+        name = "Animes Online Cloud"
+        lang = "pt-BR"
+        baseUrl = "https://animesonline.cloud"
+    }
 }
 
 dependencies {

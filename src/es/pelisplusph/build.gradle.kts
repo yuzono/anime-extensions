@@ -4,10 +4,13 @@ plugins {
 
 yuzono {
     name = "PelisPlusPh"
-    className = "Pelisplusph"
     versionCode = 82
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "pelisplus"
-    baseUrl = "https://www.pelisplushd.la"
+
+    source {
+        lang = "es"
+        baseUrl = "https://www.pelisplushd.la"
+    }
 }

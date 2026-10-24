@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -15,12 +16,8 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import uy.kohesive.injekt.injectLazy
 
-class Hds :
-    DooPlay(
-        "fr",
-        "HDS",
-        "https://on1.hds.quest",
-    ) {
+@Source
+abstract class Hds : DooPlay() {
 
     private val json: Json by injectLazy()
 

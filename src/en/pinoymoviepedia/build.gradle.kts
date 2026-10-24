@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "PinoyMoviePedia"
-    className = "PinoyMoviePedia"
     versionCode = 6
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
     theme = "dooplay"
-    baseUrl = "https://pinoymoviepedia.ru"
+
+    source {
+        lang = "en"
+        baseUrl = "https://pinoymoviepedia.ru"
+    }
 }
 
 dependencies {

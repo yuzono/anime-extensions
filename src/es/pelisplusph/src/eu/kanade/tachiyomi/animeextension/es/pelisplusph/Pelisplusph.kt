@@ -11,19 +11,15 @@ import eu.kanade.tachiyomi.multisrc.pelisplus.Filters
 import eu.kanade.tachiyomi.multisrc.pelisplus.PelisPlus
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.catchingFlatMapBlocking
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Pelisplusph : PelisPlus() {
-
-    override val name = "PelisPlusPh"
-
-    override val baseUrl = "https://www.pelisplushd.la"
-
-    override val id: Long = 4917265654298497443L
+@Source
+abstract class Pelisplusph : PelisPlus() {
 
     companion object {
         private const val PREF_LANGUAGE_KEY = "preferred_language"

@@ -10,18 +10,15 @@ import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.parallelFlatMapBlocking
 import okhttp3.FormBody
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class PinoyMoviePedia :
-    DooPlay(
-        "en",
-        "PinoyMoviePedia",
-        "https://pinoymoviepedia.ru",
-    ) {
+@Source
+abstract class PinoyMoviePedia : DooPlay() {
     override val supportsLatest = false
 
     // ============================== Popular ===============================

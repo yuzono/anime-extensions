@@ -5,6 +5,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
@@ -15,12 +16,8 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class BetterAnimeIo :
-    DooPlay(
-        "pt-BR",
-        "BetterAnimeIo",
-        "https://betteranime.io",
-    ) {
+@Source
+abstract class BetterAnimeIo : DooPlay() {
     private val contentUrl = "$baseUrl/animes"
 
     private val extractor by lazy { BetterAnimeIoExtractor(client) }

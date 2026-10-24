@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dopeflix.DopeFlix
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
@@ -41,16 +42,8 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
-class LaMovie :
-    DopeFlix(
-        "LaMovie",
-        "es",
-        BuildConfig.MEGACLOUD_API,
-        listOf(
-            "la.movie",
-        ),
-    ) {
-    override val id: Long = 5419283741928374105
+@Source
+abstract class LaMovie : DopeFlix(BuildConfig.MEGACLOUD_API) {
 
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val voeExtractor by lazy { VoeExtractor(client, headers) }

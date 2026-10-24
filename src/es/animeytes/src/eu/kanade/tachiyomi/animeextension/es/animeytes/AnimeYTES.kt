@@ -11,16 +11,13 @@ import aniyomi.lib.universalextractor.UniversalExtractor
 import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
+import keiyoushi.annotation.Source
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 
-class AnimeYTES :
-    AnimeStream(
-        "es",
-        "AnimeYT.es",
-        "https://animeyt.es",
-    ) {
+@Source
+abstract class AnimeYTES : AnimeStream() {
     override val preferences by getPreferencesLazy()
 
     override val prefQualityDefault = "1080"

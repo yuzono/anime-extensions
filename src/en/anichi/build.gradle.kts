@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Anichi"
-    className = "Anichi"
     versionCode = 0
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
     theme = "anikototheme"
-    baseUrl = "https://anichi.to"
+
+    source {
+        lang = "en"
+        // https://megaplay.buzz/domains
+        baseUrl = "https://anichi.to"
+    }
 }

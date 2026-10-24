@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "AsyaAnimeleri"
-    className = "AsyaAnimeleri"
     versionCode = 19
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "animestream"
-    baseUrl = "https://asyaanimeleri.top"
+
+    source {
+        lang = "tr"
+        baseUrl = "https://asyaanimeleri.top"
+    }
 }
 
 dependencies {

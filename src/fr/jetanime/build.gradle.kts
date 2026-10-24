@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "JetAnime"
-    className = "JetAnime"
     versionCode = 20
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "dooplay"
-    baseUrl = "https://ssl.jetanimes.com"
+
+    source {
+        lang = "fr"
+        baseUrl = "https://ssl.jetanimes.com"
+    }
 }
 
 dependencies {

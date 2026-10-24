@@ -6,17 +6,14 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import kotlinx.coroutines.runBlocking
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class PiFansubs :
-    DooPlay(
-        "pt-BR",
-        "Pi Fansubs",
-        "https://pifansubs.club",
-    ) {
+@Source
+abstract class PiFansubs : DooPlay() {
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Accept-Language", "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7")

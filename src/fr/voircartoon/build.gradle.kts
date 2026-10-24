@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "VoirCartoon"
-    className = "VoirCartoon"
     versionCode = 16
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
     theme = "dooplay"
-    baseUrl = "https://voircartoon.com"
+
+    source {
+        lang = "fr"
+        baseUrl = "https://voircartoon.com"
+    }
 }
 
 dependencies {

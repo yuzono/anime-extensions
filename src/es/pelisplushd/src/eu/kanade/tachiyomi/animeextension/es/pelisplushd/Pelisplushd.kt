@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.flatMapCatching
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -27,13 +28,8 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Pelisplushd : PelisPlus() {
-
-    override val name = "PelisPlusHD"
-
-    override val baseUrl = "https://pelisplushd.bz"
-
-    override val id: Long = 1400819034564144238L
+@Source
+abstract class Pelisplushd : PelisPlus() {
 
     companion object {
         private val REGEX_VIDEO_OPTS = "'(https?://[^']*)'".toRegex()
