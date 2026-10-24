@@ -20,6 +20,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.commonEmptyRequestBody
 import keiyoushi.utils.formatBytes
@@ -39,7 +40,8 @@ import uy.kohesive.injekt.injectLazy
 import java.net.URLEncoder
 import java.security.MessageDigest
 
-class GoogleDrive :
+@Source
+abstract class GoogleDrive :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 

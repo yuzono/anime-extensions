@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.bodyString
@@ -38,7 +39,8 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import kotlin.time.Duration.Companion.seconds
 
-class Rezka :
+@Source
+abstract class Rezka :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 

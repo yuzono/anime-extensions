@@ -4,10 +4,15 @@ plugins {
 
 yuzono {
     name = "Anime-Sama"
-    className = "AnimeSama"
     versionCode = 32
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "fr"
+        baseUrl = "https://anime-sama.to"
+        skipCodeGen = true
+    }
 
     deeplink {
         host("anime-sama.si")
