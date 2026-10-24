@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Movy"
-    className = "Movy"
-    versionCode = 1
+    versionCode = 2
     contentWarning = ContentWarning.NSFW
     libVersion = "16"
+
+    source {
+        lang = "all"
+        baseUrl = "https://www.movy.sx"
+    }
 
     deeplink {
         host("movy.sx")

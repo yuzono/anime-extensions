@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.source.CustomUrlPreferences
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.CompletableDeferred
@@ -87,7 +88,7 @@ class AnitubeExtractor(
             val newLink = novoEndereco.selectFirst("strong")?.text()
 
             if (newLink?.startsWith("http") == true) {
-                preferences.edit().putString("preferred_domain", newLink).apply()
+                preferences.edit().putString(CustomUrlPreferences.PREF_BASE_URL_KEY, newLink.trimEnd('/')).apply()
                 throw Exception("Configurado novo domínio, por favor reinicie o aplicativo")
             }
 

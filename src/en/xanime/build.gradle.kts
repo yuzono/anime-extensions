@@ -4,10 +4,16 @@ plugins {
 
 yuzono {
     name = "XAnime"
-    className = "XAnime"
-    versionCode = 4
+    versionCode = 5
     contentWarning = ContentWarning.NSFW
     libVersion = "16"
+
+    source {
+        lang = "en"
+        baseUrl("https://xanime.me") {
+            mirrors = listOf("https://xanime.app")
+        }
+    }
 
     deeplink {
         host("xanime.me")

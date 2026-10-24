@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.en.kickassanime
 
-import android.content.SharedPreferences
 import android.util.Base64
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
@@ -26,6 +25,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -41,23 +41,17 @@ import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.util.Locale
 
-class KickAssAnime :
+@Source
+abstract class KickAssAnime :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val name = "KickAssAnime"
-
-    override val baseUrl by lazy { preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!! }
-
-    private val apiUrl by lazy { "$baseUrl/api/show" }
-
-    override val lang = "en"
+    private val apiUrl: String
+        get() = "$baseUrl/api/show"
 
     override val supportsLatest = true
 
-    private val preferences by getPreferencesLazy {
-        clearBaseUrl()
-    }
+    private val preferences by getPreferencesLazy()
 
     private val json: Json by injectLazy()
 
@@ -273,7 +267,7 @@ class KickAssAnime :
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.startsWith("https://")) {
             val url = query.toHttpUrl()
-            if (url.host != PREF_DOMAIN_DEFAULT.toHttpUrl().host) {
+            if (url.host != SEARCH_BASE_URL.toHttpUrl().host) {
                 throw Exception("Unsupported url")
             }
             val slug = url.pathSegments.getOrNull(0)?.takeIf(String::isNotBlank)
@@ -337,23 +331,13 @@ class KickAssAnime :
         ).reversed()
     }
 
-    private fun SharedPreferences.clearBaseUrl(): SharedPreferences {
-        if (getString(PREF_DOMAIN_KEY, "")!! in PREF_DOMAIN_ENTRY_VALUES) {
-            return this
-        }
-        edit()
-            .remove(PREF_DOMAIN_KEY)
-            .putString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
-            .apply()
-        return this
-    }
-
     companion object {
         // KAA has .lt domain as primary, and others are redirects.
         // This change is necessary as it forces all search traffic to go through primary domain to ensure all domains have searching abilities.
 
         /**
          * Only the primary URL does the search, other domains are redirects to it.
+         * Keep in sync with the default base URL and the deeplink host in build.gradle.kts.
          */
         private const val SEARCH_BASE_URL = "https://kaa.lt"
 
@@ -391,25 +375,6 @@ class KickAssAnime :
         private val PREF_SERVER_DEFAULT = SERVERS[0]
         private val PREF_SERVER_VALUES = SERVERS
 
-        private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private const val PREF_DOMAIN_TITLE = "Preferred domain (requires app restart)"
-
-        // Check domains here: https://kickassanime.cx/
-        private val DOMAINS = listOf(
-            "kaa.lt", // Main site. Other domains are redirects to this site, meaning that any search with these domains fail because of non-existant addresses.
-            "kickass-anime.ru",
-            "kickass-anime.ro",
-            "kaa.to",
-            "kaa.rs",
-            // Removed https://kaa.si as its certificate expired, leading to SSL errors
-        )
-
-        private val PREF_DOMAIN_ENTRIES = DOMAINS.toTypedArray()
-        private val PREF_DOMAIN_ENTRY_VALUES = DOMAINS.map { "https://$it" }.toTypedArray()
-
-        // Default is automatically https://kaa.lt since it's the first in the DOMAINS list above.
-        private val PREF_DOMAIN_DEFAULT = PREF_DOMAIN_ENTRY_VALUES[0]
-
         private const val PREF_HOSTER_EXCLUDE_KEY = "hoster_exclusion"
         private const val PREF_HOSTER_EXCLUDE_TITLE = "Excluded Hosts"
         private val PREF_HOSTER_EXCLUDE_DEFAULT = emptySet<String>()
@@ -417,15 +382,6 @@ class KickAssAnime :
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        ListPreference(screen.context).apply {
-            key = PREF_DOMAIN_KEY
-            title = PREF_DOMAIN_TITLE
-            entries = PREF_DOMAIN_ENTRIES
-            entryValues = PREF_DOMAIN_ENTRY_VALUES
-            setDefaultValue(PREF_DOMAIN_DEFAULT)
-            summary = "%s"
-        }.also(screen::addPreference)
-
         SwitchPreferenceCompat(screen.context).apply {
             key = PREF_USE_ENGLISH_KEY
             title = PREF_USE_ENGLISH_TITLE

@@ -4,10 +4,17 @@ plugins {
 
 yuzono {
     name = "Anime Blkom"
-    className = "AnimeBlkom"
-    versionCode = 29
+    versionCode = 30
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        name = "أنمي بالكوم"
+        lang = "ar"
+        baseUrl("https://animeblkom.net") {
+            mirrors = listOf("https://animeblkom.tv", "https://blkom.com")
+        }
+    }
 }
 
 dependencies {

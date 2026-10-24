@@ -30,7 +30,6 @@ import keiyoushi.network.rateLimit
 import keiyoushi.utils.Source
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
-import keiyoushi.utils.delegate
 import keiyoushi.utils.firstInstanceOrNull
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -38,16 +37,11 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.encodeToString
-import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
-class XAnime : Source() {
-    override val name = "XAnime"
-    override val lang = "en"
+@keiyoushi.annotation.Source
+abstract class XAnime : Source() {
     override val supportsLatest = true
-
-    override var baseUrl: String
-        by preferences.delegate(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
 
     private val cryptoClient by lazy {
         client.newBuilder()
@@ -317,17 +311,6 @@ class XAnime : Source() {
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
-            key = PREF_DOMAIN_KEY,
-            title = "Preferred Domain",
-            entries = DOMAIN_ENTRIES,
-            entryValues = DOMAIN_VALUES,
-            default = PREF_DOMAIN_DEFAULT,
-            summary = "%s",
-        ) {
-            baseUrl = it
-        }
-
-        screen.addListPreference(
             key = PREF_QUALITY_KEY,
             title = "Preferred Quality",
             entries = QUALITY_VALUES,
@@ -358,11 +341,8 @@ class XAnime : Source() {
     companion object {
         const val PREFIX_ID = "id:"
 
-        private val DOMAIN_VALUES = listOf("https://xanime.me", "https://xanime.app")
-        private val DOMAIN_HOSTS = DOMAIN_VALUES.map { it.toHttpUrl().host }
-        private val DOMAIN_ENTRIES = listOf("xanime.me", "xanime.app")
-        private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private val PREF_DOMAIN_DEFAULT = DOMAIN_VALUES[0]
+        // Keep in sync with the mirrors in build.gradle.kts, which the generated class doesn't expose
+        private val DOMAIN_HOSTS = listOf("xanime.me", "xanime.app")
 
         private val QUALITY_VALUES = listOf("1080p", "720p", "480p", "360p")
         private val QUALITY_KEYS = listOf("1080", "720", "480", "360")

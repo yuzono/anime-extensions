@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
@@ -26,16 +27,10 @@ import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class AniKuro :
+@Source
+abstract class AniKuro :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "AniKuro"
-
-    override val baseUrl: String
-        get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT) ?: PREF_DOMAIN_DEFAULT
-
-    override val lang = "en"
 
     override val supportsLatest = true
 
@@ -434,15 +429,6 @@ class AniKuro :
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
-            key = PREF_DOMAIN_KEY,
-            title = "Preferred Domain",
-            default = PREF_DOMAIN_DEFAULT,
-            summary = "%s",
-            entries = PREF_DOMAIN_ENTRIES,
-            entryValues = PREF_DOMAIN_VALUES,
-        )
-
-        screen.addListPreference(
             key = PREF_TITLE_KEY,
             title = "Preferred Title Language",
             default = PREF_TITLE_DEFAULT,
@@ -481,10 +467,6 @@ class AniKuro :
 
     companion object {
         // Note: https://anikuro.site is the domain list
-        private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private val PREF_DOMAIN_ENTRIES = listOf("anikuro.to", "anikuro.ru")
-        private val PREF_DOMAIN_VALUES = listOf("https://anikuro.to", "https://anikuro.ru")
-        private const val PREF_DOMAIN_DEFAULT = "https://anikuro.to"
 
         private const val PREF_TITLE_KEY = "pref_title_language"
         private const val PREF_TITLE_DEFAULT = "english"

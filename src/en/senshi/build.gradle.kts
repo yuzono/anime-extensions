@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Senshi"
-    className = "Senshi"
-    versionCode = 4
+    versionCode = 5
     contentWarning = ContentWarning.NSFW
     libVersion = "16"
+
+    source {
+        lang = "en"
+        baseUrl = "https://senshi.to"
+    }
 }
 
 dependencies {

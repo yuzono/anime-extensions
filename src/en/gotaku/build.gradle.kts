@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Gotaku"
-    className = "Gotaku"
-    versionCode = 3
+    versionCode = 4
     contentWarning = ContentWarning.MIXED
     libVersion = "16"
+
+    source {
+        lang = "en"
+        baseUrl = "https://gotaku.to"
+    }
 }
 
 dependencies {

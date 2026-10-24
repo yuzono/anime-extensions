@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -22,15 +23,10 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeBlkom :
+@Source
+abstract class AnimeBlkom :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "أنمي بالكوم"
-
-    override val baseUrl by lazy { preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!! }
-
-    override val lang = "ar"
 
     override val supportsLatest = false
 
@@ -207,22 +203,6 @@ class AnimeBlkom :
                 preferences.edit().putString(key, entry).commit()
             }
         }.also(screen::addPreference)
-
-        ListPreference(screen.context).apply {
-            key = PREF_DOMAIN_KEY
-            title = PREF_DOMAIN_TITLE
-            entries = PREF_DOMAIN_ENTRIES
-            entryValues = PREF_DOMAIN_VALUES
-            setDefaultValue(PREF_DOMAIN_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
     }
 
     // ============================= Utilities ==============================
@@ -238,13 +218,5 @@ class AnimeBlkom :
         private const val PREF_QUALITY_TITLE = "Preferred quality"
         private const val PREF_QUALITY_DEFAULT = "720p"
         private val PREF_QUALITY_ENTRIES = arrayOf("1080p", "720p", "480p", "360p", "240p")
-
-        private const val PREF_DOMAIN_KEY = "pref_domain_key"
-        private const val PREF_DOMAIN_TITLE = "Preferred domain"
-        private const val PREF_DOMAIN_DEFAULT = "https://animeblkom.net"
-        private val PREF_DOMAIN_ENTRIES = arrayOf("animeblkom.net", "animeblkom.tv", "blkom.com")
-        private val PREF_DOMAIN_VALUES by lazy {
-            PREF_DOMAIN_ENTRIES.map { "https://$it" }.toTypedArray()
-        }
     }
 }

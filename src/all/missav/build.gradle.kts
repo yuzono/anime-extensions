@@ -4,10 +4,16 @@ plugins {
 
 yuzono {
     name = "MissAV"
-    className = "MissAV"
-    versionCode = 32
+    versionCode = 33
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "all"
+        baseUrl("https://missav.live") {
+            mirrors = listOf("https://missav.ai", "https://missav.ws")
+        }
+    }
 }
 
 dependencies {
