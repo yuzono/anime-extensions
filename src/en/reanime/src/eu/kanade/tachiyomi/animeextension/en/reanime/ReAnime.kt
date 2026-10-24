@@ -657,7 +657,9 @@ class ReAnime :
             val html = response.body.string()
             val anilistId = ANILIST_ID_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             val tmdbId = TMDB_ID_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-            val seasonNum = SEASON_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it > 0 } ?: 1
+            val seasonNum = TMDB_SEASON_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull()
+                ?: SEASON_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull()
+                ?: 1
 
             val subbed = SUBBED_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             val dubbed = DUBBED_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
@@ -1229,9 +1231,10 @@ class ReAnime :
 
         private val BR_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
         private val HTML_TAG_REGEX = Regex("""</?(i|b|em)>""", RegexOption.IGNORE_CASE)
-        private val ANILIST_ID_REGEX = Regex(""""?anilist_id"?\s*:\s*(\d+)""")
-        private val TMDB_ID_REGEX = Regex("""(?:"?themoviedb_id"?|"?tmdb_id"?|"?tmdb"?)\s*:\s*(\d+)""")
-        private val SEASON_REGEX = Regex(""""?season"?\s*:\s*"?(\d+)"?""")
+        private val ANILIST_ID_REGEX = Regex("""(?<!\w)"?anilist_id"?\s*:\s*(\d+)""")
+        private val TMDB_ID_REGEX = Regex("""(?<!\w)"?themoviedb_id"?\s*:\s*(\d+)""")
+        private val TMDB_SEASON_REGEX = Regex("""(?<!\w)"?tmdb"?\s*:\s*(\d+)""")
+        private val SEASON_REGEX = Regex("""(?<!\w)"?season"?\s*:\s*(\d+)""")
         private val SUBBED_REGEX = Regex(""",\s*subbed:\s*(\d+)""")
         private val DUBBED_REGEX = Regex(""",\s*dubbed:\s*(\d+)""")
         private val EMBED_DATA_REGEX = Regex("""type:\s*"data",\s*data:\s*(\{.*?\})\s*,\s*uses:""", RegexOption.DOT_MATCHES_ALL)
