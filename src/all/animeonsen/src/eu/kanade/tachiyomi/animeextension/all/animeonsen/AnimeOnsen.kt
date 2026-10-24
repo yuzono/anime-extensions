@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
@@ -32,19 +33,14 @@ import okhttp3.Request
 import okhttp3.Response
 import kotlin.math.roundToInt
 
-class AnimeOnsen :
+@Source
+abstract class AnimeOnsen :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "AnimeOnsen"
-
-    override val baseUrl = "https://www.animeonsen.xyz"
 
     private val apiUrl = "https://api.animeonsen.xyz/v4"
 
     private val searchUrl = "https://search.animeonsen.xyz"
-
-    override val lang = "all"
 
     override val supportsLatest = false
 

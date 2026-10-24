@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Voiranime"
-    className = "Voiranime"
     versionCode = 3
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "fr"
+        baseUrl = "https://voir-anime.to"
+    }
 }
 
 dependencies {

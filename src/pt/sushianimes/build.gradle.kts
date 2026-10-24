@@ -4,10 +4,15 @@ plugins {
 
 yuzono {
     name = "SushiAnimes"
-    className = "SushiAnimes"
     versionCode = 2
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        name = "Sushi Animes"
+        lang = "pt-BR"
+        baseUrl = "https://sushianimes.com.br"
+    }
 
     deeplink {
         host("sushianimes.com.br")

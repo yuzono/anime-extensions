@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Movie4k"
-    className = "Movie4k"
     versionCode = 20
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "de"
+        baseUrl = "https://movie4k.stream"
+    }
 }
 
 dependencies {

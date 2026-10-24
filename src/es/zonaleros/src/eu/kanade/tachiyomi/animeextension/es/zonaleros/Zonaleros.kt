@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -30,15 +31,10 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class Zonaleros :
+@Source
+abstract class Zonaleros :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Zonaleros"
-
-    override val baseUrl = "https://www.zona-leros.com"
-
-    override val lang = "es"
 
     override val supportsLatest = true
 

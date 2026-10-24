@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "AniHQ"
-    className = "AniHQ"
     versionCode = 3
     contentWarning = ContentWarning.NSFW
     libVersion = "16"
+
+    source {
+        lang = "en"
+        baseUrl = "https://anihq.cc"
+    }
 
     deeplink {
         host("anihq.cc")

@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
@@ -34,19 +35,14 @@ import java.util.Locale
 import kotlin.collections.associate
 import kotlin.collections.isNotEmpty
 
-class Anikage :
+@Source
+abstract class Anikage :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val baseUrl: String = "https://anikage.cc"
-
-    override val lang: String = "en"
 
     override val supportsLatest: Boolean = true
 
     override val disableRelatedAnimesBySearch = true
-
-    override val name: String = "Anikage"
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .set("Origin", baseUrl)

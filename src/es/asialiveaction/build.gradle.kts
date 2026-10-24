@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "AsiaLiveAction"
-    className = "AsiaLiveAction"
     versionCode = 53
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://asialiveaction.com"
+    }
 }
 
 dependencies {

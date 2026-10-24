@@ -17,21 +17,17 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Request
 import okhttp3.Response
 
-class EstrenosDoramas :
+@Source
+abstract class EstrenosDoramas :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "EstrenosDoramas"
-
-    override val baseUrl = "https://estrenosdoramas.es"
-
-    override val lang = "es"
 
     override val supportsLatest = true
 

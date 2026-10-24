@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "AnimeGO.studio"
-    className = "AnimeGo"
     versionCode = 2
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
+
+    source {
+        lang = "ru"
+        baseUrl = "https://animego.studio"
+    }
 }
 
 dependencies {

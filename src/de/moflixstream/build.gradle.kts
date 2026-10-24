@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Moflix-Stream"
-    className = "MoflixStream"
     versionCode = 30
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "de"
+        baseUrl = "https://moflix-stream.xyz"
+    }
 }
 
 dependencies {

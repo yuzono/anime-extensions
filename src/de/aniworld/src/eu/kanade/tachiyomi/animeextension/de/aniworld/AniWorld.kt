@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addListPreference
@@ -36,17 +37,10 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-class AniWorld :
+@Source
+abstract class AniWorld :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "AniWorld"
-
-    override val baseUrl = "https://aniworld.to"
-
-    override val lang = "de"
-
-    override val id: Long = 8286900189409315836
 
     override val supportsLatest = true
 

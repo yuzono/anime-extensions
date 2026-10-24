@@ -4,10 +4,15 @@ plugins {
 
 yuzono {
     name = "Hstream"
-    className = "Hstream"
     versionCode = 12
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "en"
+        versionId = 2
+        baseUrl = "https://hstream.moe"
+    }
 
     deeplink {
         host("hstream.moe")

@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
@@ -26,15 +27,10 @@ import okhttp3.Response
 import org.jsoup.nodes.Element
 import java.net.URLEncoder.encode
 
-class OppaiStream :
+@Source
+abstract class OppaiStream :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Oppai Stream"
-
-    override val lang = "en"
-
-    override val baseUrl = "https://oppai.stream"
 
     override val supportsLatest = true
 

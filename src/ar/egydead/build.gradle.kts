@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Egy Dead"
-    className = "EgyDead"
     versionCode = 30
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "ar"
+        baseUrl = "https://egydead.space"
+    }
 }
 
 dependencies {

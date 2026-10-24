@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Hackstore"
-    className = "Hackstore"
     versionCode = 43
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://www.hackstore.fo"
+    }
 }
 
 dependencies {

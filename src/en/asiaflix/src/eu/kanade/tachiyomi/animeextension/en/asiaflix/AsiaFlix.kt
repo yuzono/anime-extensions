@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
@@ -30,15 +31,10 @@ import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.util.Locale
 
-class AsiaFlix : AnimeHttpLegacySource() {
-
-    override val name = "AsiaFlix"
-
-    override val baseUrl = "https://asiaflix.net"
+@Source
+abstract class AsiaFlix : AnimeHttpLegacySource() {
 
     private val apiUrl = "https://api.asiaflix.net/v1"
-
-    override val lang = "en"
 
     override val supportsLatest = true
 

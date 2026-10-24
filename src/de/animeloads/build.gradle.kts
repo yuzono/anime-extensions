@@ -4,10 +4,15 @@ plugins {
 
 yuzono {
     name = "Anime-Loads"
-    className = "AnimeLoads"
     versionCode = 27
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "de"
+        id = 655155856096L
+        baseUrl = "https://www.anime-loads.org"
+    }
 }
 
 dependencies {

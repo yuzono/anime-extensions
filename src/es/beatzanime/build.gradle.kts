@@ -4,8 +4,12 @@ plugins {
 
 yuzono {
     name = "BeatZ Anime"
-    className = "BeatZAnime"
     versionCode = 3
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://www.beatz-anime.net"
+    }
 }

@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "AnimeBum"
-    className = "AnimeBum"
     versionCode = 22
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://www.animebum.net"
+    }
 }
 
 dependencies {

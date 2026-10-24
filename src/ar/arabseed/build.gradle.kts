@@ -4,10 +4,15 @@ plugins {
 
 yuzono {
     name = "Arab Seed"
-    className = "ArabSeed"
     versionCode = 32
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        name = "عرب سيد"
+        lang = "ar"
+        baseUrl = "https://m.asd.homes"
+    }
 }
 
 dependencies {

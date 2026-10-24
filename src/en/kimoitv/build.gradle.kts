@@ -4,8 +4,12 @@ plugins {
 
 yuzono {
     name = "KimoiTV"
-    className = "KimoiTV"
     versionCode = 1
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "en"
+        baseUrl = "https://kimoitv.com"
+    }
 }

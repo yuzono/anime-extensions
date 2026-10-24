@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Animeler"
-    className = "Animeler"
     versionCode = 36
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "tr"
+        baseUrl = "https://animeler.pw"
+    }
 
     deeplink {
         host("animeler.me")

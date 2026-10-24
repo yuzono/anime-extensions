@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.get
@@ -37,16 +38,14 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
-class AniPM :
+@Source
+abstract class AniPM :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "AniPM"
-    override val lang = "en"
     override val supportsLatest = true
 
     // Status: https://anipm.tv/
-    override val baseUrl = "https://ani.pm"
     private val apiUrl get() = "$baseUrl/api"
 
     override val client = network.client.newBuilder()

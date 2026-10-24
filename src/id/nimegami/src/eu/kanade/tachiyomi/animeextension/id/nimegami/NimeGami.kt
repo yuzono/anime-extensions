@@ -10,6 +10,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.lib.jsunpacker.JsUnpacker
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.chunkedPairs
@@ -23,13 +24,8 @@ import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 import keiyoushi.lib.synchrony.Deobfuscator as Synchrony
 
-class NimeGami : ParsedAnimeHttpLegacySource() {
-
-    override val name = "NimeGami"
-
-    override val baseUrl = "https://nimegami.id"
-
-    override val lang = "id"
+@Source
+abstract class NimeGami : ParsedAnimeHttpLegacySource() {
 
     override val supportsLatest = true
 

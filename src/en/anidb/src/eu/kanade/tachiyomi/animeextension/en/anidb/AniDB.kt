@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
@@ -24,15 +25,10 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 
-class AniDB :
+@Source
+abstract class AniDB :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "AniDB"
-
-    override val baseUrl = "https://anilab2.amdapi.click"
-
-    override val lang = "en"
 
     override val supportsLatest = true
 
@@ -226,6 +222,8 @@ class AniDB :
 
     companion object {
         private const val PLAY_URL = "https://play.anidb.app"
+
+        // Keep in sync with the deeplink host in build.gradle.kts
         private const val LEGACY_HOST = "anidb.app"
         private const val POPULAR_SECTION = "Most Popular"
         private const val POST_ID_OFFSET = 1_000_000_000L

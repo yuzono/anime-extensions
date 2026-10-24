@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -24,15 +25,10 @@ import okhttp3.Request
 import okhttp3.Response
 import java.util.Calendar
 
-open class Cine24h :
+@Source
+abstract class Cine24h :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Cine24h"
-
-    override val baseUrl = "https://cine24h.online"
-
-    override val lang = "es"
 
     override val supportsLatest = true
 

@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Animerco"
-    className = "Animerco"
     versionCode = 60
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "ar"
+        baseUrl = "https://zeta.animerco.org"
+    }
 }
 
 dependencies {

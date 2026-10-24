@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "AnimeAv1"
-    className = "AnimeAv1"
     versionCode = 7
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
+
+    source {
+        lang = "es"
+        baseUrl = "https://animeav1.com"
+    }
 }
 
 dependencies {

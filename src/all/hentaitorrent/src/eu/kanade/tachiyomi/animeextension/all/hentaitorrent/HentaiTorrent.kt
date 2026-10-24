@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.torrentutils.TorrentUtils
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Headers
@@ -26,15 +27,10 @@ import org.jsoup.nodes.Element
 import java.net.SocketTimeoutException
 import java.util.Locale
 
-class HentaiTorrent :
+@Source
+abstract class HentaiTorrent :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Hentai Torrent (Torrent)"
-
-    override val baseUrl = "https://www.hentaitorrents.com"
-
-    override val lang = "all"
 
     private val preferences by getPreferencesLazy()
 

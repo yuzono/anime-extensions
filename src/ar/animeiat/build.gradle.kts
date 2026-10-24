@@ -4,8 +4,12 @@ plugins {
 
 yuzono {
     name = "Animeiat"
-    className = "Animeiat"
     versionCode = 1
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "ar"
+        baseUrl = "https://api.animeiat.co/v1"
+    }
 }

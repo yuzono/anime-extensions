@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Kool"
-    className = "Kool"
     versionCode = 27
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "de"
+        baseUrl = "https://www.kool.to"
+    }
 }
 
 dependencies {

@@ -4,8 +4,12 @@ plugins {
 
 yuzono {
     name = "Xnxx"
-    className = "Xnxx"
     versionCode = 3
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "all"
+        baseUrl = "https://www.xnxx.com"
+    }
 }

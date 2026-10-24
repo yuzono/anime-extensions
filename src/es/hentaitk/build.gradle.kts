@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "HentaiTk"
-    className = "Hentaitk"
     versionCode = 30
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://hentaitk.net"
+    }
 }
 
 dependencies {

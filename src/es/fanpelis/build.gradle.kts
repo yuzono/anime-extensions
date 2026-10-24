@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "FanPelis"
-    className = "FanPelis"
     versionCode = 26
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://fanpelis.la"
+    }
 }
 
 dependencies {

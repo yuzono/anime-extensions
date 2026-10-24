@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Jutsu TV"
-    className = "JutsuTv"
     versionCode = 3
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
+
+    source {
+        lang = "ru"
+        baseUrl = "https://jutsu.tv"
+    }
 }
 
 dependencies {

@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "AsiaFlix"
-    className = "AsiaFlix"
     versionCode = 33
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "en"
+        baseUrl = "https://asiaflix.net"
+    }
 }
 
 dependencies {

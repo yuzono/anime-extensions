@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.coroutines.Dispatchers
@@ -32,13 +33,11 @@ import org.jsoup.nodes.Element
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets.UTF_8
 
-class BLZone :
+@Source
+abstract class BLZone :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val name = "BLZone"
-    override val baseUrl = "https://blzone.net"
-    override val lang = "en"
     override val supportsLatest = true
 
     private val preferences by getPreferencesLazy()

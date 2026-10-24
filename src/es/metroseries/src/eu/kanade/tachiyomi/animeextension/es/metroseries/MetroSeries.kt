@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -27,15 +28,10 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class MetroSeries :
+@Source
+abstract class MetroSeries :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "MetroSeries"
-
-    override val baseUrl = "https://www3.seriesmetro.net"
-
-    override val lang = "es"
 
     override val supportsLatest = false
 

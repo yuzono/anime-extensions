@@ -4,10 +4,15 @@ plugins {
 
 yuzono {
     name = "Anime4up"
-    className = "Anime4Up"
     versionCode = 81
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        name = "Anime4Up"
+        lang = "ar"
+        baseUrl = "https://w1.anime4up.rest"
+    }
 }
 
 dependencies {

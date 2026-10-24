@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.lib.cryptoaes.CryptoAES
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
@@ -25,12 +26,10 @@ import java.net.URLDecoder
 import java.security.MessageDigest
 import java.util.Calendar
 
-class Cycity :
+@Source
+abstract class Cycity :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-    override val baseUrl = "https://www.cycani.org"
-    override val name = "次元城动漫"
-    override val lang = "zh"
     override val supportsLatest = true
     private val apiUrl = "$baseUrl/index.php/ds_api"
     private val preferences by getPreferencesLazy()

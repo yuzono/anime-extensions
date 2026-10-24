@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Hentaijk"
-    className = "Hentaijk"
     versionCode = 21
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://hentaijk.com"
+    }
 }
 
 dependencies {

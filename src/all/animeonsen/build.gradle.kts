@@ -4,8 +4,12 @@ plugins {
 
 yuzono {
     name = "AnimeOnsen"
-    className = "AnimeOnsen"
     versionCode = 10
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "all"
+        baseUrl = "https://www.animeonsen.xyz"
+    }
 }

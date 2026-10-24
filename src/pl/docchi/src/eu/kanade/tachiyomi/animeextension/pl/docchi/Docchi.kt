@@ -24,6 +24,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.HttpException
+import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.getPreferencesLazy
@@ -38,17 +39,12 @@ import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Docchi :
+@Source
+abstract class Docchi :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "Docchi"
-
-    override val baseUrl = "https://docchi.pl"
-
     private val baseApiUrl = "https://api.docchi.pl"
-
-    override val lang = "pl"
 
     override val supportsLatest = true
 

@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "TR Anime Izle"
-    className = "TRAnimeIzle"
     versionCode = 38
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "tr"
+        baseUrl = "https://www.tranimeizle.io"
+    }
 
     deeplink {
         host("www.tranimeizle.io")

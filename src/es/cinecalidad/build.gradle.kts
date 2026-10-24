@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "CineCalidad"
-    className = "CineCalidad"
     versionCode = 38
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://www.cinecalidad.ec"
+    }
 }
 
 dependencies {

@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Zonaleros"
-    className = "Zonaleros"
     versionCode = 20
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://www.zona-leros.com"
+    }
 }
 
 dependencies {

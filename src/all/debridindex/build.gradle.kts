@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Debrid Index"
-    className = "DebridIndex"
     versionCode = 2
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "all"
+        baseUrl = "https://torrentio.strem.fun"
+    }
 
     deeplink {
         host("torrentio.strem.fun")

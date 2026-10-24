@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "LACartoons"
-    className = "Lacartoons"
     versionCode = 28
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://www.lacartoons.com"
+    }
 }
 
 dependencies {

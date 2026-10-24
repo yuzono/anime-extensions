@@ -4,8 +4,12 @@ plugins {
 
 yuzono {
     name = "Xvideos"
-    className = "Xvideos"
     versionCode = 3
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "all"
+        baseUrl = "https://www.xvideos.com"
+    }
 }

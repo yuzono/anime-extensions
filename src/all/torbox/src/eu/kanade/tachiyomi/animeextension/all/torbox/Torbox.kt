@@ -28,19 +28,12 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okio.IOException
 
 @Suppress("unused")
-class Torbox :
+@keiyoushi.annotation.Source
+abstract class Torbox :
     Source(),
     UnmeteredSource {
 
-    override val baseUrl = "https://api.torbox.app"
-
-    override val lang = "all"
-
-    override val name = "Torbox"
-
     override val supportsLatest = true
-
-    override val versionId = 2
 
     override val client = network.client.newBuilder()
         .addInterceptor { chain ->

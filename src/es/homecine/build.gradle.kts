@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "HomeCine"
-    className = "HomeCine"
     versionCode = 21
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://homecine.cc"
+    }
 }
 
 dependencies {

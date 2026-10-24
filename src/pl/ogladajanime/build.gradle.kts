@@ -4,8 +4,12 @@ plugins {
 
 yuzono {
     name = "OgladajAnime"
-    className = "OgladajAnime"
     versionCode = 5
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "pl"
+        baseUrl = "https://ogladajanime.pl"
+    }
 }

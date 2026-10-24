@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "MhdFlix"
-    className = "MhdFlix"
     versionCode = 25
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://ww1.mhdflix.com"
+    }
 }
 
 dependencies {

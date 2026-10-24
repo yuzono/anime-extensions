@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "YummyAnime"
-    className = "YummyAnime"
     versionCode = 4
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
+
+    source {
+        lang = "ru"
+        baseUrl = "https://ru.yummyani.me"
+    }
 }
 
 dependencies {

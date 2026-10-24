@@ -4,10 +4,15 @@ plugins {
 
 yuzono {
     name = "asia2tv"
-    className = "Asia2TV"
     versionCode = 39
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        name = "Asia2TV"
+        lang = "ar"
+        baseUrl = "https://ww1.asia2tv.pw"
+    }
 }
 
 dependencies {

@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "MundoDonghua"
-    className = "MundoDonghua"
     versionCode = 47
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://www.mundodonghua.com"
+    }
 }
 
 dependencies {

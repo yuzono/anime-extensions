@@ -4,8 +4,12 @@ plugins {
 
 yuzono {
     name = "Muito Hentai"
-    className = "MuitoHentai"
     versionCode = 2
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "pt-BR"
+        baseUrl = "https://www.muitohentai.com"
+    }
 }

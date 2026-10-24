@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "ANIMEWORLD.tv"
-    className = "ANIMEWORLD"
     versionCode = 61
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
+
+    source {
+        lang = "it"
+        baseUrl = "https://www.animeworld.ac"
+    }
 }
 
 dependencies {

@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.useAsJsoup
 import okhttp3.Request
@@ -15,13 +16,8 @@ import org.jsoup.nodes.Element
 import java.net.URLDecoder
 import java.text.Normalizer
 
-class BeatZAnime : ParsedAnimeHttpLegacySource() {
-
-    override val name = "BeatZ Anime"
-
-    override val baseUrl = "https://www.beatz-anime.net"
-
-    override val lang = "es"
+@Source
+abstract class BeatZAnime : ParsedAnimeHttpLegacySource() {
 
     override val supportsLatest = true
 

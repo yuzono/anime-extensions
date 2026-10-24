@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Meus Animes"
-    className = "MeusAnimes"
     versionCode = 1
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "pt-BR"
+        baseUrl = "https://meusanimes.vip"
+    }
 }
 
 dependencies {

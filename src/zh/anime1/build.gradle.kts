@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Anime1.me"
-    className = "Anime1"
     versionCode = 4
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "zh-hant"
+        baseUrl = "https://anime1.me"
+    }
 }
 
 dependencies {

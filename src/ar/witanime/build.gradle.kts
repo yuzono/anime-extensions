@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "WIT ANIME"
-    className = "WitAnime"
     versionCode = 65
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "ar"
+        baseUrl = "https://witanime.cyou"
+    }
 }
 
 dependencies {

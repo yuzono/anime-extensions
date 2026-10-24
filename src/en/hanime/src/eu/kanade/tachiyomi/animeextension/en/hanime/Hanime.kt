@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
@@ -30,15 +31,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.util.Locale
 
-class Hanime :
+@Source
+abstract class Hanime :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "hanime.tv"
-
-    override val baseUrl = "https://hanime.tv"
-
-    override val lang = "en"
 
     override val supportsLatest = true
 

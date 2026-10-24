@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "UAKino"
-    className = "UAKino"
     versionCode = 6
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "uk"
+        baseUrl = "https://uakino.best"
+    }
 }
 
 dependencies {
