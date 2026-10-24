@@ -5,9 +5,9 @@ plugins {
 yuzono {
     name = "Anikage"
     className = "Anikage"
-    versionCode = 8
+    versionCode = 9
     contentWarning = ContentWarning.NSFW
-    libVersion = "14"
+    libVersion = "16"
 }
 
 dependencies {

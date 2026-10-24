@@ -1,344 +1,184 @@
 package eu.kanade.tachiyomi.animeextension.en.anikage
 
+import android.content.SharedPreferences
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
-import java.util.Calendar
+import keiyoushi.utils.bodyString
+import keiyoushi.utils.get
+import okhttp3.Headers
+import okhttp3.OkHttpClient
 
 object Filters {
 
-    open class QueryPartFilter(
-        displayName: String,
-        val vals: Array<Pair<String, String>>,
-    ) : AnimeFilter.Select<String>(
-        displayName,
-        vals.map { it.first }.toTypedArray(),
-    ) {
-        fun toQueryPart() = vals[state].second
-    }
+    private const val PREF_GENRES = "pref_dynamic_genres"
+    private const val PREF_TAGS = "pref_dynamic_tags"
+    private const val PREF_FORMATS = "pref_dynamic_formats"
+    private const val PREF_STATUSES = "pref_dynamic_statuses"
+    private const val PREF_SEASONS = "pref_dynamic_seasons"
+    private const val PREF_SORTS = "pref_dynamic_sorts"
 
-    open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
+    private val APP_REGEX by lazy { Regex("""/_app/immutable/entry/(app\.[a-zA-Z0-9_\-]+\.js)|entry/(app\.[a-zA-Z0-9_\-]+\.js)""") }
+    private val BROWSE_NODE_REGEX by lazy { Regex(""""/\(media\)/browse":\[(\d+)""") }
+    private val BIFE_CHUNK_REGEX by lazy { Regex("""chunks/([a-zA-Z0-9_\-]*BIFE[a-zA-Z0-9_\-]*\.js)""") }
+    private val CHUNK_IMPORT_REGEX by lazy { Regex("""from"\.\./chunks/([^"]+)"""") }
 
-    private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
+    private val ARRAY_REGEX by lazy { Regex("""\[([^\[\]]+)\]""") }
+    private val LABEL_VALUE_REGEX by lazy { Regex("""label:[`"']([^`"']+)[`"'],value:[`"']([^`"']+)[`"']""") }
+    private val GENRE_REGEX by lazy { Regex("""label:[`"']([^`"']+)[`"'],value:[`"']([^`"']+)[`"'],type:[`"']genres[`"']""") }
+    private val TAG_REGEX by lazy { Regex("""label:[`"']([^`"']+)[`"'],value:[`"']([^`"']+)[`"'],type:[`"']tags[`"']""") }
 
-    private inline fun <reified R> AnimeFilterList.asQueryPart(): String = (this.getFirst<R>() as QueryPartFilter).toQueryPart()
+    private val SORT_MAP = mapOf(
+        "POPULARITY_DESC" to "popularity",
+        "SCORE_DESC" to "score",
+        "TRENDING_DESC" to "trending",
+        "FAVOURITES_DESC" to "favourites",
+        "START_DATE_DESC" to "year",
+        "ID_DESC" to "updated",
+        "TITLE_ENGLISH" to "title",
+    )
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.filterIsInstance<R>().first()
+    suspend fun fetchFilters(client: OkHttpClient, baseUrl: String, preferences: SharedPreferences, headers: Headers) {
+        try {
+            val fetchHeaders = headers.newBuilder()
+                .set("Referer", "$baseUrl/")
+                .build()
 
-    class OriginFilter : QueryPartFilter("Origin", AnikageFiltersData.ORIGIN)
-    class SeasonFilter : QueryPartFilter("Season", AnikageFiltersData.SEASONS)
-    class ReleaseYearFilter : QueryPartFilter("Released at", AnikageFiltersData.YEARS)
-    class SortByFilter : QueryPartFilter("Sort By", AnikageFiltersData.SORT_BY)
-    class TypesFilter : QueryPartFilter("Type", AnikageFiltersData.TYPES)
+            val html = client.get("$baseUrl/browse", fetchHeaders).bodyString()
+            val appFile = APP_REGEX.find(html)?.let { match ->
+                match.groupValues.drop(1).firstOrNull { it.isNotBlank() }
+            } ?: return
 
-    class StatusFilter : QueryPartFilter("Status", AnikageFiltersData.STATUS)
+            val appJs = client.get("$baseUrl/_app/immutable/entry/$appFile", fetchHeaders).bodyString()
+            val browseNodeId = BROWSE_NODE_REGEX.find(appJs)?.groupValues?.get(1) ?: return
+            val nodeFile = Regex("""nodes/$browseNodeId\.([a-zA-Z0-9_\-]+)\.js""").find(appJs)?.value ?: return
 
-    class GenresFilter :
-        CheckBoxFilterList(
-            "Genres",
-            AnikageFiltersData.GENRES.map { CheckBoxVal(it.first, false) },
-        )
+            val nodeJs = client.get("$baseUrl/_app/immutable/$nodeFile", fetchHeaders).bodyString()
+            var chunkName = BIFE_CHUNK_REGEX.find(nodeJs)?.groupValues?.get(1)
+            if (chunkName == null) {
+                val matches = CHUNK_IMPORT_REGEX.findAll(nodeJs)
+                for (match in matches) {
+                    val candidate = match.groupValues[1]
+                    val content = client.get("$baseUrl/_app/immutable/chunks/$candidate", fetchHeaders).bodyString()
+                    if (content.contains("genres") && content.contains("tags")) {
+                        chunkName = candidate
+                        break
+                    }
+                }
+            }
+            if (chunkName == null) return
 
-    inline fun <reified T : CheckBoxFilterList> AnimeFilterList.parseCheckbox(
-        options: Array<Pair<String, String>>,
-    ): List<String> = (firstOrNull { it is T } as? T)
-        ?.state
-        ?.mapIndexedNotNull { index, checked ->
-            if (checked.state) options[index].second else null
+            val chunkJs = client.get("$baseUrl/_app/immutable/chunks/$chunkName", fetchHeaders).bodyString()
+
+            val genres = GENRE_REGEX.findAll(chunkJs).map { it.groupValues[1] }.distinct().toList()
+            val tags = TAG_REGEX.findAll(chunkJs).map { it.groupValues[1] }.distinct().toList()
+
+            var formats = emptyList<Pair<String, String>>()
+            var seasons = emptyList<Pair<String, String>>()
+            var statuses = emptyList<Pair<String, String>>()
+            var sorts = emptyList<Pair<String, String>>()
+
+            val arrays = ARRAY_REGEX.findAll(chunkJs)
+            for (arr in arrays) {
+                val items = LABEL_VALUE_REGEX.findAll(arr.groupValues[1]).map {
+                    it.groupValues[1] to it.groupValues[2]
+                }.toList()
+                if (items.isEmpty()) continue
+                val values = items.map { it.second }.toSet()
+
+                if ("WINTER" in values && "SUMMER" in values) {
+                    seasons = items
+                } else if ("MOVIE" in values && "TV" in values) {
+                    formats = items
+                } else if ("FINISHED" in values && "RELEASING" in values) {
+                    statuses = items
+                } else if ("POPULARITY_DESC" in values) {
+                    sorts = items.map { (label, value) -> label to (SORT_MAP[value] ?: value.lowercase()) }
+                }
+            }
+
+            val editor = preferences.edit()
+            if (genres.isNotEmpty()) editor.putString(PREF_GENRES, genres.joinToString("\n"))
+            if (tags.isNotEmpty()) editor.putString(PREF_TAGS, tags.joinToString("\n"))
+            if (formats.isNotEmpty()) editor.putString(PREF_FORMATS, encodePairs(formats))
+            if (seasons.isNotEmpty()) editor.putString(PREF_SEASONS, encodePairs(seasons))
+            if (statuses.isNotEmpty()) editor.putString(PREF_STATUSES, encodePairs(statuses))
+            if (sorts.isNotEmpty()) editor.putString(PREF_SORTS, encodePairs(sorts))
+            editor.apply()
+        } catch (_: Exception) {
+            // Keep using existing cached
         }
-        ?: emptyList()
-
-    val FILTER_LIST get() = AnimeFilterList(
-        OriginFilter(),
-        SeasonFilter(),
-        ReleaseYearFilter(),
-        SortByFilter(),
-        AnimeFilter.Separator(),
-        TypesFilter(),
-        StatusFilter(),
-        GenresFilter(),
-    )
-
-    data class FilterSearchParams(
-        val origin: String = "ALL",
-        val season: String = "ALL",
-        val releaseYear: String = "ALL",
-        val sortBy: String = "TRENDING_DESC",
-        val types: String = "ALL",
-        val status: String = "ALL",
-        val genres: List<String> = emptyList(),
-    )
-
-    internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
-        if (filters.isEmpty()) return FilterSearchParams()
-        return FilterSearchParams(
-            filters.asQueryPart<OriginFilter>(),
-            filters.asQueryPart<SeasonFilter>(),
-            filters.asQueryPart<ReleaseYearFilter>(),
-            filters.asQueryPart<SortByFilter>(),
-            filters.asQueryPart<TypesFilter>(),
-            filters.asQueryPart<StatusFilter>(),
-            filters.parseCheckbox<GenresFilter>(AnikageFiltersData.GENRES),
-        )
     }
 
-    private object AnikageFiltersData {
-        val ORIGIN = arrayOf(
-            Pair("All", "ALL"),
-            Pair("Japan", "JP"),
-            Pair("Korea", "KR"),
-            Pair("China", "CN"),
-            Pair("Taiwan", "TW"),
-        )
-        val SEASONS = arrayOf(
-            Pair("All", "ALL"),
-            Pair("Winter", "WINTER"),
-            Pair("Spring", "SPRING"),
-            Pair("Summer", "SUMMER"),
-            Pair("Fall", "FALL"),
-        )
+    private fun encodePairs(pairs: List<Pair<String, String>>): String = pairs.joinToString("\n") { "${it.first}|${it.second}" }
 
-        val currentYear = Calendar.getInstance().get(Calendar.YEAR)
+    private fun decodePairs(raw: String?): List<Pair<String, String>> = raw?.split("\n")?.mapNotNull { line ->
+        val parts = line.split("|")
+        if (parts.size == 2) parts[0] to parts[1] else null
+    }.orEmpty()
 
-        val YEARS: Array<Pair<String, String>> = buildList {
-            add("All" to "ALL")
-            addAll(
-                (currentYear + 1 downTo 1940).map {
-                    it.toString() to it.toString()
-                },
-            )
-        }.toTypedArray()
+    open class UriPartFilter(
+        displayName: String,
+        private val vals: Array<Pair<String, String>>,
+    ) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
+        fun toUriPart() = vals[state].second
+    }
 
-        val SORT_BY = arrayOf(
-            Pair("Title", "TITLE_ENGLISH"),
-            Pair("Popularity", "POPULARITY_DESC"),
-            Pair("Average Score", "SCORE_DESC"),
-            Pair("Trending", "TRENDING_DESC"),
-            Pair("Favorites", "FAVOURITES_DESC"),
-            Pair("Date Added", "ID_DESC"),
-            Pair("Release Date", "START_DATE_DESC"),
-        )
+    class SortFilter(vals: Array<Pair<String, String>>) : UriPartFilter("Sort by", vals)
+    class FormatFilter(vals: Array<Pair<String, String>>) : UriPartFilter("Format", vals)
+    class StatusFilter(vals: Array<Pair<String, String>>) : UriPartFilter("Status", vals)
+    class SeasonFilter(vals: Array<Pair<String, String>>) : UriPartFilter("Season", vals)
+    class YearFilter : AnimeFilter.Text("Year")
 
-        val TYPES = arrayOf(
-            Pair("All", "ALL"),
-            Pair("TV", "TV"),
-            Pair("TV Short", "TV_SHORT"),
-            Pair("Movie", "MOVIE"),
-            Pair("Special", "SPECIAL"),
-            Pair("OVA", "OVA"),
-            Pair("ONA", "ONA"),
-            Pair("MUSIC", "MUSIC"),
+    class GenreCheckBox(name: String) : AnimeFilter.CheckBox(name, false)
+    class GenreFilter(genres: List<String>) : AnimeFilter.Group<GenreCheckBox>("Genres", genres.map { GenreCheckBox(it) }) {
+        fun getIncluded(): List<String> = state.filter { it.state }.map { it.name }
+    }
+
+    class TagCheckBox(name: String) : AnimeFilter.CheckBox(name, false)
+    class TagFilter(tags: List<String>) : AnimeFilter.Group<TagCheckBox>("Tags", tags.map { TagCheckBox(it) }) {
+        fun getIncluded(): List<String> = state.filter { it.state }.map { it.name }
+    }
+
+    fun build(preferences: SharedPreferences? = null): AnimeFilterList {
+        val cachedSorts = decodePairs(preferences?.getString(PREF_SORTS, null))
+        val cachedFormats = decodePairs(preferences?.getString(PREF_FORMATS, null))
+        val cachedStatuses = decodePairs(preferences?.getString(PREF_STATUSES, null))
+        val cachedSeasons = decodePairs(preferences?.getString(PREF_SEASONS, null))
+
+        val cachedGenres = preferences?.getString(PREF_GENRES, null)
+            ?.split("\n")?.filter { it.isNotBlank() }.orEmpty()
+
+        val cachedTags = preferences?.getString(PREF_TAGS, null)
+            ?.split("\n")?.filter { it.isNotBlank() }.orEmpty()
+
+        val filters = mutableListOf<AnimeFilter<*>>(
+            AnimeFilter.Header("Filters can be combined with a text search"),
         )
 
-        val STATUS = arrayOf(
-            Pair("All", "ALL"),
-            Pair("Finished", "FINISHED"),
-            Pair("Releasing", "RELEASING"),
-            Pair("Not Yet Released", "NOT_YET_RELEASED"),
-            Pair("Cancelled", "CANCELLED"),
-        )
+        if (cachedSorts.isNotEmpty()) {
+            filters.add(SortFilter(cachedSorts.toTypedArray()))
+        }
+        if (cachedFormats.isNotEmpty()) {
+            filters.add(FormatFilter((listOf(Pair("Any", "")) + cachedFormats).toTypedArray()))
+        }
+        if (cachedStatuses.isNotEmpty()) {
+            filters.add(StatusFilter((listOf(Pair("Any", "")) + cachedStatuses).toTypedArray()))
+        }
+        if (cachedSeasons.isNotEmpty()) {
+            filters.add(SeasonFilter((listOf(Pair("Any", "")) + cachedSeasons).toTypedArray()))
+        }
+        filters.add(YearFilter())
+        if (cachedGenres.isNotEmpty()) {
+            filters.add(GenreFilter(cachedGenres))
+        }
+        if (cachedTags.isNotEmpty()) {
+            filters.add(TagFilter(cachedTags))
+        }
 
-        val GENRES = arrayOf(
-            Pair("Action", "Action"),
-            Pair("Adventure", "Adventure"),
-            Pair("Comedy", "Comedy"),
-            Pair("Drama", "Drama"),
-            Pair("Ecchi", "Ecchi"),
-            Pair("Fantasy", "Fantasy"),
-            Pair("Horror", "Horror"),
-            Pair("Mahou Shoujo", "Mahou Shoujo"),
-            Pair("Mecha", "Mecha"),
-            Pair("Music", "Music"),
-            Pair("Mystery", "Mystery"),
-            Pair("Psychological", "Psychological"),
-            Pair("Romance", "Romance"),
-            Pair("Sci-Fi", "Sci-Fi"),
-            Pair("Slice of Life", "Slice of Life"),
-            Pair("Sports", "Sports"),
-            Pair("Supernatural", "Supernatural"),
-            Pair("Thriller", "Thriller"),
-            Pair("4-koma", "4-koma"),
-            Pair("Achronological Order", "Achronological Order"),
-            Pair("Afterlife", "Afterlife"),
-            Pair("Age Gap", "Age Gap"),
-            Pair("Airsoft", "Airsoft"),
-            Pair("Aliens", "Aliens"),
-            Pair("Alternate Universe", "Alternate Universe"),
-            Pair("American Football", "American Football"),
-            Pair("Amnesia", "Amnesia"),
-            Pair("Anti-Hero", "Anti-Hero"),
-            Pair("Archery", "Archery"),
-            Pair("Assassins", "Assassins"),
-            Pair("Athletics", "Athletics"),
-            Pair("Augmented Reality", "Augmented Reality"),
-            Pair("Aviation", "Aviation"),
-            Pair("Badminton", "Badminton"),
-            Pair("Band", "Band"),
-            Pair("Bar", "Bar"),
-            Pair("Baseball", "Baseball"),
-            Pair("Basketball", "Basketball"),
-            Pair("Battle Royale", "Battle Royale"),
-            Pair("Biographical", "Biographical"),
-            Pair("Bisexual", "Bisexual"),
-            Pair("Body Swapping", "Body Swapping"),
-            Pair("Boxing", "Boxing"),
-            Pair("Bullying", "Bullying"),
-            Pair("Calligraphy", "Calligraphy"),
-            Pair("Card Battle", "Card Battle"),
-            Pair("Cars", "Cars"),
-            Pair("CGI", "CGI"),
-            Pair("Chibi", "Chibi"),
-            Pair("Chuunibyou", "Chuunibyou"),
-            Pair("Classic Literature", "Classic Literature"),
-            Pair("College", "College"),
-            Pair("Coming of Age", "Coming of Age"),
-            Pair("Cosplay", "Cosplay"),
-            Pair("Crossdressing", "Crossdressing"),
-            Pair("Crossover", "Crossover"),
-            Pair("Cultivation", "Cultivation"),
-            Pair("Curses", "Curses"),
-            Pair("Cute Girls Doing Cute Things", "Cute Girls Doing Cute Things"),
-            Pair("Cyberpunk", "Cyberpunk"),
-            Pair("Cycling", "Cycling"),
-            Pair("Dancing", "Dancing"),
-            Pair("Delinquents", "Delinquents"),
-            Pair("Demons", "Demons"),
-            Pair("Development", "Development"),
-            Pair("Dragons", "Dragons"),
-            Pair("Drawing", "Drawing"),
-            Pair("Dystopian", "Dystopian"),
-            Pair("Economics", "Economics"),
-            Pair("Educational", "Educational"),
-            Pair("Ensemble Cast", "Ensemble Cast"),
-            Pair("Environmental", "Environmental"),
-            Pair("Episodic", "Episodic"),
-            Pair("Espionage", "Espionage"),
-            Pair("Fairy Tale", "Fairy Tale"),
-            Pair("Family Life", "Family Life"),
-            Pair("Fashion", "Fashion"),
-            Pair("Female Protagonist", "Female Protagonist"),
-            Pair("Fishing", "Fishing"),
-            Pair("Fitness", "Fitness"),
-            Pair("Flash", "Flash"),
-            Pair("Food", "Food"),
-            Pair("Football", "Football"),
-            Pair("Foreign", "Foreign"),
-            Pair("Fugitive", "Fugitive"),
-            Pair("Full CGI", "Full CGI"),
-            Pair("Full Colour", "Full Colour"),
-            Pair("Gambling", "Gambling"),
-            Pair("Gangs", "Gangs"),
-            Pair("Gender Bending", "Gender Bending"),
-            Pair("Gender Neutral", "Gender Neutral"),
-            Pair("Ghost", "Ghost"),
-            Pair("Gods", "Gods"),
-            Pair("Gore", "Gore"),
-            Pair("Guns", "Guns"),
-            Pair("Gyaru", "Gyaru"),
-            Pair("Harem", "Harem"),
-            Pair("Henshin", "Henshin"),
-            Pair("Hikikomori", "Hikikomori"),
-            Pair("Historical", "Historical"),
-            Pair("Ice Skating", "Ice Skating"),
-            Pair("Idol", "Idol"),
-            Pair("Isekai", "Isekai"),
-            Pair("Iyashikei", "Iyashikei"),
-            Pair("Josei", "Josei"),
-            Pair("Kaiju", "Kaiju"),
-            Pair("Karuta", "Karuta"),
-            Pair("Kemonomimi", "Kemonomimi"),
-            Pair("Kids", "Kids"),
-            Pair("Love Triangle", "Love Triangle"),
-            Pair("Mafia", "Mafia"),
-            Pair("Magic", "Magic"),
-            Pair("Mahjong", "Mahjong"),
-            Pair("Maids", "Maids"),
-            Pair("Male Protagonist", "Male Protagonist"),
-            Pair("Martial Arts", "Martial Arts"),
-            Pair("Memory Manipulation", "Memory Manipulation"),
-            Pair("Meta", "Meta"),
-            Pair("Military", "Military"),
-            Pair("Monster Girl", "Monster Girl"),
-            Pair("Mopeds", "Mopeds"),
-            Pair("Motorcycles", "Motorcycles"),
-            Pair("Musical", "Musical"),
-            Pair("Mythology", "Mythology"),
-            Pair("Nekomimi", "Nekomimi"),
-            Pair("Ninja", "Ninja"),
-            Pair("No Dialogue", "No Dialogue"),
-            Pair("Noir", "Noir"),
-            Pair("Nudity", "Nudity"),
-            Pair("Otaku Culture", "Otaku Culture"),
-            Pair("Outdoor", "Outdoor"),
-            Pair("Parody", "Parody"),
-            Pair("Philosophy", "Philosophy"),
-            Pair("Photography", "Photography"),
-            Pair("Pirates", "Pirates"),
-            Pair("Poker", "Poker"),
-            Pair("Police", "Police"),
-            Pair("Politics", "Politics"),
-            Pair("Post-Apocalyptic", "Post-Apocalyptic"),
-            Pair("Primarily Adult Cast", "Primarily Adult Cast"),
-            Pair("Primarily Female Cast", "Primarily Female Cast"),
-            Pair("Primarily Male Cast", "Primarily Male Cast"),
-            Pair("Puppetry", "Puppetry"),
-            Pair("Real Robot", "Real Robot"),
-            Pair("Rehabilitation", "Rehabilitation"),
-            Pair("Reincarnation", "Reincarnation"),
-            Pair("Revenge", "Revenge"),
-            Pair("Reverse Harem", "Reverse Harem"),
-            Pair("Robots", "Robots"),
-            Pair("Rugby", "Rugby"),
-            Pair("Rural", "Rural"),
-            Pair("Samurai", "Samurai"),
-            Pair("Satire", "Satire"),
-            Pair("School", "School"),
-            Pair("School Club", "School Club"),
-            Pair("Seinen", "Seinen"),
-            Pair("Ships", "Ships"),
-            Pair("Shogi", "Shogi"),
-            Pair("Shoujo", "Shoujo"),
-            Pair("Shoujo Ai", "Shoujo Ai"),
-            Pair("Shounen", "Shounen"),
-            Pair("Shounen Ai", "Shounen Ai"),
-            Pair("Slapstick", "Slapstick"),
-            Pair("Slavery", "Slavery"),
-            Pair("Space", "Space"),
-            Pair("Space Opera", "Space Opera"),
-            Pair("Steampunk", "Steampunk"),
-            Pair("Stop Motion", "Stop Motion"),
-            Pair("Super Power", "Super Power"),
-            Pair("Super Robot", "Super Robot"),
-            Pair("Superhero", "Superhero"),
-            Pair("Surreal Comedy", "Surreal Comedy"),
-            Pair("Survival", "Survival"),
-            Pair("Swimming", "Swimming"),
-            Pair("Swordplay", "Swordplay"),
-            Pair("Table Tennis", "Table Tennis"),
-            Pair("Tanks", "Tanks"),
-            Pair("Teacher", "Teacher"),
-            Pair("Tennis", "Tennis"),
-            Pair("Terrorism", "Terrorism"),
-            Pair("Time Manipulation", "Time Manipulation"),
-            Pair("Time Skip", "Time Skip"),
-            Pair("Tragedy", "Tragedy"),
-            Pair("Trains", "Trains"),
-            Pair("Triads", "Triads"),
-            Pair("Tsundere", "Tsundere"),
-            Pair("Urban Fantasy", "Urban Fantasy"),
-            Pair("Vampire", "Vampire"),
-            Pair("Video Games", "Video Games"),
-            Pair("Virtual World", "Virtual World"),
-            Pair("Volleyball", "Volleyball"),
-            Pair("War", "War"),
-            Pair("Witch", "Witch"),
-            Pair("Work", "Work"),
-            Pair("Wrestling", "Wrestling"),
-            Pair("Writing", "Writing"),
-            Pair("Wuxia", "Wuxia"),
-            Pair("Yakuza", "Yakuza"),
-            Pair("Yandere", "Yandere"),
-            Pair("Youkai", "Youkai"),
-            Pair("Zombie", "Zombie"),
-        )
+        if (cachedSorts.isEmpty() && cachedGenres.isEmpty()) {
+            filters.add(AnimeFilter.Header("Filters are loading... Reopen filters once loaded."))
+        }
+
+        return AnimeFilterList(filters)
     }
 }
