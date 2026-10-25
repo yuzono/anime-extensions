@@ -99,12 +99,12 @@ class ReAnime :
         get() = preferences.getBoolean(PREF_DOWNLOAD_KEY, PREF_DOWNLOAD_DEFAULT)
 
     private fun apiHeaders(referer: String = "$baseUrl/home"): Headers = headers.newBuilder()
-        .add("Accept", "application/json, text/plain, */*")
-        .add("Accept-Language", "en-US,en;q=0.9")
-        .add("Referer", referer)
-        .add("Sec-Fetch-Dest", "empty")
-        .add("Sec-Fetch-Mode", "cors")
-        .add("Sec-Fetch-Site", "same-origin")
+        .set("Accept", "application/json, text/plain, */*")
+        .set("Accept-Language", "en-US,en;q=0.9")
+        .set("Referer", referer)
+        .set("Sec-Fetch-Dest", "empty")
+        .set("Sec-Fetch-Mode", "cors")
+        .set("Sec-Fetch-Site", "same-origin")
         .build()
 
     override val client = network.client.newBuilder()
@@ -207,15 +207,14 @@ class ReAnime :
     @RequiresApi(Build.VERSION_CODES.O)
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val url = "$apiUrl/search".toHttpUrl().newBuilder().apply {
+            if (query.isNotBlank()) addQueryParameter("q", query)
             val limit = 36
             addQueryParameter("limit", limit.toString())
             addQueryParameter("offset", ((page - 1) * limit).toString())
 
-            if (query.isNotBlank()) addQueryParameter("q", query)
-
             filters.forEach { filter ->
                 when (filter) {
-                    is Filters.SortFilter -> addQueryParameter("sort", filter.getValue())
+                    is Filters.SortFilter -> filter.getValue()?.let { addQueryParameter("sort", it) }
                     is Filters.FormatFilter -> filter.getValue()?.let { addQueryParameter("format", it) }
                     is Filters.StatusFilter -> filter.getValue()?.let { addQueryParameter("status", it) }
                     is Filters.SeasonFilter -> filter.getValue()?.let { addQueryParameter("season", it) }
@@ -759,8 +758,8 @@ class ReAnime :
                     val aid = EMBED_AID_REGEX.find(dataLink)?.groupValues?.get(1) ?: return@parallelCatchingFlatMap emptyList()
 
                     val dlHeaders = headers.newBuilder()
-                        .add("Accept", "*/*")
-                        .add("Referer", "$flixCloudUrl/")
+                        .set("Accept", "*/*")
+                        .set("Referer", "$flixCloudUrl/")
                         .build()
 
                     val ddlData = FlixCloudDdl.fetchMetadata(client, dlHeaders, aid) ?: return@parallelCatchingFlatMap emptyList()
@@ -852,13 +851,13 @@ class ReAnime :
 
     private suspend fun extractFromServer(dataLink: String, label: String): List<Video> {
         val flixHeaders = headers.newBuilder()
-            .add("Accept", "*/*")
-            .add("Origin", flixCloudUrl)
-            .add("Referer", "$flixCloudUrl/")
+            .set("Accept", "*/*")
+            .set("Origin", flixCloudUrl)
+            .set("Referer", "$flixCloudUrl/")
             .build()
 
         val decHeaders = headers.newBuilder()
-            .add("Accept", "*/*")
+            .set("Accept", "*/*")
             .build()
 
         return try {
@@ -1047,8 +1046,8 @@ class ReAnime :
             )
 
             val dlHeaders = headers.newBuilder()
-                .add("Accept", "*/*")
-                .add("Referer", "$flixCloudUrl/")
+                .set("Accept", "*/*")
+                .set("Referer", "$flixCloudUrl/")
                 .build()
 
             val fileUrl = FlixCloudDdl.resolveUrl(client, dlHeaders, ddlData) ?: return null
@@ -1284,7 +1283,6 @@ class ReAnime :
         private val XOR_MASK_REGEX = Regex("""for\(var f=\[(\d{1,3}(?:,\d{1,3}){15})]""")
 
         private val EMBED_AID_REGEX = Regex("""/e/([a-z0-9]+)""")
-        private val RESOLUTION_REGEX = Regex("""(\d{3,4}p)""")
 
         fun parseStatus(status: String?): Int = when (status) {
             "RELEASING", "Releasing" -> SAnime.ONGOING
