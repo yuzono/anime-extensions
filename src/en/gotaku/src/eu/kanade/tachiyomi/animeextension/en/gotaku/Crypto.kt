@@ -31,8 +31,8 @@ import kotlin.collections.toByteArray
  */
 object Crypto {
     private val API_SEED = listOf(
-        41, 145, 95, 99, 243, 214, 239, 183, 234, 38, 205, 96, 194, 172, 2, 175,
-        2, 157, 235, 97, 113, 55, 33, 208, 202, 71, 64, 179, 201, 179, 166, 168,
+        179, 30, 96, 89, 215, 107, 110, 243, 131, 139, 238, 126, 21, 71, 36, 87,
+        225, 51, 199, 190, 199, 243, 192, 9, 240, 241, 185, 245, 2, 201, 163, 88,
     ).map { it.toByte() }.toByteArray()
 
     private val MANIFEST_SEED = "458e5403c40a73332706df406193dd6b040a2ea97a6bb59b52b294a61006e6ef".decodeHex()
@@ -54,13 +54,13 @@ object Crypto {
      * of the wire format in case a proxy layer ever re-encodes the body.
      */
     fun decryptInfo(body: ByteArray): String? {
-        val blob = if (body.isNotEmpty() && (body[0] == 1.toByte() || body[0] == 4.toByte())) {
+        val blob = if (body.isNotEmpty() && (body[0] == 4.toByte() || body[0] == 6.toByte())) {
             body
         } else {
             b64UrlDecode(body.decodeToString()) ?: return null
         }
         // 1 (version) + 12 (IV) + 16 (GCM tag) = 29 = empty payload
-        if (blob.size <= 29 || (blob[0] != 1.toByte() && blob[0] != 4.toByte())) return null
+        if (blob.size <= 29 || (blob[0] != 4.toByte() && blob[0] != 6.toByte())) return null
 
         val compressed = gcmDecrypt(
             apiKeySpec,
