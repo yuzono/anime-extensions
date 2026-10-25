@@ -11,7 +11,7 @@ object Filters {
         fun getValue() = if (state == 0) null else SORT_VALUES[state]
         companion object {
             private val SORT_ENTRIES = listOf("Relevance", "Popularity", "Score", "Year")
-            private val SORT_VALUES = listOf("", "popularity_desc", "score_desc", "year_desc")
+            private val SORT_VALUES = listOf(null, "popularity_desc", "score_desc", "year_desc")
         }
     }
 
@@ -19,7 +19,7 @@ object Filters {
         fun getValue() = if (state == 0) null else FORMAT_VALUES[state]
         companion object {
             private val FORMAT_ENTRIES = listOf("Any", "TV", "Movie", "Special", "OVA", "ONA", "Music")
-            private val FORMAT_VALUES = listOf("", "TV", "MOVIE", "SPECIAL", "OVA", "ONA", "MUSIC")
+            private val FORMAT_VALUES = listOf(null, "TV", "MOVIE", "SPECIAL", "OVA", "ONA", "MUSIC")
         }
     }
 
@@ -27,7 +27,7 @@ object Filters {
         fun getValue() = if (state == 0) null else STATUS_VALUES[state]
         companion object {
             private val STATUS_ENTRIES = listOf("Any", "Finished", "Releasing", "Not Yet Released", "Cancelled")
-            private val STATUS_VALUES = listOf("", "Finished", "Releasing", "Not Yet Released", "Cancelled")
+            private val STATUS_VALUES = listOf(null, "Finished", "Releasing", "Not Yet Released", "Cancelled")
         }
     }
 
@@ -35,7 +35,7 @@ object Filters {
         fun getValue() = if (state == 0) null else SEASON_VALUES[state]
         companion object {
             private val SEASON_ENTRIES = listOf("Any", "Winter", "Spring", "Summer", "Fall")
-            private val SEASON_VALUES = listOf("", "WINTER", "SPRING", "SUMMER", "FALL")
+            private val SEASON_VALUES = listOf(null, "WINTER", "SPRING", "SUMMER", "FALL")
         }
     }
 
@@ -43,7 +43,7 @@ object Filters {
         fun getValue() = if (state == 0) null else ORIGIN_VALUES[state]
         companion object {
             private val ORIGIN_ENTRIES = listOf("Any", "Japan", "South Korea", "China", "Taiwan")
-            private val ORIGIN_VALUES = listOf("", "JP", "KR", "CN", "TW")
+            private val ORIGIN_VALUES = listOf(null, "JP", "KR", "CN", "TW")
         }
     }
 
@@ -58,7 +58,7 @@ object Filters {
             private val YEAR_ENTRIES = listOf("Any") + (currentYear downTo 1977).map { it.toString() }
 
             @RequiresApi(Build.VERSION_CODES.O)
-            private val YEAR_VALUES = listOf("") + (currentYear downTo 1977).map { it.toString() }
+            private val YEAR_VALUES = listOf(null) + (currentYear downTo 1977).map { it.toString() }
         }
     }
 
