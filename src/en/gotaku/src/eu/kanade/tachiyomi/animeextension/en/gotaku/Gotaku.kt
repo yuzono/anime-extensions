@@ -240,8 +240,9 @@ class Gotaku :
             }
 
             // All-NSFW page — calculate if more pages exist
-            val total = dto.meta.total
-            val limit = dto.meta.limit
+            val meta = dto.meta
+            val total = meta.total
+            val limit = meta.limit
             if (total > 0 && currentPage * limit >= total) {
                 return AnimesPage(emptyList(), false) // past the end
             }
