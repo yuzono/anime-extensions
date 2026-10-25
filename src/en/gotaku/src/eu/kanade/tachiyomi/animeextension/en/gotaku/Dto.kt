@@ -69,7 +69,7 @@ class DetailsResponseDto(val data: DetailsDataDto = DetailsDataDto())
 
 @Serializable
 class SeasonDto(
-    val id: String? = null,
+    val id: String,
     val name: String? = null,
     @SerialName("full_name") val fullName: String? = null,
     val url: String? = null,

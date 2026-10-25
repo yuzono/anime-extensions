@@ -337,10 +337,11 @@ class Gotaku :
 
         // Seasons first (same series, different season)
         val seasons = data.seasons.mapNotNull { season ->
-            val id = season.id?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val id = season.id.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             if (id == anime.url) return@mapNotNull null // skip current season
             // Prefer full_name ("Cyberpunk: Edgerunners 2") over name ("Season 2")
-            val name = (season.fullName ?: season.name)?.takeIf { it.isNotBlank() }
+            val name = season.fullName?.takeIf { it.isNotBlank() }
+                ?: season.name?.takeIf { it.isNotBlank() }
                 ?: return@mapNotNull null
 
             SAnime.create().apply {
