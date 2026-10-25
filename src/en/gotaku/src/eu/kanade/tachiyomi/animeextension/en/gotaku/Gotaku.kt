@@ -334,7 +334,23 @@ class Gotaku :
     override suspend fun fetchRelatedAnimeList(anime: SAnime): List<SAnime> {
         val data = fetchDetails(anime.url) ?: return emptyList()
 
-        return (data.relations + data.recommendations).mapNotNull { rel ->
+        // Seasons first (same series, different season)
+        val seasons = data.seasons.mapNotNull { season ->
+            val id = season.id?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            if (id == anime.url) return@mapNotNull null // skip current season
+            // Prefer full_name ("Cyberpunk: Edgerunners 2") over name ("Season 2")
+            val name = (season.fullName ?: season.name)?.takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+
+            SAnime.create().apply {
+                url = id
+                title = name
+                thumbnail_url = season.posterUrl?.takeIf { it.isNotBlank() }
+            }
+        }
+
+        // Relations and recommendations
+        val related = (data.relations + data.recommendations).mapNotNull { rel ->
             val relId = rel.id?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val relName = rel.name?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             if (relId == anime.url) return@mapNotNull null
@@ -344,7 +360,9 @@ class Gotaku :
                 title = relName
                 thumbnail_url = rel.posterUrl?.takeIf { it.isNotBlank() }
             }
-        }.distinctBy { it.url }
+        }
+
+        return (seasons + related).distinctBy { it.url }
     }
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()

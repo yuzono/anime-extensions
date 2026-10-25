@@ -68,10 +68,21 @@ class EpisodesInfoDto(
 class DetailsResponseDto(val data: DetailsDataDto = DetailsDataDto())
 
 @Serializable
+class SeasonDto(
+    val id: String? = null,
+    val name: String? = null,
+    @SerialName("full_name") val fullName: String? = null,
+    val url: String? = null,
+    @SerialName("poster_url") val posterUrl: String? = null,
+    @SerialName("is_current") val isCurrent: Boolean? = null,
+)
+
+@Serializable
 class DetailsDataDto(
     val title: TitleDetailDto = TitleDetailDto(),
     val relations: List<RelatedTitleDto> = emptyList(),
     val recommendations: List<RelatedTitleDto> = emptyList(),
+    val seasons: List<SeasonDto> = emptyList(),
 )
 
 @Serializable
