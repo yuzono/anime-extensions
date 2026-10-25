@@ -8,7 +8,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 object Filters {
 
     class SortFilter : AnimeFilter.Select<String>("Sort By", SORT_ENTRIES.toTypedArray(), 0) {
-        fun getValue() = if (state == 0) null else SORT_VALUES[state]
+        fun getValue(): String? = SORT_VALUES.getOrNull(state)
         companion object {
             private val SORT_ENTRIES = listOf("Relevance", "Popularity", "Score", "Year")
             private val SORT_VALUES = listOf(null, "popularity_desc", "score_desc", "year_desc")
@@ -16,7 +16,7 @@ object Filters {
     }
 
     class FormatFilter : AnimeFilter.Select<String>("Format", FORMAT_ENTRIES.toTypedArray(), 0) {
-        fun getValue() = if (state == 0) null else FORMAT_VALUES[state]
+        fun getValue(): String? = FORMAT_VALUES.getOrNull(state)
         companion object {
             private val FORMAT_ENTRIES = listOf("Any", "TV", "Movie", "Special", "OVA", "ONA", "Music")
             private val FORMAT_VALUES = listOf(null, "TV", "MOVIE", "SPECIAL", "OVA", "ONA", "MUSIC")
@@ -24,7 +24,7 @@ object Filters {
     }
 
     class StatusFilter : AnimeFilter.Select<String>("Airing Status", STATUS_ENTRIES.toTypedArray(), 0) {
-        fun getValue() = if (state == 0) null else STATUS_VALUES[state]
+        fun getValue(): String? = STATUS_VALUES.getOrNull(state)
         companion object {
             private val STATUS_ENTRIES = listOf("Any", "Finished", "Releasing", "Not Yet Released", "Cancelled")
             private val STATUS_VALUES = listOf(null, "Finished", "Releasing", "Not Yet Released", "Cancelled")
@@ -32,7 +32,7 @@ object Filters {
     }
 
     class SeasonFilter : AnimeFilter.Select<String>("Season", SEASON_ENTRIES.toTypedArray(), 0) {
-        fun getValue() = if (state == 0) null else SEASON_VALUES[state]
+        fun getValue(): String? = SEASON_VALUES.getOrNull(state)
         companion object {
             private val SEASON_ENTRIES = listOf("Any", "Winter", "Spring", "Summer", "Fall")
             private val SEASON_VALUES = listOf(null, "WINTER", "SPRING", "SUMMER", "FALL")
@@ -40,7 +40,7 @@ object Filters {
     }
 
     class OriginFilter : AnimeFilter.Select<String>("Origin", ORIGIN_ENTRIES.toTypedArray(), 0) {
-        fun getValue() = if (state == 0) null else ORIGIN_VALUES[state]
+        fun getValue(): String? = ORIGIN_VALUES.getOrNull(state)
         companion object {
             private val ORIGIN_ENTRIES = listOf("Any", "Japan", "South Korea", "China", "Taiwan")
             private val ORIGIN_VALUES = listOf(null, "JP", "KR", "CN", "TW")
@@ -49,7 +49,7 @@ object Filters {
 
     @RequiresApi(Build.VERSION_CODES.O)
     class YearFilter : AnimeFilter.Select<String>("Year", YEAR_ENTRIES.toTypedArray(), 0) {
-        fun getValue() = if (state == 0) null else YEAR_VALUES[state]
+        fun getValue(): String? = YEAR_VALUES.getOrNull(state)
         companion object {
             @RequiresApi(Build.VERSION_CODES.O)
             private val currentYear = java.time.LocalDate.now().year
