@@ -846,7 +846,7 @@ class Gotaku :
         private const val PREF_AUDIO_EXCLUDE_KEY = "excluded_audio_types"
 
         private const val PREF_SHOW_DOWNLOADS_KEY = "show_downloads"
-        private const val PREF_SHOW_DOWNLOADS_DEFAULT = true
+        private const val PREF_SHOW_DOWNLOADS_DEFAULT = false
 
         private const val PREF_HIDE_NSFW_KEY = "hide_nsfw"
         private const val PREF_HIDE_NSFW_DEFAULT = true
