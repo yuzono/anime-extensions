@@ -320,8 +320,11 @@ class Gotaku :
             null
         } ?: throw Exception("Failed to load or decrypt episode list. Try again or check the site in WebView.")
 
-        val episodes = json.parseAs<GotakuEnvelope<List<EpisodeDto>>>().data
-            ?.takeIf { it.isNotEmpty() }
+        val episodes = try {
+            json.parseAs<GotakuEnvelope<List<EpisodeDto>>>().data
+        } catch (_: Exception) {
+            null
+        }?.takeIf { it.isNotEmpty() }
             ?: throw Exception("No episodes found. Check if there are any in WebView.")
 
         return episodes.mapIndexed { index, ep ->
@@ -366,9 +369,12 @@ class Gotaku :
 
         val watchReferer = "$baseUrl/title/$slug?ep=$epId"
 
-        val flags = decryptApiCall("$apiUrl/episodes/$epId?k=$API_VERSION", watchReferer)
-            ?.parseAs<GotakuEnvelope<AudioFlagsDto>>()?.data
-            ?: return emptyList()
+        val flags = try {
+            decryptApiCall("$apiUrl/episodes/$epId?k=$API_VERSION", watchReferer)
+                ?.parseAs<GotakuEnvelope<AudioFlagsDto>>()?.data
+        } catch (_: Exception) {
+            null
+        } ?: return emptyList()
 
         val excluded = excludedAudioTypes
         val includeDownloads = showDownloads
@@ -424,7 +430,11 @@ class Gotaku :
         return when (kind) {
             "embed" -> {
                 val embedJson = decryptApiCall("$apiUrl/episodes/$epId/embed?type=$type&k=$API_VERSION", watchReferer)
-                val embedDto = embedJson?.parseAs<GotakuEnvelope<EmbedDto>>()?.data ?: return emptyList()
+                val embedDto = try {
+                    embedJson?.parseAs<GotakuEnvelope<EmbedDto>>()?.data
+                } catch (_: Exception) {
+                    null
+                } ?: return emptyList()
                 val embedPath = embedDto.url ?: return emptyList()
                 val embedUrl = if (embedPath.startsWith("https")) embedPath else "$baseUrl$embedPath"
                 extractViaHttp(embedUrl, watchReferer, embedDto, hoster)
@@ -455,7 +465,11 @@ class Gotaku :
             .set("Accept", "text/plain")
             .build()
         val encBody = client.get("$base/$requestPath", manifestHeaders).body.string()
-        val manifest = handshake.decryptResponse(encBody)?.parseAs<ManifestDto>() ?: return emptyList()
+        val manifest = try {
+            handshake.decryptResponse(encBody)?.parseAs<ManifestDto>()
+        } catch (_: Exception) {
+            null
+        } ?: return emptyList()
 
         val streamUrl = manifest.source?.takeIf { it.isNotBlank() } ?: return emptyList()
         val keySeed = manifest.keySeed.orEmpty()
@@ -515,7 +529,11 @@ class Gotaku :
     ): List<Video> {
         // 1. Fetch the embed URL (same encrypted endpoint as streaming)
         val embedJson = decryptApiCall("$apiUrl/episodes/$epId/embed?type=$type&k=$API_VERSION", watchReferer)
-        val embedDto = embedJson?.parseAs<GotakuEnvelope<EmbedDto>>()?.data ?: return emptyList()
+        val embedDto = try {
+            embedJson?.parseAs<GotakuEnvelope<EmbedDto>>()?.data
+        } catch (_: Exception) {
+            null
+        } ?: return emptyList()
         val embedPath = embedDto.url ?: return emptyList()
         val embedUrl = if (embedPath.startsWith("https")) embedPath else "$baseUrl$embedPath"
 
@@ -554,7 +572,11 @@ class Gotaku :
             .set("Accept", "text/plain")
             .build()
         val encBody = client.get("$dlBase/$requestPath", manifestHeaders).body.string()
-        val manifest = handshake.decryptResponse(encBody)?.parseAs<ManifestDto>() ?: return emptyList()
+        val manifest = try {
+            handshake.decryptResponse(encBody)?.parseAs<ManifestDto>()
+        } catch (_: Exception) {
+            null
+        } ?: return emptyList()
 
         val streamUrl = manifest.source?.takeIf { it.isNotBlank() } ?: return emptyList()
         val keySeed = manifest.keySeed.orEmpty()
