@@ -14,7 +14,6 @@ yuzono {
     }
 
     deeplink {
-        host("donghuanosekai.com")
         path("/..*")
     }
 }

@@ -15,7 +15,6 @@ yuzono {
     }
 
     deeplink {
-        host("torrentio.strem.fun")
         path("/anime/..*")
     }
 }

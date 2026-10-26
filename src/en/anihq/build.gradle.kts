@@ -14,7 +14,6 @@ yuzono {
     }
 
     deeplink {
-        host("anihq.cc")
         path("/anime-show/..*")
         path("/watch/..*")
     }

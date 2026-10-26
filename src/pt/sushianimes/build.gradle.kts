@@ -15,7 +15,6 @@ yuzono {
     }
 
     deeplink {
-        host("sushianimes.com.br")
         path("/anime/..*")
     }
 }

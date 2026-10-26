@@ -14,7 +14,6 @@ yuzono {
     }
 
     deeplink {
-        host("www.okanime.xyz")
         path("/anime/..*")
     }
 }

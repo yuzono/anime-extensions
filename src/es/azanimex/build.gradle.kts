@@ -14,7 +14,6 @@ yuzono {
     }
 
     deeplink {
-        host("www.az-animex.com")
         path("/anime/..*")
     }
 }

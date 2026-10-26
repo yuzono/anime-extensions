@@ -14,7 +14,6 @@ yuzono {
     }
 
     deeplink {
-        host("www.animesrbija.com")
         path("/anime/..*")
     }
 }

@@ -14,7 +14,6 @@ yuzono {
     }
 
     deeplink {
-        host("jav.guru")
         path("/.*/..*")
     }
 }

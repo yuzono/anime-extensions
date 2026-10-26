@@ -14,7 +14,6 @@ yuzono {
     }
 
     deeplink {
-        host("animesdigital.org")
         path("/anime/a/..*")
     }
 }

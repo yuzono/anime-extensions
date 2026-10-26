@@ -14,7 +14,6 @@ yuzono {
     }
 
     deeplink {
-        host("goyabu.io")
         path("/..*")
         path("/anime/..*")
     }

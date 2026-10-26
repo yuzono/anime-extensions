@@ -14,7 +14,6 @@ yuzono {
     }
 
     deeplink {
-        host("franime.fr")
         path("/anime/..*")
     }
 }

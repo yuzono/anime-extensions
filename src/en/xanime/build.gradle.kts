@@ -16,8 +16,6 @@ yuzono {
     }
 
     deeplink {
-        host("xanime.me")
-        host("xanime.app")
         path("/title/.*")
     }
 }

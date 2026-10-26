@@ -14,7 +14,6 @@ yuzono {
     }
 
     deeplink {
-        host("www.verseriesonline.net")
         path("/anime/..*")
     }
 }

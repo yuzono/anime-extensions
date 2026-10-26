@@ -15,7 +15,6 @@ yuzono {
     }
 
     deeplink {
-        host("aniplay.co")
         path("/series/..*")
     }
 }

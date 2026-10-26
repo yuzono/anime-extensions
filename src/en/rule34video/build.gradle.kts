@@ -14,7 +14,6 @@ yuzono {
     }
 
     deeplink {
-        host("rule34video.com")
         path("/video/..*")
         path("/videos/..*")
     }

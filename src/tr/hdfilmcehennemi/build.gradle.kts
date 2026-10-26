@@ -14,7 +14,6 @@ yuzono {
     }
 
     deeplink {
-        host("www.hdfilmcehennemi.nl")
         path("/..*")
     }
 }

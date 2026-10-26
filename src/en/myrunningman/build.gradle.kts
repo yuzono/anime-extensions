@@ -14,7 +14,6 @@ yuzono {
     }
 
     deeplink {
-        host("www.myrunningman.com")
         path("/ep/..*")
     }
 }

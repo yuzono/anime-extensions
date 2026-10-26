@@ -15,7 +15,6 @@ yuzono {
     }
 
     deeplink {
-        host("hstream.moe")
         path("/hentai/..*")
     }
 }

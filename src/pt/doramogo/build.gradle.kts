@@ -14,7 +14,6 @@ yuzono {
     }
 
     deeplink {
-        host("doramogo.com")
         path("/dorama/..*")
     }
 }
