@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.anihq
 
 import android.content.SharedPreferences
+import android.util.Base64
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.pixeldrainextractor.PixelDrainExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
@@ -76,14 +77,35 @@ abstract class AniHQ :
         for (page in listOf("$baseUrl/search/", "$baseUrl/")) {
             runCatching {
                 client.newCall(GET(page, headers)).execute().use { response ->
-                    nonceRegex.find(response.body.string())
-                        ?.groupValues?.get(1)
-                        ?.let { searchNonce = it }
+                    val html = response.body.string()
+                    val document = Jsoup.parse(html)
+                    val scriptSrc = document.selectFirst("script#kira-js-holder-js-before")?.attr("src")
+                        ?: document.selectFirst("script[src^='data:text/javascript;base64,']")?.attr("src")
+
+                    if (!scriptSrc.isNullOrBlank()) {
+                        val base64Data = scriptSrc.substringAfter("data:text/javascript;base64,", "")
+                        if (base64Data.isNotBlank()) {
+                            val decoded = runCatching {
+                                String(Base64.decode(base64Data, Base64.DEFAULT), Charsets.UTF_8)
+                            }.getOrNull()
+                            if (decoded != null) {
+                                nonceRegex.find(decoded)?.groupValues?.get(1)?.let {
+                                    searchNonce = it
+                                }
+                            }
+                        }
+                    }
+
+                    if (searchNonce == null) {
+                        nonceRegex.find(html)?.groupValues?.get(1)?.let {
+                            searchNonce = it
+                        }
+                    }
                 }
             }
             searchNonce?.let { return it }
         }
-        return "a10a90be95".also { searchNonce = it }
+        throw Exception("Could not fetch search nonce")
     }
 
     private suspend fun <T> withNonceRetry(block: suspend () -> T): T = try {
