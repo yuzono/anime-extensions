@@ -24,7 +24,10 @@ import java.util.concurrent.atomic.AtomicReference
  * `hexa.su` origin. The token is cached in memory and only re-solved when it expires or when the
  * API rejects it.
  */
-class CapTokenProvider {
+class CapTokenProvider(
+    // Same origin the site's widget runs on, so the Cap server sees the requests it expects.
+    private val pageBaseUrl: String,
+) {
 
     private val handler = Handler(Looper.getMainLooper())
     private val mutex = Mutex()
@@ -117,7 +120,7 @@ class CapTokenProvider {
             }
         }
 
-        webView.loadDataWithBaseURL(PAGE_BASE_URL, PAGE_HTML, "text/html", "utf-8", null)
+        webView.loadDataWithBaseURL(pageBaseUrl, PAGE_HTML, "text/html", "utf-8", null)
         return webView
     }
 
@@ -136,8 +139,6 @@ class CapTokenProvider {
     private companion object {
         const val BRIDGE_NAME = "HexaCap"
 
-        // Same origin the site's widget runs on, so the Cap server sees the requests it expects.
-        const val PAGE_BASE_URL = "https://hexa.su/"
         const val CAP_ENDPOINT = "https://cap.hexa.su/15d2cf0395/"
         const val CAP_WIDGET_URL = "https://cdn.jsdelivr.net/npm/@cap.js/widget"
 

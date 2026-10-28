@@ -29,6 +29,7 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonString
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
@@ -218,7 +219,7 @@ abstract class AnimeAv1 :
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
     private val megaExtractor by lazy { MegaExtractor(client, headers) }
-    private val unsExtractor by lazy { UnsExtractor(client, headers) }
+    private val unsExtractor by lazy { UnsExtractor(client, headers, baseUrl.toHttpUrl().host) }
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
 
     private suspend fun serverVideoResolver(url: String, prefix: String, serverName: String): List<Video> {

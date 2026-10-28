@@ -217,7 +217,7 @@ abstract class VerSeriesOnline :
 
                 if (dataHash.isNotEmpty()) {
                     val request = Request.Builder()
-                        .url("https://www.verseriesonline.net/hashembedlink")
+                        .url("$baseUrl/hashembedlink")
                         .post(
                             FormBody.Builder()
                                 .add("hash", dataHash)
@@ -230,7 +230,7 @@ abstract class VerSeriesOnline :
                         .addHeader("Referer", response.request.url.toString())
                         .addHeader("Accept", "application/json, text/plain, */*")
                         .addHeader("Accept-Language", "es-ES,es;q=0.9")
-                        .addHeader("Origin", "https://www.verseriesonline.net")
+                        .addHeader("Origin", baseUrl)
                         .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
                         .addHeader("sec-ch-ua", "\"Google Chrome\";v=\"119\", \"Chromium\";v=\"119\", \"Not?A_Brand\";v=\"24\"")
                         .addHeader("sec-ch-ua-mobile", "?0")

@@ -246,7 +246,7 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
 
             val adHeaders = headersBuilder()
                 .add("Referer", episodeUrl)
-                .add("Origin", "https://www.dattebayo-br.com")
+                .add("Origin", baseUrl)
                 .build()
 
             val adRequest = Request.Builder().url(adUrl).headers(adHeaders).build()

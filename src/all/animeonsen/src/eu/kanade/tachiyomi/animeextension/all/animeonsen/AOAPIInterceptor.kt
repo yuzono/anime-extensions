@@ -13,7 +13,7 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Response
 
-class AOAPIInterceptor(private val client: OkHttpClient, apiUrl: String) : Interceptor {
+class AOAPIInterceptor(private val client: OkHttpClient, apiUrl: String, private val siteUrl: String) : Interceptor {
 
     private var token: String? = null
 
@@ -41,9 +41,9 @@ class AOAPIInterceptor(private val client: OkHttpClient, apiUrl: String) : Inter
                 "Accept",
                 "application/json",
                 "Origin",
-                "https://www.animeonsen.xyz",
+                siteUrl,
                 "Referer",
-                "https://www.animeonsen.xyz/",
+                "$siteUrl/",
             )
 
             val response = tokenClient.newCall(

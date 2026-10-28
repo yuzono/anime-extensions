@@ -61,7 +61,7 @@ abstract class Kayoanime :
         latestPost = ""
         layout = ""
         settings = ""
-        currentReferer = "https://kayoanime.com/ongoing-animes/"
+        currentReferer = "$baseUrl/ongoing-animes/"
         GET("$baseUrl/ongoing-animes/")
     } else {
         val formBody = FormBody.Builder()
@@ -76,8 +76,8 @@ abstract class Kayoanime :
         val formHeaders = headers.newBuilder()
             .add("Accept", "*/*")
             .add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-            .add("Host", "kayoanime.com")
-            .add("Origin", "https://kayoanime.com")
+            .add("Host", baseUrl.toHttpUrl().host)
+            .add("Origin", baseUrl)
             .add("Referer", currentReferer)
             .add("X-Requested-With", "XMLHttpRequest")
             .build()
@@ -190,8 +190,8 @@ abstract class Kayoanime :
             val formHeaders = headers.newBuilder()
                 .add("Accept", "*/*")
                 .add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-                .add("Host", "kayoanime.com")
-                .add("Origin", "https://kayoanime.com")
+                .add("Host", baseUrl.toHttpUrl().host)
+                .add("Origin", baseUrl)
                 .add("Referer", currentReferer)
                 .add("X-Requested-With", "XMLHttpRequest")
                 .build()

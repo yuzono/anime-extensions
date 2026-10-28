@@ -218,7 +218,7 @@ abstract class Anizm :
         client.newBuilder().followRedirects(false).build()
     }
 
-    private val aincradExtractor by lazy { AincradExtractor(client, headers) }
+    private val aincradExtractor by lazy { AincradExtractor(client, headers, baseUrl) }
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val gdrivePlayerExtractor by lazy { GdrivePlayerExtractor(client) }

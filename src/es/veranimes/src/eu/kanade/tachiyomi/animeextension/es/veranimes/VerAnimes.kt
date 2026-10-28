@@ -129,7 +129,7 @@ abstract class VerAnimes :
         val mediaType = "application/x-www-form-urlencoded; charset=UTF-8".toMediaType()
         val body = "acc=opt&i=$opt".toRequestBody(mediaType)
         val request = Request.Builder()
-            .url("https://wwv.veranimes.net/process")
+            .url("$baseUrl/process")
             .post(body)
             .addHeader("content-type", "application/x-www-form-urlencoded; charset=UTF-8")
             .addHeader("referer", document.location())

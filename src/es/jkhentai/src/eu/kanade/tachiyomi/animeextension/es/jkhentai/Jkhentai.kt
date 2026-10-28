@@ -31,7 +31,7 @@ abstract class Jkhentai :
 
     override fun popularAnimeSelector(): String = "div#contenedor div.items div#directorio div#box_movies div.movie"
 
-    override fun popularAnimeRequest(page: Int): Request = GET("https://www.jkhentai.net/lista/$page")
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/lista/$page")
 
     override fun popularAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
@@ -52,7 +52,7 @@ abstract class Jkhentai :
         val animeId = response.request.url.pathSegments.last().replace("-sub-espanol", "").replace("-080p", "-1080p")
         jsoup.select("div#contenedor div.items.ptts div#movie div.post div#cssmenu ul li.has-sub.open ul li").forEach { it ->
 
-            val epNum = it.select("a").attr("href").replace("https://www.jkhentai.net/ver/$animeId-", "")
+            val epNum = it.select("a").attr("href").replace("$baseUrl/ver/$animeId-", "")
             val episode = SEpisode.create().apply {
                 episode_number = epNum.toFloat()
                 name = "Episodio $epNum"

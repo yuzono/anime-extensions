@@ -21,7 +21,7 @@ import javax.crypto.spec.SecretKeySpec
 
 // uns.bio player ("UPNShare"). The player API answers with hex-encoded AES-CBC JSON listing one HLS
 // playlist per delivery network; `r` must be the host of the page embedding the player.
-class UnsExtractor(private val client: OkHttpClient, private val headers: Headers) {
+class UnsExtractor(private val client: OkHttpClient, private val headers: Headers, private val siteHost: String) {
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
@@ -38,7 +38,7 @@ class UnsExtractor(private val client: OkHttpClient, private val headers: Header
             .addQueryParameter("id", videoId)
             .addQueryParameter("w", "1920")
             .addQueryParameter("h", "1080")
-            .addQueryParameter("r", "animeav1.com")
+            .addQueryParameter("r", siteHost)
             .build()
 
         val payload = client.get(apiUrl, playerHeaders, cacheControl = CacheControl.FORCE_NETWORK).bodyString().trim()

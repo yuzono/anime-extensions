@@ -59,7 +59,7 @@ abstract class HexaWatch :
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
-    private val capTokenProvider by lazy { CapTokenProvider() }
+    private val capTokenProvider by lazy { CapTokenProvider("$baseUrl/") }
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int): Request {

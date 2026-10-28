@@ -24,10 +24,8 @@ import uy.kohesive.injekt.injectLazy
 @Source
 abstract class FrAnime : AnimeHttpLegacySource() {
 
-    private val domain = "franime.fr"
-
-    private val baseApiUrl = "https://api.$domain/api"
-    private val baseApiAnimeUrl = "$baseApiUrl/anime"
+    private val baseApiUrl: String get() = "https://api.${baseUrl.toHttpUrl().host}/api"
+    private val baseApiAnimeUrl: String get() = "$baseApiUrl/anime"
 
     override val supportsLatest = true
 
