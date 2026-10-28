@@ -19,10 +19,11 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.annotation.Source
 import keiyoushi.lib.i18n.Intl
+import keiyoushi.source.CustomUrlPreferences
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
-import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferences
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
@@ -38,7 +39,10 @@ abstract class Tuktukcinema :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    private val preferences by getPreferencesLazy()
+    // Not lazy, so a domain saved by the old setting moves before the generated baseUrl first reads the preferences
+    private val preferences = getPreferences {
+        CustomUrlPreferences.migrate(this, "custom_domain", "https://tuktukhd.com")
+    }
 
     override val supportsLatest = true
 

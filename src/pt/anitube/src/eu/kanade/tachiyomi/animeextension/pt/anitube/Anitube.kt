@@ -12,8 +12,9 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.annotation.Source
+import keiyoushi.source.CustomUrlPreferences
 import keiyoushi.utils.AnimeHttpLegacySource
-import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferences
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.async
@@ -35,7 +36,8 @@ abstract class Anitube :
 
     override val supportsLatest = true
 
-    private val preferences by getPreferencesLazy {
+    // Not lazy, so a domain saved by the old setting moves before the generated baseUrl first reads the preferences
+    private val preferences = getPreferences {
         getString("preferred_quality", null)?.let {
             val newValue = when (it) {
                 "SD" -> "480p"
@@ -47,6 +49,7 @@ abstract class Anitube :
                 .remove("preferred_quality")
                 .apply()
         }
+        CustomUrlPreferences.migrate(this, "preferred_domain", "https://www.anitube.vip")
     }
 
     override fun headersBuilder() = super.headersBuilder()

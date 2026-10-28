@@ -13,10 +13,11 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
 import keiyoushi.lib.synchrony.Deobfuscator
+import keiyoushi.source.CustomUrlPreferences
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
-import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferences
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -30,7 +31,10 @@ abstract class FASELHD :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    private val preferences by getPreferencesLazy()
+    // Not lazy, so a domain saved by the old setting moves before the generated baseUrl first reads the preferences
+    private val preferences = getPreferences {
+        CustomUrlPreferences.migrate(this, "custom_domain", "https://www.faselhds.biz")
+    }
 
     override val supportsLatest = true
 

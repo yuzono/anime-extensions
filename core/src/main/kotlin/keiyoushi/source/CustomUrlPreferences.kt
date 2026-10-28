@@ -16,7 +16,7 @@ class CustomUrlPreferences(
     private val dialogMessage: String,
 ) {
     private val prefBaseKey = PREF_BASE_URL_KEY
-    private val prefDefaultKey = "defaultBaseUrl"
+    private val prefDefaultKey = PREF_DEFAULT_KEY
 
     init {
         val storedDefault = preferences.getString(prefDefaultKey, null)
@@ -94,5 +94,22 @@ class CustomUrlPreferences(
     companion object {
         /** Key of the custom base URL, for a source that stores a new domain announced by the site. */
         const val PREF_BASE_URL_KEY = "overrideBaseUrl"
+        private const val PREF_DEFAULT_KEY = "defaultBaseUrl"
+
+        /**
+         * Moves a custom base URL that a source saved under [oldKey] before it declared `withCustom`, unless a custom URL
+         * is already set. Call it before the generated preference first reads [preferences]: when no default is stored,
+         * it resets the custom URL. Unlike the setting, it keeps a path: the old setting used it as is, and a site behind a
+         * reverse proxy needs it.
+         */
+        fun migrate(preferences: SharedPreferences, oldKey: String, defaultUrl: String) {
+            val url = preferences.getString(oldKey, null)?.trim()?.trimEnd('/') ?: return
+            val current = preferences.getString(PREF_BASE_URL_KEY, null)
+            val editor = preferences.edit().remove(oldKey)
+            if (url != defaultUrl && url.toHttpUrlOrNull() != null && (current == null || current == defaultUrl)) {
+                editor.putString(PREF_BASE_URL_KEY, url).putString(PREF_DEFAULT_KEY, defaultUrl)
+            }
+            editor.apply()
+        }
     }
 }

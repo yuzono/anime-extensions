@@ -14,11 +14,11 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.torrentutils.TorrentUtils
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
+import keiyoushi.source.CustomUrlPreferences
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferences
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -38,14 +38,7 @@ abstract class NyaaTorrent :
 
     // Not lazy, so a domain saved by the old setting moves before the generated baseUrl first reads the preferences
     private val preferences = getPreferences {
-        val domain = getString("domain", null)?.trim()?.trimEnd('/') ?: return@getPreferences
-        val defaultUrl = if (extId == 2) "https://sukebei.nyaa.si" else "https://nyaa.si"
-        val editor = edit().remove("domain")
-        if (domain != defaultUrl && domain.toHttpUrlOrNull() != null) {
-            // The keys of the generated CustomUrlPreferences, which resets a custom URL that has no stored default
-            editor.putString("overrideBaseUrl", domain).putString("defaultBaseUrl", defaultUrl)
-        }
-        editor.apply()
+        CustomUrlPreferences.migrate(this, "domain", if (extId == 2) "https://sukebei.nyaa.si" else "https://nyaa.si")
     }
 
     override val supportsLatest = true
