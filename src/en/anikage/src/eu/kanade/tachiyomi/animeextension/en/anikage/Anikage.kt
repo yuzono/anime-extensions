@@ -1,74 +1,66 @@
 package eu.kanade.tachiyomi.animeextension.en.anikage
 
 import android.content.SharedPreferences
+import androidx.preference.MultiSelectListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.playlistutils.PlaylistUtils
+import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimeUpdateStrategy
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
-import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import keiyoushi.network.get
+import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.network.rateLimit
-import keiyoushi.utils.Source
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
-import keiyoushi.utils.bodyString
-import keiyoushi.utils.delegate
+import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
-import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.toJsonString
+import keiyoushi.utils.tryParse
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.Headers
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import java.util.concurrent.TimeUnit
+import okhttp3.Request
+import okhttp3.Response
+import org.jsoup.Jsoup
+import java.text.SimpleDateFormat
+import java.util.Locale
 
-@keiyoushi.annotation.Source
-abstract class Anikage : Source() {
+@Source
+abstract class Anikage :
+    AnimeHttpLegacySource(),
+    ConfigurableAnimeSource {
 
-    override val migration: SharedPreferences.() -> Unit = {
-        val oldType = getString("sub_or_dub", null)
-        if (oldType != null && !contains(PREF_TYPE_KEY)) {
-            edit().putString(PREF_TYPE_KEY, if (oldType.equals("dub", true)) "DUB" else "SUB").apply()
-        }
-        val oldAdult = getBoolean("is_adult", false)
-        if (contains("is_adult") && !contains(PREF_ADULT_KEY)) {
-            edit().putBoolean(PREF_ADULT_KEY, oldAdult).apply()
-        }
-        val oldQuality = getString("quality", null)
-        if (oldQuality != null && !contains(PREF_QUALITY_KEY)) {
-            edit().putString(PREF_QUALITY_KEY, oldQuality).apply()
-        }
-    }
+    override val supportsLatest: Boolean = true
 
-    private val apiUrl = "$baseUrl/api/media"
+    override val disableRelatedAnimesBySearch = true
 
-    override val supportsLatest = true
+    override fun headersBuilder(): Headers.Builder = super.headersBuilder()
+        .set("Origin", baseUrl)
+        .set("Referer", "$baseUrl/")
 
     override val client = network.client.newBuilder()
-        .rateLimit(4)
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .rateLimit(3)
         .build()
 
-    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+    private val preferences by getPreferencesLazy()
 
-    private val titleStyle: String
-        by preferences.delegate(PREF_TITLE_KEY, PREF_TITLE_DEFAULT)
-
-    private val preferredQuality: String
-        by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
-
-    private val preferredType: String
-        by preferences.delegate(PREF_TYPE_KEY, PREF_TYPE_DEFAULT)
-
-    private val forceTsArgs = listOf("demuxer-lavf-o" to "force_mpegts=1")
-    private val forceFfmpegArgs = listOf("force_mpegts" to "1")
+    /**
+     * The neko provider serves AniNeko streams whose segments are wrapped
+     * in a fake PNG header, so they must pass through a local proxy that
+     * strips it before playback.
+     */
+    private val localProxy by lazy { LocalProxy(client) }
 
     init {
         CoroutineScope(Dispatchers.IO).launch {
@@ -80,428 +72,431 @@ abstract class Anikage : Source() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularAnime(page: Int): AnimesPage = browse(page, sort = "popularity")
+    override fun popularAnimeRequest(page: Int): Request {
+        val requestUrl = ANIKAGE_API_URL
+            .newBuilder()
+        requestUrl.addQueryParameter("page", page.toString())
+        requestUrl.addQueryParameter("sort", "popularity")
+        requestUrl.addQueryParameter("limit", "25")
+        if (preferences.isAdult) {
+            requestUrl.addQueryParameter("adult", "true")
+        }
 
-    // ============================== Latest ================================
+        return buildGet(requestUrl.build())
+    }
 
-    override suspend fun getLatestUpdates(page: Int): AnimesPage = browse(page, sort = "updated")
+    override fun popularAnimeParse(response: Response) = parseAnime(response)
+
+    // =============================== Latest ===============================
+
+    override fun latestUpdatesRequest(page: Int): Request {
+        val requestUrl = ANIKAGE_API_URL
+            .newBuilder()
+        requestUrl.addQueryParameter("page", page.toString())
+        requestUrl.addQueryParameter("sort", "updated")
+        requestUrl.addQueryParameter("limit", "25")
+        if (preferences.isAdult) {
+            requestUrl.addQueryParameter("adult", "true")
+        }
+
+        return buildGet(requestUrl.build())
+    }
+
+    override fun latestUpdatesParse(response: Response) = parseAnime(response)
 
     // =============================== Search ===============================
 
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        val sort = filters.filterIsInstance<Filters.SortFilter>().firstOrNull()?.toUriPart()
-            ?.takeIf { it.isNotEmpty() } ?: if (query.isBlank()) "popularity" else "score"
-        val format = filters.filterIsInstance<Filters.FormatFilter>().firstOrNull()?.toUriPart().orEmpty()
-        val status = filters.filterIsInstance<Filters.StatusFilter>().firstOrNull()?.toUriPart().orEmpty()
-        val season = filters.filterIsInstance<Filters.SeasonFilter>().firstOrNull()?.toUriPart().orEmpty()
-        val year = filters.filterIsInstance<Filters.YearFilter>().firstOrNull()?.state?.trim().orEmpty()
-        val genres = filters.filterIsInstance<Filters.GenreFilter>().firstOrNull()?.getIncluded().orEmpty()
-        val tags = filters.filterIsInstance<Filters.TagFilter>().firstOrNull()?.getIncluded().orEmpty()
-
-        return browse(
-            page = page,
-            sort = sort,
-            query = query,
-            format = format,
-            status = status,
-            season = season,
-            year = year,
-            genres = genres,
-            tags = tags,
-        )
-    }
-
     override fun getFilterList(): AnimeFilterList = Filters.build(preferences)
 
-    private suspend fun browse(
+    override fun searchAnimeRequest(
         page: Int,
-        sort: String,
-        query: String = "",
-        format: String = "",
-        status: String = "",
-        season: String = "",
-        year: String = "",
-        genres: List<String> = emptyList(),
-        tags: List<String> = emptyList(),
-    ): AnimesPage {
-        val showAdult = preferences.getBoolean(PREF_ADULT_KEY, false)
-        val url = "$apiUrl/anime/browse".toHttpUrl().newBuilder().apply {
-            if (query.isNotBlank()) addQueryParameter("q", query)
-            addQueryParameter("sort", sort)
-            addQueryParameter("page", page.toString())
-            addQueryParameter("limit", "25")
-            addQueryParameter("adult", showAdult.toString())
-            if (format.isNotEmpty()) addQueryParameter("format", format)
-            if (status.isNotEmpty()) addQueryParameter("status", status)
-            if (season.isNotEmpty()) addQueryParameter("season", season)
-            if (year.isNotEmpty()) {
-                addQueryParameter("yearMin", year)
-                addQueryParameter("yearMax", year)
-            }
-            if (genres.isNotEmpty()) addQueryParameter("genres", genres.joinToString(","))
-            if (tags.isNotEmpty()) addQueryParameter("tags", tags.joinToString(","))
-        }.build()
+        query: String,
+        filters: AnimeFilterList,
+    ): Request {
+        val searchParams = Filters.getSearchParameters(filters)
+        val requestUrl = ANIKAGE_API_URL
+            .newBuilder()
+        requestUrl.addQueryParameter("page", page.toString())
+        requestUrl.addQueryParameter("limit", "25")
+        if (query.isNotBlank()) requestUrl.addQueryParameter("q", query)
+        if (searchParams.sortBy.isNotEmpty()) {
+            requestUrl.addQueryParameter("sort", searchParams.sortBy)
+        }
+        if (searchParams.status != "ALL") {
+            requestUrl.addQueryParameter("status", searchParams.status)
+        }
+        if (searchParams.season != "ALL") {
+            requestUrl.addQueryParameter("season", searchParams.season)
+        }
+        if (searchParams.origin != "ALL") {
+            requestUrl.addQueryParameter("country", searchParams.origin)
+        }
+        if (searchParams.types != "ALL") {
+            requestUrl.addQueryParameter("format", searchParams.types)
+        }
+        if (searchParams.releaseYear != "ALL") {
+            requestUrl.addQueryParameter("yearMin", searchParams.releaseYear)
+            requestUrl.addQueryParameter("yearMax", searchParams.releaseYear)
+        }
+        if (searchParams.genres.isNotEmpty()) {
+            requestUrl.addQueryParameter("genres", searchParams.genres.joinToString(","))
+        }
+        if (searchParams.tags.isNotEmpty()) {
+            requestUrl.addQueryParameter("tags", searchParams.tags.joinToString(","))
+        }
+        if (preferences.isAdult) {
+            requestUrl.addQueryParameter("adult", "true")
+        }
 
-        val response = client.get(url, headers)
-        val dto = response.parseAs<BrowseResponseDto>()
-        val animes = dto.data.map { it.toSAnime(titleStyle) }
-        return AnimesPage(animes, dto.hasNext)
+        return buildGet(requestUrl.build())
     }
+
+    override fun searchAnimeParse(response: Response) = parseAnime(response)
 
     // =========================== Anime Details ============================
 
-    override fun getAnimeUrl(anime: SAnime): String = "$baseUrl/anime/info/${extractSlug(anime.url)}"
+    override fun animeDetailsRequest(anime: SAnime): Request = GET(
+        anime.url.removeSuffix("/").substringAfterLast("/").animeInfoUrl(),
+        headers = headers,
+    )
 
-    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        val slug = extractSlug(anime.url)
-        val response = client.get("$apiUrl/anime/$slug", headers)
-        val dto = response.parseAs<DetailsResponseDto>()
-        return (dto.anime ?: AnimeItemDto(slug = slug)).toSAnime(titleStyle).apply {
-            initialized = true
-        }
-    }
+    override fun animeDetailsParse(response: Response): SAnime {
+        val animeData = response.parseAs<AnimeInfoResponse>().anime
 
-    // =========================== Related Anime ============================
-
-    override val disableRelatedAnimesBySearch = true
-
-    override suspend fun fetchRelatedAnimeList(anime: SAnime): List<SAnime> {
-        val slug = extractSlug(anime.url)
-        val response = client.get("$apiUrl/anime/$slug", headers)
-        val dto = response.parseAs<DetailsResponseDto>()
-        val info = dto.anime ?: return emptyList()
-
-        return buildList {
-            info.relations?.forEach { rel ->
-                val relSlug = rel.slug?.takeIf { it.isNotBlank() } ?: return@forEach
-                if (relSlug == slug || any { it.url == "/anime/info/$relSlug" }) return@forEach
-                val title = rel.title?.best(titleStyle)?.takeIf { it.isNotBlank() } ?: return@forEach
-                add(
-                    SAnime.create().apply {
-                        url = "/anime/info/$relSlug"
-                        this.title = title
-                        thumbnail_url = rel.coverImage ?: rel.bannerImage
-                        status = when (rel.status?.uppercase()) {
-                            "RELEASING" -> SAnime.ONGOING
-                            "FINISHED" -> SAnime.COMPLETED
-                            "NOT_YET_RELEASED" -> SAnime.LICENSED
-                            "HIATUS" -> SAnime.ON_HIATUS
-                            "CANCELLED" -> SAnime.CANCELLED
-                            else -> SAnime.UNKNOWN
-                        }
-                        genre = listOfNotNull(rel.format, rel.relationType).joinToString()
-                    },
-                )
+        return SAnime.create().apply {
+            val titleStyle = preferences.titleStyle
+            title = if (titleStyle == "english") {
+                animeData.title.english ?: animeData.title.romaji ?: animeData.title.native.orEmpty()
+            } else {
+                animeData.title.romaji ?: animeData.title.english ?: animeData.title.native.orEmpty()
             }
-
-            info.recommendations?.forEach { rec ->
-                val recSlug = rec.slug?.takeIf { it.isNotBlank() } ?: return@forEach
-                if (recSlug == slug || any { it.url == "/anime/info/$recSlug" }) return@forEach
-                val title = rec.title?.best(titleStyle)?.takeIf { it.isNotBlank() } ?: return@forEach
-                add(
-                    SAnime.create().apply {
-                        url = "/anime/info/$recSlug"
-                        this.title = title
-                        thumbnail_url = rec.coverImage ?: rec.bannerImage
-                        status = when (rec.status?.uppercase()) {
-                            "RELEASING" -> SAnime.ONGOING
-                            "FINISHED" -> SAnime.COMPLETED
-                            "NOT_YET_RELEASED" -> SAnime.LICENSED
-                            "HIATUS" -> SAnime.ON_HIATUS
-                            "CANCELLED" -> SAnime.CANCELLED
-                            else -> SAnime.UNKNOWN
-                        }
-                        genre = rec.format
-                    },
-                )
+            thumbnail_url = animeData.coverImage?.extraLarge
+                ?: animeData.coverImage?.large
+                ?: animeData.coverImage?.medium
+            genre = animeData.genres.joinToString()
+            status = when (animeData.status) {
+                "RELEASING" -> SAnime.ONGOING
+                "FINISHED" -> SAnime.COMPLETED
+                "NOT_YET_RELEASED" -> SAnime.LICENSED
+                "CANCELLED" -> SAnime.CANCELLED
+                else -> SAnime.UNKNOWN
             }
+            description = animeData.description?.cleanDescription()
+            author = animeData.studios.firstOrNull { it.isAnimationStudio }?.name
+                ?: animeData.studios.firstOrNull()?.name
+            update_strategy = AnimeUpdateStrategy.ALWAYS_UPDATE
         }
     }
 
     // ============================== Episodes ==============================
 
+    override fun episodeListParse(response: Response) = throw UnsupportedOperationException()
+
+    override fun episodeListRequest(anime: SAnime): Request {
+        val animeId = anime.url.removeSuffix("/").substringAfterLast("/")
+        val getHeaders = headersBuilder()
+            .add("Referer", "$baseUrl${anime.url}")
+            .add("Origin", baseUrl)
+            .add("Accept", "*/*")
+            .add("Sec-Fetch-Site", "same-origin")
+            .add("Sec-Fetch-Mode", "cors")
+            .add("Sec-Fetch-Dest", "empty")
+            .build()
+
+        return GET(animeId.animeEpisodeBuilder(), headers = getHeaders)
+    }
+
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        val slug = extractSlug(anime.url)
-        val response = client.get("$apiUrl/anime/$slug/episodes", headers)
-        return response.parseAs<List<EpisodeDto>>()
-            .map { it.toSEpisode(slug) }
-            .sortedByDescending { it.episode_number }
-    }
+        val animeId = anime.url.removeSuffix("/").substringAfterLast("/")
 
-    override fun getEpisodeUrl(episode: SEpisode): String {
-        val (slug, epNum) = parseEpisodeUrl(episode.url)
-        return "$baseUrl/anime/watch/$slug?ep=$epNum"
-    }
+        val episodesData = client.newCall(episodeListRequest(anime))
+            .awaitSuccess()
+            .parseAs<List<EpisodeResult>>()
 
-    // ============================ Video Links =============================
-
-    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
-        val (slug, epNum) = parseEpisodeUrl(episode.url)
-
-        val serverData = client.get(
-            "$apiUrl/anime/$slug/episodes/$epNum/servers",
-            headers,
-        ).parseAs<ServersResponseDto>()
-
-        val fetched = serverData.servers.parallelCatchingMapNotNull { server ->
-            val serverId = server.id ?: return@parallelCatchingMapNotNull null
-            val byLang = server.subTypes.parallelCatchingMapNotNull { lang ->
-                val dto = client.get(
-                    "$apiUrl/anime/$slug/episodes/$epNum/sources?provider=$serverId&lang=$lang&server=$serverId",
-                    headers,
-                ).parseAs<SourcesResponseDto>()
-                lang to dto
-            }
-            if (byLang.isEmpty()) null else serverId to byLang
-        }
-
-        val refererByHost = mutableMapOf<String, String>()
-        fetched.forEach { (_, byLang) ->
-            byLang.forEach { (_, dto) ->
-                dto.sources.forEach { src ->
-                    val decoded = decodeStreamToken(src.url) ?: return@forEach
-                    if (decoded.referer.isEmpty()) return@forEach
-                    val host = decoded.url.hostOrEmpty()
-                    if (host.isNotEmpty() && host !in refererByHost) {
-                        refererByHost[host] = decoded.referer
-                    }
+        return episodesData.reversed().map {
+            SEpisode.create().apply {
+                episode_number = it.number.toFloat()
+                name = if (!it.title.isNullOrBlank()) {
+                    "Episode ${it.number} - ${it.title}"
+                } else {
+                    "Episode ${it.number}"
                 }
-            }
-        }
-
-        return fetched.mapNotNull { (serverId, byLang) ->
-            val entries = byLang.flatMap { (lang, dto) -> dto.toStreamEntries(lang, refererByHost) }
-            if (entries.isEmpty()) return@mapNotNull null
-            Hoster(
-                hosterName = serverId.replaceFirstChar { it.uppercase() },
-                hosterUrl = entries.toJsonString(json),
-            )
-        }
-    }
-
-    override suspend fun getVideoList(hoster: Hoster): List<Video> {
-        val entries = runCatching { hoster.hosterUrl.parseAs<List<StreamEntry>>(json) }
-            .getOrNull() ?: return emptyList()
-
-        val videos = entries
-            .parallelCatchingFlatMap { entry -> resolveEntry(hoster.hosterName, entry) }
-            .distinctBy { it.videoUrl }
-
-        return videos.sortedWith(
-            compareByDescending<Video> { it.videoTitle.contains(preferredType, ignoreCase = true) }
-                .thenByDescending { it.videoTitle.contains(preferredQuality, ignoreCase = true) }
-                .thenByDescending { it.resolution ?: 0 },
-        )
-    }
-
-    private suspend fun resolveEntry(providerLabel: String, entry: StreamEntry): List<Video> {
-        val prefix = listOf(providerLabel, entry.lang, entry.label)
-            .filter { it.isNotBlank() }
-            .joinToString(" - ")
-        val tracks = entry.subtitles.map { Track(it.url, it.label) }
-        val candidates = entry.refererCandidates()
-
-        if (entry.url.isNotBlank()) {
-            // `megg` hands out a progressive MP4 instead of a playlist.
-            if (!entry.isM3U8) {
-                return listOf(
-                    Video(
-                        videoUrl = entry.url,
-                        videoTitle = prefix,
-                        headers = refererHeaders(candidates.first()),
-                        subtitleTracks = tracks,
+                date_upload = DATE_FORMAT.tryParse(it.airDate)
+                setUrlWithoutDomain(
+                    animeEpisodeUrlFormat(
+                        animeId,
+                        it.number,
                     ),
                 )
             }
+        }
+    }
 
-            // Most CDNs here reject a wrong Referer, and a handful of sources ship none at
-            // all, so walk the candidates until one actually returns a playlist.
-            candidates.forEach { referer ->
-                val streamHeaders = refererHeaders(referer)
-                val videos = runCatching {
-                    playlistUtils.extractFromHls(
-                        playlistUrl = entry.url,
-                        referer = referer,
-                        masterHeaders = streamHeaders,
-                        videoHeaders = streamHeaders,
-                        subtitleList = tracks,
-                        videoNameGen = { quality -> "$prefix - $quality" },
-                    )
-                }.getOrDefault(emptyList())
-                if (videos.isNotEmpty()) {
-                    return videos.map { video ->
-                        video.copy(
-                            mpvArgs = forceTsArgs,
-                            ffmpegStreamArgs = forceFfmpegArgs,
-                        )
+    // =========================== Video Links ==============================
+
+    private fun videoListRequestUrl(episode: SEpisode, lang: String, provider: String): String = "$baseUrl${episode.url}?lang=$lang&provider=$provider"
+
+    override suspend fun getVideoList(episode: SEpisode): List<Video> {
+        val isDubPreferred = preferences.subOrDub == "dub"
+        val primaryLabel = if (isDubPreferred) "Dub" else "Sub"
+        val secondaryLabel = if (isDubPreferred) "Sub" else "Dub"
+        val preferredSource = if (isDubPreferred) preferences.dubSource else preferences.subSource
+        val otherSource = if (isDubPreferred) preferences.subSource else preferences.dubSource
+
+        val primaryProviders = SUB_PROVIDER.sortedByDescending { it.contains(preferredSource) }
+        val secondaryProviders = DUB_PROVIDER.sortedByDescending { it.contains(otherSource) }
+
+        val providers = getEpisodeServers(episode)
+            .takeIf { it.isNotEmpty() }
+            ?.associate { it.providerId to it.subTypes }
+            ?.let { availability ->
+                primaryProviders.filter { availability[it].orEmpty().contains(primaryLabel.lowercase()) }
+                    .map { primaryLabel to it } +
+                    secondaryProviders.filter { availability[it].orEmpty().contains(secondaryLabel.lowercase()) }
+                        .map { secondaryLabel to it }
+            }
+            ?: (primaryProviders.map(primaryLabel::to) + secondaryProviders.map(secondaryLabel::to))
+
+        val excludedServers = preferences.excludedServers
+        val excludedTypes = preferences.excludedTypes
+        val activeProviders = providers.filter { it.second !in excludedServers && it.first.lowercase() !in excludedTypes }
+
+        val playlistUtils = PlaylistUtils(client, headers)
+
+        val videos = activeProviders.parallelCatchingFlatMap { (type, provider) ->
+            val episodeData = client.newCall(
+                GET(videoListRequestUrl(episode, type.lowercase(), provider), headers),
+            )
+                .awaitSuccess()
+                .parseAs<EpisodeSource>()
+
+            val tracks = episodeData.subtitles.map {
+                Track("https://og.bakayaro.live/stream/${it.file}", it.label)
+            }
+
+            episodeData.sources.parallelCatchingFlatMap { source ->
+                val videoUrl = source.episodeSourceUrl()
+                if (source.isM3U8 == true) {
+                    val effectiveUrl = if (provider == "neko") {
+                        localProxy.getProxyUrl(videoUrl, headers)
+                    } else {
+                        videoUrl
                     }
+                    playlistUtils.extractFromHls(
+                        playlistUrl = effectiveUrl,
+                        masterHeaders = headers,
+                        videoHeaders = headers,
+                        videoNameGen = { "$type - $provider - ${source.quality} - $it" },
+                        subtitleList = tracks,
+                    )
+                } else {
+                    listOf(
+                        Video(
+                            videoUrl = videoUrl,
+                            videoTitle = "$type - $provider - ${source.quality}",
+                            subtitleTracks = tracks,
+                            headers = headers,
+                        ),
+                    )
                 }
             }
         }
 
-        // Safety net in case the token key is rotated: scrape the embed page like before.
-        val fallbackVideos = when {
-            entry.embedUrl.isEmpty() -> emptyList()
-
-            "megaplay.buzz" in entry.embedUrl || "vidtube.site" in entry.embedUrl ->
-                megaPlayVideos(prefix, entry.embedUrl)
-
-            else -> vibePlayerVideos(prefix, entry.embedUrl)
-        }
-        return fallbackVideos.map { video ->
-            video.copy(
-                mpvArgs = forceTsArgs,
-                ffmpegStreamArgs = forceFfmpegArgs,
-            )
-        }
-    }
-
-    private fun refererHeaders(referer: String): Headers = headers.newBuilder()
-        .apply { if (referer.isBlank()) removeAll("Referer") else set("Referer", referer) }
-        .build()
-
-    /**
-     * Resolves VibePlayer-style embeds (vivibebe.site, bibiemb.xyz, ...).
-     * The player page exposes a plain master playlist in its source:
-     * `const src = "https://<host>/public/stream/<id>/master.m3u8"`
-     * plus an optional external subtitle passed through the `?sub=` query parameter.
-     */
-    private suspend fun vibePlayerVideos(label: String, embedUrl: String): List<Video> {
-        val embedHost = embedUrl.toHttpUrl().let { "${it.scheme}://${it.host}" }
-        val html = client.get(embedUrl, refererHeaders("$baseUrl/")).bodyString()
-
-        val masterUrl = VIBE_SRC_REGEX.find(html)?.groupValues?.get(1)
-            ?: M3U8_REGEX.find(html)?.groupValues?.get(1)
-            ?: return emptyList()
-
-        val subtitles = embedUrl.toHttpUrl().queryParameter("sub")
-            ?.takeIf { it.isNotBlank() }
-            ?.let { listOf(Track(it, "English")) }
-            ?: emptyList()
-
-        val streamHeaders = refererHeaders("$embedHost/")
-
-        return playlistUtils.extractFromHls(
-            playlistUrl = masterUrl,
-            referer = "$embedHost/",
-            masterHeaders = streamHeaders,
-            videoHeaders = streamHeaders,
-            subtitleList = subtitles,
-            videoNameGen = { quality -> "$label - $quality" },
+        val preferredQuality = preferences.quality
+        return videos.sortedWith(
+            compareByDescending<Video> { it.videoTitle.contains(preferredQuality, ignoreCase = true) },
         )
     }
 
-    private suspend fun megaPlayVideos(label: String, embedUrl: String): List<Video> {
-        val embedHost = embedUrl.toHttpUrl().let { "${it.scheme}://${it.host}" }
-        val html = client.get(embedUrl, refererHeaders("$baseUrl/")).bodyString()
+    private fun serversListUrl(episode: SEpisode): String = "$baseUrl${episode.url}".substringBefore("/sources") + "/servers"
 
-        val dataId = DATA_ID_REGEX.find(html)?.groupValues?.get(1) ?: return emptyList()
-
-        val apiHeaders = headers.newBuilder()
-            .set("Referer", embedUrl)
-            .set("X-Requested-With", "XMLHttpRequest")
-            .build()
-        val data = client.get("$embedHost/stream/getSources?id=$dataId", apiHeaders)
-            .parseAs<MegaPlaySourcesDto>()
-
-        val masterUrl = data.sources?.file ?: return emptyList()
-        val subtitles = data.tracks
-            .filter { it.kind == "captions" && !it.file.isNullOrBlank() }
-            .map { Track(it.file!!, it.label ?: "Subtitle") }
-
-        val streamHeaders = refererHeaders("$embedHost/")
-
-        return runCatching {
-            playlistUtils.extractFromHls(
-                playlistUrl = masterUrl,
-                referer = "$embedHost/",
-                masterHeaders = streamHeaders,
-                videoHeaders = streamHeaders,
-                subtitleList = subtitles,
-                videoNameGen = { quality -> "$label - $quality" },
-            )
-        }.getOrElse {
-            listOf(
-                Video(
-                    videoUrl = masterUrl,
-                    videoTitle = "$label - Auto",
-                    headers = streamHeaders,
-                    subtitleTracks = subtitles,
-                ),
-            )
-        }
+    private suspend fun getEpisodeServers(episode: SEpisode): List<ServerInfo> = try {
+        client.newCall(GET(serversListUrl(episode), headers))
+            .awaitSuccess()
+            .parseAs<EpisodeServers>()
+            .servers
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        emptyList()
     }
 
-    private fun extractSlug(url: String): String = if (url.contains("/episodes/")) {
-        url.substringAfter("/anime/").substringBefore("/episodes/")
-    } else {
-        url.substringBefore("#").substringBefore("?").removeSuffix("/").substringAfterLast("/")
+    // ============================= Utilities ==============================
+
+    private fun String.cleanDescription(): String = Jsoup.parse(replace(DESCRIPTION_BR_REGEX, "\n"))
+        .wholeText()
+        .trim()
+
+    private fun String.animeUrlFormat(): String = "$baseUrl/api/media/anime/$this"
+
+    private fun String.animeEpisodeBuilder(): String = "$baseUrl/api/media/anime/$this/episodes"
+
+    private fun animeEpisodeUrlFormat(id: String, number: Int): String = "$baseUrl/api/media/anime/$id/episodes/$number/sources"
+
+    private fun String.animeInfoUrl(): String = "$baseUrl/api/media/anime/$this"
+
+    private fun parseAnime(response: Response): AnimesPage {
+        val jsonData = response.parseAs<AnikageResponse>()
+
+        val animes = jsonData.data.map {
+            SAnime.create().apply {
+                val titleStyle = preferences.titleStyle
+                title = if (titleStyle == "english") {
+                    it.title.english ?: it.title.romaji ?: it.title.native.orEmpty()
+                } else {
+                    it.title.romaji ?: it.title.english ?: it.title.native.orEmpty()
+                }
+                thumbnail_url = it.coverImage?.extraLarge
+                    ?: it.coverImage?.large
+                    ?: it.coverImage?.medium
+                setUrlWithoutDomain(it.slug.animeUrlFormat())
+            }
+        }
+
+        return AnimesPage(animes, jsonData.hasNext)
     }
 
-    private fun parseEpisodeUrl(url: String): Pair<String, String> {
-        if (url.contains("/episodes/")) {
-            val slug = url.substringAfter("/anime/").substringBefore("/episodes/")
-            val epNum = url.substringAfter("/episodes/").substringBefore("/sources").substringBefore("/servers").substringBefore("/")
-            return slug to epNum
-        }
-        val slug = url.substringBefore("#").substringBefore("?").removeSuffix("/").substringAfterLast("/")
-        val epNum = when {
-            url.contains("#ep=") -> url.substringAfter("#ep=").substringBefore("&")
-            url.contains("ep=") -> url.substringAfter("ep=").substringBefore("&")
-            else -> "1"
-        }
-        return slug to epNum
-    }
+    private fun buildGet(url: HttpUrl): Request = GET(url, headers)
 
-    // ============================= Preferences ============================
+    // ============================== Settings ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
-            key = PREF_TITLE_KEY,
+            key = PREF_SITE_TITLE_FORMAT,
             title = "Preferred Title Style",
-            summary = "%s",
             entries = listOf("English", "Romaji"),
             entryValues = listOf("english", "romaji"),
-            default = PREF_TITLE_DEFAULT,
+            default = PREF_SITE_TITLE_DEFAULT,
+            summary = "%s",
         )
+
         screen.addListPreference(
             key = PREF_QUALITY_KEY,
             title = "Preferred Quality",
-            summary = "%s",
-            entries = listOf("1080p", "720p", "360p"),
-            entryValues = listOf("1080p", "720p", "360p"),
+            entries = PREF_QUALITY_ENTRIES,
+            entryValues = PREF_QUALITY_ENTRIES,
             default = PREF_QUALITY_DEFAULT,
-        )
-        screen.addListPreference(
-            key = PREF_TYPE_KEY,
-            title = "Preferred audio type",
             summary = "%s",
-            entries = listOf("Sub", "Dub"),
-            entryValues = listOf("SUB", "DUB"),
-            default = PREF_TYPE_DEFAULT,
         )
+
+        screen.addListPreference(
+            key = PREF_SUB_SOURCE,
+            title = "Preferred Sub Server",
+            entries = SUB_PROVIDER,
+            entryValues = SUB_PROVIDER,
+            default = PREF_SUB_DEFAULT,
+            summary = "%s",
+        )
+
+        screen.addListPreference(
+            key = PREF_DUB_SOURCE,
+            title = "Preferred Dub Server",
+            entries = DUB_PROVIDER,
+            entryValues = DUB_PROVIDER,
+            default = PREF_DUB_DEFAULT,
+            summary = "%s",
+        )
+
+        MultiSelectListPreference(screen.context).apply {
+            key = PREF_EXCLUDE_SERVERS_KEY
+            title = "Exclude Servers"
+            summary = "Choose which servers you want to exclude"
+            entries = SUB_PROVIDER.toTypedArray()
+            entryValues = SUB_PROVIDER.toTypedArray()
+            setDefaultValue(emptySet<String>())
+        }.also(screen::addPreference)
+
+        screen.addListPreference(
+            key = PREF_ISSUBORDUB_SOURCE,
+            title = "Sub or Dub?",
+            entries = listOf("Sub", "Dub"),
+            entryValues = listOf("sub", "dub"),
+            default = PREF_ISSUBORDUB_DEFAULT,
+            summary = "%s",
+        )
+
+        MultiSelectListPreference(screen.context).apply {
+            key = PREF_EXCLUDE_TYPES_KEY
+            title = "Exclude Types"
+            summary = "Choose which audio types you want to exclude"
+            entries = listOf("Sub", "Dub").toTypedArray()
+            entryValues = listOf("sub", "dub").toTypedArray()
+            setDefaultValue(emptySet<String>())
+        }.also(screen::addPreference)
+
         screen.addSwitchPreference(
             key = PREF_ADULT_KEY,
-            title = "Show adult content",
-            summary = "Include 18+ titles in browse and search results.",
-            default = false,
+            title = "Enable NSFW Content",
+            summary = "Show adult content in search results and popular anime",
+            default = PREF_ADULT_DEFAULT,
         )
     }
 
+    private val SharedPreferences.titleStyle
+        get() = getString(PREF_SITE_TITLE_FORMAT, PREF_SITE_TITLE_DEFAULT)!!
+
+    private val SharedPreferences.isAdult
+        get() = getBoolean(PREF_ADULT_KEY, PREF_ADULT_DEFAULT)
+
+    private val SharedPreferences.subOrDub
+        get() = getString(PREF_ISSUBORDUB_SOURCE, PREF_ISSUBORDUB_DEFAULT)!!
+
+    private val SharedPreferences.subSource
+        get() = getString(PREF_SUB_SOURCE, PREF_SUB_DEFAULT)!!
+
+    private val SharedPreferences.dubSource
+        get() = getString(PREF_DUB_SOURCE, PREF_DUB_DEFAULT)!!
+
+    private val SharedPreferences.quality
+        get() = getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
+
+    private val SharedPreferences.excludedServers
+        get() = getStringSet(PREF_EXCLUDE_SERVERS_KEY, emptySet()).orEmpty()
+
+    private val SharedPreferences.excludedTypes
+        get() = getStringSet(PREF_EXCLUDE_TYPES_KEY, emptySet()).orEmpty()
+
     companion object {
-        private val DATA_ID_REGEX by lazy { Regex("""data-id=["']?(\d+)""") }
-        private val VIBE_SRC_REGEX by lazy { Regex("""const\s+src\s*=\s*"([^"]+\.m3u8[^"]*)"""") }
-        private val M3U8_REGEX by lazy { Regex("""(https?://[^"'\s<>]+\.m3u8[^"'\s<>]*)""") }
+        private val DATE_FORMAT by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.US) }
+        private val DESCRIPTION_BR_REGEX = Regex("<br\\s*/?>", RegexOption.IGNORE_CASE)
 
-        private const val PREF_TITLE_KEY = "title_format"
-        private const val PREF_TITLE_DEFAULT = "english"
+        private const val ANIKAGE_API = "https://anikage.cc/api/media/anime/browse"
+        private val ANIKAGE_API_URL by lazy { ANIKAGE_API.toHttpUrl() }
+        private const val PREF_ADULT_KEY = "nsfw"
+        private const val PREF_ADULT_DEFAULT = false
 
-        private const val PREF_TYPE_KEY = "preferred_type"
-        private const val PREF_TYPE_DEFAULT = "SUB"
+        private val provider = listOf(
+            "koto",
+            "kage",
+            "kite",
+            "ken",
+            "neko",
+            "uwu",
+            "kiwi",
+            "megg",
+            "wave",
+            "zen",
+            "dib",
+        )
+        private val SUB_PROVIDER = provider
+        private val DUB_PROVIDER = provider
+
+        private const val PREF_SUB_SOURCE = "preferred_sub_source"
+        private const val PREF_SUB_DEFAULT = "koto"
+
+        private const val PREF_DUB_SOURCE = "preferred_dub_source"
+        private const val PREF_DUB_DEFAULT = "koto"
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
+        private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "480p", "360p")
         private const val PREF_QUALITY_DEFAULT = "1080p"
 
-        private const val PREF_ADULT_KEY = "show_adult"
+        private const val PREF_EXCLUDE_SERVERS_KEY = "excluded_servers"
+        private const val PREF_EXCLUDE_TYPES_KEY = "excluded_types"
+
+        private const val PREF_ISSUBORDUB_SOURCE = "is_sub_or_dub"
+        private const val PREF_ISSUBORDUB_DEFAULT = "sub"
+        private const val PREF_SITE_TITLE_FORMAT = "title_format"
+        private const val PREF_SITE_TITLE_DEFAULT = "english"
     }
 }
