@@ -11,10 +11,9 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
-import keiyoushi.network.rateLimit
+import keiyoushi.network.get
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
@@ -33,9 +32,7 @@ abstract class Rule34Video :
 
     override val supportsLatest = false
 
-    override val client = network.client.newBuilder()
-        .rateLimit(2)
-        .build()
+    override val client = network.client
 
     private val noRedirectClient by lazy {
         client.newBuilder().followRedirects(false).build()
@@ -171,8 +168,15 @@ abstract class Rule34Video :
             val detailRows = document.select("div.row, div.vp-group")
             val meta = document.select("div.vp-meta span.item_info > span, div.info.row div.item_info > span").eachText()
 
-            val artistElement = document.select(ARTIST_SELECTOR).firstOrNull()
-            author = artistElement?.text().orEmpty()
+            val artists = document.select(ARTIST_SELECTOR)
+                .eachText()
+                .distinct()
+                .joinToString()
+                .takeIf { it.isNotBlank() }
+            val uploader = document.select(UPLOADER_SELECTOR).firstOrNull()?.text()?.takeIf { it.isNotBlank() }
+
+            artist = artists
+            author = artists ?: uploader
 
             description = buildString {
                 document.selectFirst("div.vp-desc, div.row:has(div.label > em) > div.label > em")?.text()?.takeIf { it.isNotBlank() }?.let {
@@ -182,11 +186,7 @@ abstract class Rule34Video :
 
                 meta.getOrNull(0)?.let { append("Uploaded: $it\n") }
 
-                val artist = document.select(ARTIST_SELECTOR)
-                    .eachText()
-                    .distinct()
-                    .joinToString()
-                if (artist.isNotEmpty()) append("Artists: $artist\n")
+                if (!artists.isNullOrEmpty()) append("Artists: $artists\n")
 
                 val categories = document.select(CATEGORIES_SELECTOR)
                     .eachText()
@@ -194,7 +194,6 @@ abstract class Rule34Video :
                     .joinToString()
                 if (categories.isNotEmpty()) append("Categories: $categories\n")
 
-                val uploader = document.select(UPLOADER_SELECTOR).firstOrNull()?.text()
                 if (!uploader.isNullOrEmpty()) append("Uploader: $uploader\n")
 
                 meta.getOrNull(1)?.let { append("Views: $it\n") }
@@ -225,15 +224,26 @@ abstract class Rule34Video :
     override fun getEpisodeUrl(episode: SEpisode): String = baseUrl + episode.url
 
     // ============================== Episodes ==============================
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = listOf(
-        SEpisode.create().apply {
-            url = anime.url
-            name = "Video"
-            episode_number = 1f
-        },
-    )
+    override fun episodeListRequest(anime: SAnime): Request = GET(baseUrl + anime.url, headers)
 
-    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
+    override fun episodeListParse(response: Response): List<SEpisode> {
+        val document = response.asJsoup()
+        val uploader = document.select(UPLOADER_SELECTOR).firstOrNull()?.text()?.takeIf { it.isNotBlank() }
+        return listOf(
+            SEpisode.create().apply {
+                url = response.request.url.encodedPath
+                name = "Video"
+                episode_number = 1f
+                scanlator = uploader
+            },
+        )
+    }
+
+    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+        val response = client.get(baseUrl + anime.url)
+        return episodeListParse(response)
+    }
+
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
@@ -253,7 +263,7 @@ abstract class Rule34Video :
             "$baseUrl${hoster.hosterUrl}"
         }
 
-        val response = client.newCall(GET(requestUrl, headers)).awaitSuccess()
+        val response = client.get(requestUrl)
         val pageUrl = response.request.url
         val baseHost = pageUrl.host
 
