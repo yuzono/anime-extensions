@@ -54,13 +54,13 @@ object Crypto {
      * of the wire format in case a proxy layer ever re-encodes the body.
      */
     fun decryptInfo(body: ByteArray): String? {
-        val blob = if (body.isNotEmpty() && (body[0] == 6.toByte() || body[0] == 7.toByte())) {
+        val blob = if (body.isNotEmpty() && (body[0] == 7.toByte())) {
             body
         } else {
             b64UrlDecode(body.decodeToString()) ?: return null
         }
         // 1 (version) + 12 (IV) + 16 (GCM tag) = 29 = empty payload
-        if (blob.size <= 29 || (blob[0] != 6.toByte() && blob[0] != 7.toByte())) return null
+        if (blob.size <= 29 || (blob[0] != 7.toByte())) return null
 
         val compressed = gcmDecrypt(
             apiKeySpec,
