@@ -5,8 +5,8 @@ plugins {
 yuzono {
     name = "Re:ANIME"
     className = "ReAnime"
-    versionCode = 11
-    contentWarning = ContentWarning.NSFW
+    versionCode = 13
+    contentWarning = ContentWarning.MIXED
     libVersion = "16"
 }
 

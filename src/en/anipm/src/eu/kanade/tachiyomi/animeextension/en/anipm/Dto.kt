@@ -34,7 +34,7 @@ class CatalogResponseDto(
 
 @Serializable
 class TitleItemDto(
-    val id: Long? = null,
+    val id: Long = 0L,
     val source: String? = null,
     val routeId: String? = null,
     val title: String? = null,
@@ -67,18 +67,15 @@ class TitleItemDto(
     val providerTitles: List<String>? = null,
 ) {
     /** Stable handle: settlar numeric id or ani id (catalog always provides it). */
-    fun toHandle(): String? = when {
-        source == "anilist" -> routeId?.let { "ani-$it" } ?: id?.let { "ani-$it" }
-        else -> routeId ?: id?.let { "set-$it" }
-    }
+    fun toHandle(): String? = stableMainHandle(source, id, anilistId, routeId)
 
     fun toSAnime(baseUrl: String): SAnime? {
-        val t = title?.takeIf(String::isNotBlank) ?: return null
+        val t = title?.takeIf(String::isNotBlank) ?: native?.takeIf(String::isNotBlank) ?: return null
         val handle = toHandle() ?: return null
         return SAnime.create().apply {
             url = handle
             title = t
-            thumbnail_url = absoluteCover(baseUrl, poster)
+            thumbnail_url = stableCoverUrl(baseUrl, source, anilistId, routeId, malId, poster)
             status = parseStatus(this@TitleItemDto.status)
             genre = buildList {
                 addAll(genres.filter(String::isNotBlank).sortedBy { it })
@@ -96,7 +93,7 @@ class TitleItemDto(
 class SeriesResponseDto(
     val id: Long,
     val source: String? = null,
-    val title: String? = null,
+    val title: String,
     val native: String? = null,
     val poster: String? = null,
     val banner: String? = null,
@@ -139,12 +136,9 @@ class SeriesResponseDto(
     }
 
     fun toSAnime(baseUrl: String): SAnime = SAnime.create().apply {
-        url = when (source) {
-            "anilist" -> routeId?.let { "ani-$it" } ?: "ani-$id"
-            else -> routeId ?: "set-$id"
-        }
-        title = this@SeriesResponseDto.title ?: ""
-        thumbnail_url = absoluteCover(baseUrl, poster)
+        url = stableMainHandle(source, id, anilistId, routeId) ?: routeId?.takeIf(String::isNotBlank) ?: "anime/$id"
+        title = this@SeriesResponseDto.title
+        thumbnail_url = stableCoverUrl(baseUrl, source, anilistId, routeId, malId, poster)
         status = parseStatus(this@SeriesResponseDto.status)
         genre = buildList {
             addAll(genres.filter(String::isNotBlank).sortedBy { it })
@@ -218,10 +212,10 @@ class RecommendResponseDto(val items: List<RecommendItemDto> = emptyList())
 
 @Serializable
 class RecommendItemDto(
-    val id: Long? = null,
+    val id: Long = 0L,
     val source: String? = null,
     val titleId: String? = null,
-    val title: String? = null,
+    val title: String,
     val native: String? = null,
     val poster: String? = null,
     val year: Int? = null,
@@ -236,20 +230,32 @@ class RecommendItemDto(
     val synopsis: String? = null,
     val routeId: String? = null,
 ) {
-    fun toHandle(): String? = when {
-        routeId != null -> if (source == "anilist" || titleId?.startsWith("ani:") == true) "ani-$routeId" else routeId
-        titleId?.startsWith("anime:") == true -> "set-" + titleId.removePrefix("anime:")
-        titleId?.startsWith("ani:") == true -> "ani-" + titleId.removePrefix("ani:")
-        else -> null
+    fun toHandle(): String? {
+        val aniIdRaw = when {
+            titleId?.startsWith("ani:") == true -> titleId.removePrefix("ani:")
+            else -> null
+        }
+        val aniId = stableAnilistId(source, aniIdRaw, routeId)
+        return aniId?.let { "ani-$it" }
+            ?: id.takeIf { it in 1..<syntheticAniListBase }?.let { "set-$it" }
+            ?: routeId?.takeIf(String::isNotBlank)
+    }
+
+    fun toThumbnailUrl(baseUrl: String): String? {
+        val aniIdRaw = when {
+            titleId?.startsWith("ani:") == true -> titleId.removePrefix("ani:")
+            else -> null
+        }
+        return stableCoverUrl(baseUrl, source, aniIdRaw, routeId, null, poster)
     }
 
     fun toSAnime(baseUrl: String): SAnime? {
-        val t = title?.takeIf(String::isNotBlank) ?: return null
+        val t = title.takeIf(String::isNotBlank) ?: return null
         val handle = toHandle() ?: return null
         return SAnime.create().apply {
             url = handle
             title = t
-            thumbnail_url = absoluteCover(baseUrl, poster)
+            thumbnail_url = toThumbnailUrl(baseUrl)
         }
     }
 }
@@ -288,26 +294,25 @@ class FillerRangesDto(
 
 @Serializable
 class RelationDto(
-    val id: Long,
+    val id: Long = 0L,
     @Serializable(with = FlexibleStringSerializer::class)
     val anilistId: String? = null,
     val source: String? = null,
     val relation: String? = null,
-    val title: String? = null,
+    val title: String,
     val type: String? = null,
     val year: Int? = null,
     val poster: String? = null,
     val routeId: String? = null,
 ) {
-    fun toHandle(): String? = when {
-        source == "anilist" || anilistId != null -> {
-            val cleanRoute = routeId?.removePrefix("ani-")?.removePrefix("ani/")?.removePrefix("anime/")?.removePrefix("set/")
-            cleanRoute?.let { "ani-$it" } ?: "ani-$id"
-        }
-        routeId != null -> routeId
-        id > 0 -> "set-$id"
-        else -> null
+    fun toHandle(): String? {
+        val aniId = stableAnilistId(source, anilistId, routeId)
+        return aniId?.let { "ani-$it" }
+            ?: id.takeIf { it in 1..<syntheticAniListBase }?.let { "set-$it" }
+            ?: routeId?.takeIf(String::isNotBlank)
     }
+
+    fun toThumbnailUrl(baseUrl: String): String? = stableCoverUrl(baseUrl, source, anilistId, routeId, null, poster)
 }
 
 @Serializable
@@ -407,6 +412,74 @@ private val INLINE_TAG_REGEX = Regex("</?(?:i|b|em|strong)>", RegexOption.IGNORE
 internal fun absoluteCover(baseUrl: String, path: String?): String? {
     val p = path?.takeIf(String::isNotBlank) ?: return null
     return if (p.startsWith("/")) baseUrl + p else p
+}
+
+/**
+ * Stable AniList id usable as a lookup key: prefers the parsed anilistId,
+ * falls back to the numeric tail of ani-family routeIds. Synthetic ids
+ * (800000000+) are site-internal composites and resolve nowhere.
+ */
+private fun stableAnilistId(source: String?, anilistId: String?, routeId: String?): Long? {
+    anilistId?.trim()?.takeIf(String::isNotBlank)?.toLongOrNull()
+        ?.takeIf { it in 1..<syntheticAniListBase }
+        ?.let { return it }
+
+    if (source != "anilist") return null
+
+    val route = routeId?.takeIf(String::isNotBlank) ?: return null
+    val tailStr = route.substringAfterLast('-')
+    val tail = tailStr.toLongOrNull()?.takeIf { it in 1..<syntheticAniListBase } ?: return null
+    val lowerRoute = route.lowercase()
+    if (tail < 1000 && (lowerRoute.contains("season") || lowerRoute.contains("part") || lowerRoute.contains("cour") || lowerRoute.contains("ova") || lowerRoute.contains("special"))) {
+        return null
+    }
+    return tail
+}
+
+/**
+ * Stable series handle for catalog/series payloads. Only ids that every API
+ * endpoint resolves on are encoded ("ani-<anilistId>" / "set-<numeric id>"):
+ * routeIds embed title slugs that the site regenerates at any time, so they
+ * are consumed for extraction only and never persisted in SAnime.url.
+ */
+internal fun stableMainHandle(source: String?, id: Long, anilistId: String?, routeId: String?): String? = when {
+    source == "anilist" -> stableAnilistId(source, anilistId, routeId)?.let { "ani-$it" } ?: routeId?.takeIf(String::isNotBlank)
+    id in 1..<syntheticAniListBase -> "set-$id"
+    else -> routeId?.takeIf(String::isNotBlank)
+}
+
+/**
+ * Episode preview still. The art form is id-parameterized only and keeps
+ * serving across slug rotations; ani mirrors do not return a thumbnail at
+ * all, while canonical responses carry it in the art form. When no AniList
+ * id is available, falls back to the raw thumbnail path.
+ */
+internal fun episodePreviewUrl(baseUrl: String, source: String?, anilistId: String?, routeId: String?, epNumber: String, thumbnail: String?): String? {
+    val aid = stableAnilistId(source, anilistId, routeId)
+    if (aid != null) {
+        return "$baseUrl/api/anime/art/still/$aid/$epNumber"
+    }
+    return thumbnail?.takeIf(String::isNotBlank)?.let { absoluteCover(baseUrl, it) }
+}
+
+/**
+ * Cover URL that depends only on ids. Poster paths arrive with a rotating
+ * "?key=" token that dies whenever the site regenerates slugs, while the
+ * id-parameterized form (seen in playback-bootstrap responses) keeps
+ * serving without any session. Falls back to the raw poster path when no
+ * usable id is available.
+ */
+internal fun stableCoverUrl(baseUrl: String, source: String?, anilistId: String?, routeId: String?, malId: Long?, poster: String?): String? {
+    val aid = stableAnilistId(source, anilistId, routeId) ?: return absoluteCover(baseUrl, poster)
+    return buildString {
+        append(baseUrl)
+        append("/api/anime/cover?anilistId=")
+        append(aid)
+        malId?.takeIf { it > 0 }?.let { mal ->
+            append("&malId=")
+            append(mal)
+        }
+    }
 }
 
 /**

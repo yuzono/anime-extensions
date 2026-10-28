@@ -169,9 +169,10 @@ class ShowIdVariables(
 // ============================== Hosters ===============================
 
 @Serializable
-class HosterData(
+data class HosterData(
     val url: String,
     val extractor: String,
     val serverKey: String,
     val priority: Float,
+    val markQuality: Boolean = false,
 )

@@ -40,7 +40,7 @@ class MKissaExtractor(private val client: OkHttpClient, private val headers: Hea
         }
     }
 
-    suspend fun videoFromUrl(url: String, name: String, endPoint: String): List<Video> {
+    suspend fun videoFromUrl(url: String, endPoint: String): List<Video> {
         val linkJson = client.get(endPoint + url.replace("/clock?", "/clock.json?"), NO_HEADERS)
             .parseAs<VideoLink>()
 
@@ -54,7 +54,7 @@ class MKissaExtractor(private val client: OkHttpClient, private val headers: Hea
                 link.mp4 == true -> listOf(
                     Video(
                         videoUrl = link.link,
-                        videoTitle = "Original ($name - ${link.resolutionStr})",
+                        videoTitle = "Original (${link.resolutionStr})",
                         subtitleTracks = subtitles,
                     ),
                 )
@@ -71,7 +71,7 @@ class MKissaExtractor(private val client: OkHttpClient, private val headers: Hea
                         link.link,
                         masterHeaders = masterHeaders,
                         videoHeaders = masterHeaders,
-                        videoNameGen = { quality -> "$quality ($name - ${link.resolutionStr})" },
+                        videoNameGen = { quality -> "$quality (${link.resolutionStr})" },
                         subtitleList = subtitles,
                     )
                 }
@@ -82,7 +82,7 @@ class MKissaExtractor(private val client: OkHttpClient, private val headers: Hea
                         "adaptive_dash" -> listOf(
                             Video(
                                 videoUrl = stream.url,
-                                videoTitle = "Original (AC - Dash$hardsub)",
+                                videoTitle = "Original (DASH$hardsub)",
                                 subtitleTracks = subtitles,
                             ),
                         )
@@ -91,7 +91,7 @@ class MKissaExtractor(private val client: OkHttpClient, private val headers: Hea
                             stream.url,
                             masterHeaders = headers,
                             videoHeaders = headers,
-                            videoNameGen = { quality -> "$quality (AC - HLS$hardsub)" },
+                            videoNameGen = { quality -> "$quality (HLS$hardsub)" },
                             subtitleList = subtitles,
                         )
 
@@ -107,7 +107,7 @@ class MKissaExtractor(private val client: OkHttpClient, private val headers: Hea
                     link.rawUrls?.vids?.map {
                         Video(
                             videoUrl = it.url,
-                            videoTitle = "$name - ${it.height} ${bytesIntoHumanReadable(it.bandwidth)}",
+                            videoTitle = "${it.height}p ${bytesIntoHumanReadable(it.bandwidth)}",
                             resolution = it.height,
                             headers = DASH_HEADERS,
                             audioTracks = audioList,

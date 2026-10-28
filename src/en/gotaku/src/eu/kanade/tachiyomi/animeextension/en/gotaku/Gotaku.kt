@@ -22,7 +22,9 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.addListPreference
+import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.get
+import keiyoushi.utils.getListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
@@ -58,11 +60,23 @@ class Gotaku :
     private val preferredQuality: String
         get() = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT) ?: PREF_QUALITY_DEFAULT
 
+    private val preferredServerType: String
+        get() {
+            if (!showDownloads) return "embed"
+            return preferences.getString(PREF_SERVER_TYPE_KEY, PREF_SERVER_TYPE_DEFAULT) ?: PREF_SERVER_TYPE_DEFAULT
+        }
+
     private val preferredAudio: String
         get() = preferences.getString(PREF_AUDIO_KEY, PREF_AUDIO_DEFAULT) ?: PREF_AUDIO_DEFAULT
 
     private val excludedAudioTypes: Set<String>
         get() = preferences.getStringSet(PREF_AUDIO_EXCLUDE_KEY, emptySet()) ?: emptySet()
+
+    private val showDownloads: Boolean
+        get() = preferences.getBoolean(PREF_SHOW_DOWNLOADS_KEY, PREF_SHOW_DOWNLOADS_DEFAULT)
+
+    private val hideNsfw: Boolean
+        get() = preferences.getBoolean(PREF_HIDE_NSFW_KEY, PREF_HIDE_NSFW_DEFAULT)
 
     override val client = network.client.newBuilder()
         .rateLimit(5)
@@ -101,7 +115,9 @@ class Gotaku :
         null
     }
 
-    /** GET + native decrypt of a ?k=1 endpoint. Returns inflated JSON text or null. */
+    private fun Response.readBodyBoundedString(limit: Int): String? = readBodyBounded(limit)?.let { String(it, Charsets.UTF_8) }
+
+    /** GET + native decrypt of a ?k=N endpoint. Returns inflated JSON text or null. */
     private suspend fun decryptApiCall(url: String, referer: String = baseUrl): String? = try {
         client.get(url, apiHeaders(referer)).readBodyBounded(MAX_API_BODY_BYTES)
             ?.let(Crypto::decryptInfo)
@@ -132,14 +148,21 @@ class Gotaku :
 
     override fun popularAnimeRequest(page: Int): Request = titlesRequest(page, "trending_week")
 
+    override suspend fun getPopularAnime(page: Int): AnimesPage = fetchTitlesSkippingNsfw(page) { popularAnimeRequest(it) }
+
     override fun latestUpdatesRequest(page: Int): Request = titlesRequest(page, "latest", latestTrack)
+
+    override suspend fun getLatestUpdates(page: Int): AnimesPage = fetchTitlesSkippingNsfw(page) { latestUpdatesRequest(it) }
 
     private fun parseTitles(response: Response): AnimesPage {
         if (!Filters.hasCache()) {
             Filters.fetchAndCacheFilters(client, headers, apiUrl)
         }
         val dto = response.parseAs<TitlesResponseDto>()
-        return AnimesPage(dto.data.map { it.toSAnime() }, dto.meta?.hasMore ?: false)
+        val animes = dto.data
+            .filter { !hideNsfw || it.isAdult != true }
+            .map { it.toSAnime() }
+        return AnimesPage(animes, dto.meta?.hasMore ?: false)
     }
 
     override fun popularAnimeParse(response: Response): AnimesPage = parseTitles(response)
@@ -190,6 +213,42 @@ class Gotaku :
             }
         }
         return GET(url, apiHeaders(referer))
+    }
+
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = fetchTitlesSkippingNsfw(page) { searchAnimeRequest(it, query, filters) }
+
+    private suspend fun fetchTitlesSkippingNsfw(
+        page: Int,
+        requestFn: (Int) -> Request,
+    ): AnimesPage {
+        var currentPage = page
+        val totalPages = if (hideNsfw) 20 else 1 // cap; or calculate from total
+
+        while (currentPage - page < totalPages) {
+            val response = client.newCall(requestFn(currentPage)).awaitSuccess()
+            val dto = response.parseAs<TitlesResponseDto>()
+
+            if (!hideNsfw) {
+                return AnimesPage(dto.data.map { it.toSAnime() }, dto.meta?.hasMore ?: false)
+            }
+
+            val safeTitles = dto.data.filter { it.isAdult != true }.map { it.toSAnime() }
+            val hasMore = dto.meta?.hasMore ?: false
+
+            if (safeTitles.isNotEmpty() || !hasMore) {
+                return AnimesPage(safeTitles, hasMore)
+            }
+
+            // All-NSFW page — calculate if more pages exist
+            val meta = dto.meta
+            val total = meta.total
+            val limit = meta.limit
+            if (total > 0 && currentPage * limit >= total) {
+                return AnimesPage(emptyList(), false) // past the end
+            }
+            currentPage++
+        }
+        return AnimesPage(emptyList(), false)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage = parseTitles(response)
@@ -276,7 +335,24 @@ class Gotaku :
     override suspend fun fetchRelatedAnimeList(anime: SAnime): List<SAnime> {
         val data = fetchDetails(anime.url) ?: return emptyList()
 
-        return (data.relations + data.recommendations).mapNotNull { rel ->
+        // Seasons first (same series, different season)
+        val seasons = data.seasons.mapNotNull { season ->
+            val id = season.id.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            if (id == anime.url) return@mapNotNull null // skip current season
+            // Prefer full_name ("Cyberpunk: Edgerunners 2") over name ("Season 2")
+            val name = season.fullName?.takeIf { it.isNotBlank() }
+                ?: season.name?.takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+
+            SAnime.create().apply {
+                url = id
+                title = name
+                thumbnail_url = season.posterUrl?.takeIf { it.isNotBlank() }
+            }
+        }
+
+        // Relations and recommendations
+        val related = (data.relations + data.recommendations).mapNotNull { rel ->
             val relId = rel.id?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val relName = rel.name?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             if (relId == anime.url) return@mapNotNull null
@@ -286,13 +362,15 @@ class Gotaku :
                 title = relName
                 thumbnail_url = rel.posterUrl?.takeIf { it.isNotBlank() }
             }
-        }.distinctBy { it.url }
+        }
+
+        return (seasons + related).distinctBy { it.url }
     }
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     // ========================= Episodes (encrypted) =======================
-    override fun episodeListRequest(anime: SAnime): Request = GET("$apiUrl/titles/${anime.url}/episodes?k=1", apiHeaders("$baseUrl/title/${anime.url}"))
+    override fun episodeListRequest(anime: SAnime): Request = GET("$apiUrl/titles/${anime.url}/episodes?k=$API_VERSION", apiHeaders("$baseUrl/title/${anime.url}"))
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val json = try {
@@ -303,8 +381,11 @@ class Gotaku :
             null
         } ?: throw Exception("Failed to load or decrypt episode list. Try again or check the site in WebView.")
 
-        val episodes = json.parseAs<GotakuEnvelope<List<EpisodeDto>>>().data
-            ?.takeIf { it.isNotEmpty() }
+        val episodes = try {
+            json.parseAs<GotakuEnvelope<List<EpisodeDto>>>().data
+        } catch (_: Exception) {
+            null
+        }?.takeIf { it.isNotEmpty() }
             ?: throw Exception("No episodes found. Check if there are any in WebView.")
 
         return episodes.mapIndexed { index, ep ->
@@ -349,21 +430,34 @@ class Gotaku :
 
         val watchReferer = "$baseUrl/title/$slug?ep=$epId"
 
-        val flags = decryptApiCall("$apiUrl/episodes/$epId?k=1", watchReferer)
-            ?.parseAs<GotakuEnvelope<AudioFlagsDto>>()?.data
-            ?: return emptyList()
+        val flags = try {
+            decryptApiCall("$apiUrl/episodes/$epId?k=$API_VERSION", watchReferer)
+                ?.parseAs<GotakuEnvelope<AudioFlagsDto>>()?.data
+        } catch (_: Exception) {
+            null
+        } ?: return emptyList()
 
         val excluded = excludedAudioTypes
+        val includeDownloads = showDownloads
 
-        fun hoster(type: String, label: String) = Hoster(
-            hosterName = label,
-            internalData = "embed::$slug::$epId::$type",
+        fun hoster(type: String, label: String, isDownload: Boolean = false) = Hoster(
+            hosterName = if (isDownload) "$label (Download)" else label,
+            internalData = "${if (isDownload) "download" else "embed"}::$slug::$epId::$type",
         )
 
         return buildList {
-            if (flags.softSub) add(hoster("soft_sub", "Soft Sub"))
-            if (flags.hardSub) add(hoster("hard_sub", "Hard Sub"))
-            if (flags.dub) add(hoster("dub", "Dub"))
+            if (flags.softSub) {
+                add(hoster("soft_sub", "Soft Sub"))
+                if (includeDownloads) add(hoster("soft_sub", "Soft Sub", isDownload = true))
+            }
+            if (flags.hardSub) {
+                add(hoster("hard_sub", "Hard Sub"))
+                if (includeDownloads) add(hoster("hard_sub", "Hard Sub", isDownload = true))
+            }
+            if (flags.dub) {
+                add(hoster("dub", "Dub"))
+                if (includeDownloads) add(hoster("dub", "Dub", isDownload = true))
+            }
         }.filterNot { it.internalData.substringAfterLast("::") in excluded }
     }
 
@@ -372,10 +466,18 @@ class Gotaku :
     // ============================ Hoster Sorting ==========================
     override fun List<Hoster>.sortHosters(): List<Hoster> {
         val preferredLabel = HOSTER_LABELS[preferredAudio] ?: "Soft Sub"
+        val preferredServer = preferredServerType
+        val preferredAud = preferredAudio
         return sortedByDescending { h ->
+            val isDownload = h.internalData.startsWith("download")
+            val matchesServerType = if (preferredServer == "download") isDownload else !isDownload
+            val matchesAudio = h.hosterName.startsWith(preferredLabel, ignoreCase = true)
+
             when {
-                h.hosterName.equals(preferredLabel, ignoreCase = true) -> 3
-                preferredAudio != "dub" && h.hosterName.contains("Sub", ignoreCase = true) -> 2
+                matchesAudio && matchesServerType -> 5
+                matchesAudio -> 4
+                matchesServerType -> 3
+                preferredAud != "dub" && h.hosterName.contains("Sub", ignoreCase = true) -> 2
                 else -> 1
             }
         }
@@ -385,20 +487,24 @@ class Gotaku :
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
         val parts = hoster.internalData.split("::", limit = 4)
         if (parts.size < 4) return emptyList()
-        val (_, slug, epId, type) = parts
+        val (kind, slug, epId, type) = parts
         val watchReferer = "$baseUrl/title/$slug?ep=$epId"
 
-        val embedJson = decryptApiCall("$apiUrl/episodes/$epId/embed?type=$type&k=1", watchReferer)
-        val embedDto = try {
-            embedJson?.parseAs<GotakuEnvelope<EmbedDto>>()?.data
-        } catch (_: Exception) {
-            null
-        } ?: return emptyList()
-
-        val embedPath = embedDto.url ?: return emptyList()
-        val embedUrl = if (embedPath.startsWith("https")) embedPath else "$baseUrl$embedPath"
-
-        return extractViaHttp(embedUrl, watchReferer, embedDto, hoster)
+        return when (kind) {
+            "embed" -> {
+                val embedJson = decryptApiCall("$apiUrl/episodes/$epId/embed?type=$type&k=$API_VERSION", watchReferer)
+                val embedDto = try {
+                    embedJson?.parseAs<GotakuEnvelope<EmbedDto>>()?.data
+                } catch (_: Exception) {
+                    null
+                } ?: return emptyList()
+                val embedPath = embedDto.url ?: return emptyList()
+                val embedUrl = if (embedPath.startsWith("https")) embedPath else "$baseUrl$embedPath"
+                extractViaHttp(embedUrl, watchReferer, embedDto, hoster)
+            }
+            "download" -> extractDownload(epId, type, watchReferer, hoster)
+            else -> emptyList()
+        }
     }
 
     private suspend fun extractViaHttp(
@@ -406,9 +512,22 @@ class Gotaku :
         watchReferer: String,
         embedDto: EmbedDto,
         hoster: Hoster,
+    ): List<Video> = try {
+        extractViaHttpImpl(embedUrl, watchReferer, embedDto, hoster)
+    } catch (e: Exception) {
+        Log.w(TAG, "extractViaHttp failed: $embedUrl", e)
+        emptyList()
+    }
+
+    private suspend fun extractViaHttpImpl(
+        embedUrl: String,
+        watchReferer: String,
+        embedDto: EmbedDto,
+        hoster: Hoster,
     ): List<Video> {
         // Embed page -> manifest base + stamp
-        val html = client.get(embedUrl, apiHeaders(watchReferer)).body.string()
+        val html = client.get(embedUrl, apiHeaders(watchReferer))
+            .readBodyBoundedString(MAX_HTML_BODY_BYTES) ?: return emptyList()
         val attrs = MANIFEST_ATTRS_REGEX.find(html) ?: return emptyList()
         val (base, stamp) = attrs.destructured
         if (!base.startsWith("https://")) return emptyList()
@@ -421,8 +540,13 @@ class Gotaku :
         val manifestHeaders = apiHeaders(embedUrl).newBuilder()
             .set("Accept", "text/plain")
             .build()
-        val encBody = client.get("$base/$requestPath", manifestHeaders).body.string()
-        val manifest = handshake.decryptResponse(encBody)?.parseAs<ManifestDto>() ?: return emptyList()
+        val encBody = client.get("$base/$requestPath", manifestHeaders)
+            .readBodyBoundedString(MAX_HTML_BODY_BYTES) ?: return emptyList()
+        val manifest = try {
+            handshake.decryptResponse(encBody)?.parseAs<ManifestDto>()
+        } catch (_: Exception) {
+            null
+        } ?: return emptyList()
 
         val streamUrl = manifest.source?.takeIf { it.isNotBlank() } ?: return emptyList()
         val keySeed = manifest.keySeed.orEmpty()
@@ -460,11 +584,11 @@ class Gotaku :
             subtitleList = subtitleTracks,
         ).map { v -> if (timestamps.isNotEmpty()) v.copy(timestamps = timestamps) else v }
 
-        val hosterMatches = hoster.hosterName.equals(
-            HOSTER_LABELS[preferredAudio] ?: "Soft Sub",
-            ignoreCase = true,
-        )
-        val preferredVideo = videos.firstOrNull { it.videoTitle.startsWith("${preferredQuality}p") }
+        val preferredLabel = HOSTER_LABELS[preferredAudio] ?: "Soft Sub"
+        val isDownloadHoster = hoster.internalData.startsWith("download")
+        val matchesServerType = if (preferredServerType == "download") isDownloadHoster else !isDownloadHoster
+        val hosterMatches = hoster.hosterName.startsWith(preferredLabel, ignoreCase = true) && matchesServerType
+        val preferredVideo = videos.firstOrNull { it.videoTitle.startsWith(preferredQuality) }
             ?: videos.firstOrNull()
 
         return videos
@@ -472,6 +596,147 @@ class Gotaku :
             .map { v ->
                 if (v === preferredVideo && hosterMatches) v.copy(preferred = true) else v
             }
+    }
+
+    private suspend fun extractDownload(
+        epId: String,
+        type: String,
+        watchReferer: String,
+        hoster: Hoster,
+    ): List<Video> = try {
+        extractDownloadImpl(epId, type, watchReferer, hoster)
+    } catch (e: Exception) {
+        Log.w(TAG, "extractDownload failed: epId=$epId type=$type", e)
+        emptyList()
+    }
+
+    private suspend fun extractDownloadImpl(
+        epId: String,
+        type: String,
+        watchReferer: String,
+        hoster: Hoster,
+    ): List<Video> {
+        // 1. Fetch the embed URL (same encrypted endpoint as streaming)
+        val embedJson = decryptApiCall("$apiUrl/episodes/$epId/embed?type=$type&k=$API_VERSION", watchReferer)
+        val embedDto = try {
+            embedJson?.parseAs<GotakuEnvelope<EmbedDto>>()?.data
+        } catch (_: Exception) {
+            null
+        } ?: return emptyList()
+        val embedPath = embedDto.url ?: return emptyList()
+        val embedUrl = if (embedPath.startsWith("https")) embedPath else "$baseUrl$embedPath"
+
+        // 2. Fetch the embed page HTML to scrape data-download-url
+        val embedHtml = client.get(embedUrl, apiHeaders(watchReferer))
+            .readBodyBoundedString(MAX_HTML_BODY_BYTES) ?: return emptyList()
+        val downloadUrl = DOWNLOAD_URL_REGEX.find(embedHtml)?.groupValues?.get(1)
+            ?.takeIf { it.startsWith("https://") } ?: return emptyList()
+
+        // 3. Fetch the download page (follows redirect to gotakudl.top)
+        val downloadResponse = client.get(downloadUrl, apiHeaders(embedUrl))
+        val finalDownloadUrl = downloadResponse.request.url.toString()
+        val downloadHtml = downloadResponse
+            .readBodyBoundedString(MAX_HTML_BODY_BYTES) ?: return emptyList()
+
+        // 4. Verify the source-types list includes our audio type
+        val sourceTypes = SOURCE_TYPE_REGEX.findAll(downloadHtml)
+            .map { it.groupValues[1].trim() }.toList()
+        val typeLabels = mapOf("soft_sub" to "Soft sub", "hard_sub" to "Hard sub", "dub" to "Dub")
+        val expectedLabel = typeLabels[type]
+        if (expectedLabel != null && sourceTypes.isNotEmpty() && expectedLabel !in sourceTypes) {
+            return emptyList() // download page doesn't offer this audio type
+        }
+
+        // 5. Scrape manifest attrs + quality options
+        val dlAttrs = MANIFEST_ATTRS_REGEX.find(downloadHtml) ?: return emptyList()
+        val (dlBase, dlStamp) = dlAttrs.destructured
+        if (!dlBase.startsWith("https://")) return emptyList()
+        val qualitiesByHeight = parseDownloadQualities(downloadHtml).associateBy { it.height }
+
+        // 6. Handshake + manifest fetch
+        val handshake = Crypto.ManifestHandshake(dlBase, dlStamp)
+        val requestPath = handshake.requestPath() ?: return emptyList()
+        val manifestHeaders = apiHeaders(finalDownloadUrl).newBuilder()
+            .set("Accept", "text/plain")
+            .build()
+        val encBody = client.get("$dlBase/$requestPath", manifestHeaders)
+            .readBodyBoundedString(MAX_HTML_BODY_BYTES) ?: return emptyList()
+        val manifest = try {
+            handshake.decryptResponse(encBody)?.parseAs<ManifestDto>()
+        } catch (_: Exception) {
+            null
+        } ?: return emptyList()
+
+        val streamUrl = manifest.source?.takeIf { it.isNotBlank() } ?: return emptyList()
+        val keySeed = manifest.keySeed.orEmpty()
+        val segmentBytes = manifest.obf?.segmentBytes ?: 0
+
+        // 7. Proxy URL for the master m3u8
+        val server = getProxyServer()
+        val downloadReferer = dlBase.toHttpUrl().let { "${it.scheme}://${it.host}/" }
+
+        val localManifest = server.createProxyUrl(
+            streamUrl,
+            keySeed,
+            segmentBytes,
+            isManifest = true,
+            referer = downloadReferer,
+        )
+
+        // 8. Extract HLS variants, labeling each with its file size
+        val videos = playlistUtils.extractFromHls(
+            playlistUrl = localManifest,
+            referer = baseUrl,
+            masterHeaders = headers,
+            videoHeaders = headers,
+            videoNameGen = { qualityLabel ->
+                val height = QUALITY_REGEX.find(qualityLabel)?.groupValues?.get(1)?.toIntOrNull()
+                val quality = height?.let { qualitiesByHeight[it] }
+                if (quality != null) {
+                    "$qualityLabel • ${formatFileSize(quality.size)}"
+                } else {
+                    qualityLabel
+                }
+            },
+            subtitleList = emptyList(),
+        )
+
+        val preferredLabel = HOSTER_LABELS[preferredAudio] ?: "Soft Sub"
+        val isDownloadHoster = hoster.internalData.startsWith("download")
+        val matchesServerType = if (preferredServerType == "download") isDownloadHoster else !isDownloadHoster
+        val hosterMatches = hoster.hosterName.startsWith(preferredLabel, ignoreCase = true) && matchesServerType
+        val preferredVideo = videos.firstOrNull { it.videoTitle.startsWith(preferredQuality) }
+            ?: videos.firstOrNull()
+
+        return videos
+            .sortedByDescending { it === preferredVideo }
+            .map { v ->
+                if (v === preferredVideo && hosterMatches) v.copy(preferred = true) else v
+            }
+    }
+
+    private data class DownloadQuality(val height: Int, val fileName: String, val size: Long)
+
+    private fun parseDownloadQualities(html: String): List<DownloadQuality> {
+        val valueRegex = Regex("""value="(\d+)"""")
+        val fileNameRegex = Regex("""data-file-name="([^"]*)"""")
+        val sizeRegex = Regex("""data-size="(\d+)"""")
+        return QUALITY_INPUT_REGEX.findAll(html).mapNotNull { match ->
+            val input = match.value
+            val height = valueRegex.find(input)?.groupValues?.get(1)?.toIntOrNull() ?: return@mapNotNull null
+            val fileName = fileNameRegex.find(input)?.groupValues?.get(1).orEmpty()
+            val size = sizeRegex.find(input)?.groupValues?.get(1)?.toLongOrNull() ?: return@mapNotNull null
+            DownloadQuality(height, fileName, size)
+        }.toList()
+    }
+
+    private fun formatFileSize(bytes: Long): String {
+        val mb = bytes / (1024.0 * 1024.0)
+        return when {
+            mb >= 1024 -> "%.2f GB".format(mb / 1024)
+            mb >= 10 -> "${mb.toInt()} MB"
+            else -> "%.1f MB".format(mb)
+        }
     }
 
     // ================================ Proxy ===============================
@@ -517,6 +782,15 @@ class Gotaku :
             default = PREF_QUALITY_DEFAULT,
             summary = "%s",
         )
+        val serverTypePref = screen.getListPreference(
+            key = PREF_SERVER_TYPE_KEY,
+            title = "Preferred Server Type",
+            entries = listOf("Streaming (Embed)", "Download"),
+            entryValues = listOf("embed", "download"),
+            default = PREF_SERVER_TYPE_DEFAULT,
+            summary = "%s",
+            enabled = showDownloads,
+        ).also(screen::addPreference)
         screen.addListPreference(
             key = PREF_AUDIO_KEY,
             title = "Preferred Audio Type",
@@ -533,6 +807,22 @@ class Gotaku :
             setDefaultValue(emptySet<String>())
             summary = "Hide hosters of the selected audio types."
         }.also(screen::addPreference)
+        screen.addSwitchPreference(
+            key = PREF_SHOW_DOWNLOADS_KEY,
+            title = "Show Download Hosters",
+            summary = "Include download links in the hoster list alongside streaming links.",
+            default = PREF_SHOW_DOWNLOADS_DEFAULT,
+            onChange = { _, newValue ->
+                serverTypePref.setEnabled(newValue)
+                true
+            },
+        )
+        screen.addSwitchPreference(
+            key = PREF_HIDE_NSFW_KEY,
+            title = "Hide NSFW Entries",
+            summary = "Filter out NSFW titles from browse and search results.",
+            default = PREF_HIDE_NSFW_DEFAULT,
+        )
     }
 
     companion object {
@@ -547,10 +837,19 @@ class Gotaku :
         private const val PREF_AUDIO_KEY = "preferred_audio"
         private const val PREF_AUDIO_DEFAULT = "soft_sub"
 
+        private const val PREF_SERVER_TYPE_KEY = "preferred_server_type"
+        private const val PREF_SERVER_TYPE_DEFAULT = "embed"
+
         private const val PREF_LATEST_TRACK_KEY = "preferred_latest_track"
         private const val PREF_LATEST_TRACK_DEFAULT = ""
 
         private const val PREF_AUDIO_EXCLUDE_KEY = "excluded_audio_types"
+
+        private const val PREF_SHOW_DOWNLOADS_KEY = "show_downloads"
+        private const val PREF_SHOW_DOWNLOADS_DEFAULT = false
+
+        private const val PREF_HIDE_NSFW_KEY = "hide_nsfw"
+        private const val PREF_HIDE_NSFW_DEFAULT = true
 
         private val HOSTER_LABELS = mapOf(
             "soft_sub" to "Soft Sub",
@@ -568,6 +867,14 @@ class Gotaku :
 
         private const val TAG = "Gotaku"
 
+        private const val API_VERSION = 6
+
+        private const val MAX_HTML_BODY_BYTES = 2 * 1024 * 1024
+
+        private val SOURCE_TYPE_REGEX = Regex("""<li class="source-type">([^<]+)</li>""")
+        private val DOWNLOAD_URL_REGEX = Regex("""data-download-url="([^"]+)"""")
+        private val QUALITY_INPUT_REGEX = Regex("""<input\s+[^>]*name="quality"[^>]*>""")
+        private val QUALITY_REGEX = Regex("""(\d{3,4})""")
         private val MANIFEST_ATTRS_REGEX =
             Regex("""data-manifest-base="([^"]+)"\s+data-manifest-stamp="([^"]+)"""")
         private val BR_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)

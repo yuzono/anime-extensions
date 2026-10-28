@@ -19,8 +19,8 @@ import kotlin.collections.toByteArray
 
 /**
  * Four contexts:
- *  1. API responses (?k=1 endpoints): AES-GCM under HKDF-SHA256(API_SEED, ∅, "api-seal|v1");
- *     wire = [0x01][12B IV][ct‖tag]; plaintext = zlib(JSON).
+ *  1. API responses (?k=N endpoints): AES-GCM under HKDF-SHA256(API_SEED, ∅, "api-seal|v1");
+ *     wire = [0x0${API_VERSION}][12B IV][ct‖tag]; plaintext = zlib(JSON).
  *  2. Manifest request: AES-GCM under raw MANIFEST_SEED; base64url(IV‖ct) of
  *     JSON{nonce, stamp}, placed in the URL path.
  *  3. Manifest response: AES-GCM under HKDF-SHA256(MANIFEST_SEED, salt=nonce,
@@ -31,8 +31,8 @@ import kotlin.collections.toByteArray
  */
 object Crypto {
     private val API_SEED = listOf(
-        203, 10, 122, 188, 182, 30, 245, 41, 26, 106, 139, 92, 56, 203, 90, 52,
-        167, 208, 189, 122, 150, 242, 60, 1, 70, 177, 253, 150, 158, 124, 253, 47,
+        179, 30, 96, 89, 215, 107, 110, 243, 131, 139, 238, 126, 21, 71, 36, 87,
+        225, 51, 199, 190, 199, 243, 192, 9, 240, 241, 185, 245, 2, 201, 163, 88,
     ).map { it.toByte() }.toByteArray()
 
     private val MANIFEST_SEED = "458e5403c40a73332706df406193dd6b040a2ea97a6bb59b52b294a61006e6ef".decodeHex()
@@ -49,18 +49,18 @@ object Crypto {
     // =========================== API responses ============================
 
     /**
-     * Decrypts a `?k=1` response body (raw bytes). Returns the inflated JSON
+     * Decrypts a `?k=N` response body (raw bytes). Returns the inflated JSON
      * text, or null on any failure. Defensively accepts a base64-text variant
      * of the wire format in case a proxy layer ever re-encodes the body.
      */
     fun decryptInfo(body: ByteArray): String? {
-        val blob = if (body.isNotEmpty() && body[0] == 1.toByte()) {
+        val blob = if (body.isNotEmpty() && (body[0] == 4.toByte() || body[0] == 6.toByte())) {
             body
         } else {
             b64UrlDecode(body.decodeToString()) ?: return null
         }
         // 1 (version) + 12 (IV) + 16 (GCM tag) = 29 = empty payload
-        if (blob.size <= 29 || blob[0] != 1.toByte()) return null
+        if (blob.size <= 29 || (blob[0] != 4.toByte() && blob[0] != 6.toByte())) return null
 
         val compressed = gcmDecrypt(
             apiKeySpec,
