@@ -92,10 +92,10 @@ abstract class HDFilmCehennemi :
     ): AnimesPage {
         if (query.startsWith("https://")) {
             val url = query.toHttpUrl()
-            if (url.host != baseUrl.toHttpUrl().host) {
+            if (url.host != baseUrl.toHttpUrl().host && url.host !in LEGACY_HOSTS) {
                 throw Exception("Unsupported url")
             }
-            val id = url.pathSegments.firstOrNull()?.takeIf(String::isNotBlank)
+            val id = url.encodedPath.removePrefix("/").takeIf(String::isNotEmpty)
                 ?: throw Exception("Unsupported url")
             return getSearchAnime(page, "${PREFIX_SEARCH}$id", filters)
         }
@@ -319,6 +319,16 @@ abstract class HDFilmCehennemi :
 
     companion object {
         const val PREFIX_SEARCH = "id:"
+
+        // Old domains: keep in sync with their deeplink in build.gradle.kts
+        private val LEGACY_HOSTS = setOf(
+            "www.hdfilmcehennemi.ws",
+            "www.hdfilmcehennemi.la",
+            "www.hdfilmcehennemi.us",
+            "www.hdfilmcehennemi.fun",
+            "www.hdfilmcehennemi.de",
+            "www.hdfilmcehennemi.life",
+        )
 
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)

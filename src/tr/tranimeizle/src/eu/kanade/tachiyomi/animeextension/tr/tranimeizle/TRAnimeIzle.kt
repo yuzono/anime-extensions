@@ -89,7 +89,7 @@ abstract class TRAnimeIzle :
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.startsWith("https://")) {
             val url = query.toHttpUrl()
-            if (url.host != baseUrl.toHttpUrl().host) {
+            if (url.host != baseUrl.toHttpUrl().host && url.host !in LEGACY_HOSTS) {
                 throw Exception("Unsupported url")
             }
             val id = url.pathSegments.getOrNull(1)
@@ -389,6 +389,9 @@ abstract class TRAnimeIzle :
 
     companion object {
         const val PREFIX_SEARCH = "id:"
+
+        // Old domains: keep in sync with their deeplink in build.gradle.kts
+        private val LEGACY_HOSTS = setOf("www.tranimeizle.top", "www.tranimeizle.co")
 
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("dd MMM yyyy", Locale("tr"))

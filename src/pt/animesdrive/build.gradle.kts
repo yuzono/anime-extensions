@@ -4,7 +4,7 @@ plugins {
 
 yuzono {
     name = "AnimesDrive"
-    versionCode = 6
+    versionCode = 7
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
     theme = "dooplay"
@@ -12,7 +12,13 @@ yuzono {
     source {
         name = "Animes Drive"
         lang = "pt-BR"
-        baseUrl = "https://animesdrive.online"
+        baseUrl = "https://animesdrive.cloud"
+    }
+
+    // Old domains: keep in sync with LEGACY_HOSTS in AnimesDrive.kt
+    deeplink {
+        host("animesdrive.online")
+        path("/.*/..*")
     }
 }
 

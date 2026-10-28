@@ -4,7 +4,7 @@ plugins {
 
 yuzono {
     name = "Animeler"
-    versionCode = 36
+    versionCode = 37
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 
@@ -13,6 +13,11 @@ yuzono {
         baseUrl = "https://animeler.pw"
     }
 
+    deeplink {
+        path("/anime/..*")
+    }
+
+    // Old domains: keep in sync with LEGACY_HOSTS in Animeler.kt
     deeplink {
         host("animeler.me")
         path("/anime/..*")
