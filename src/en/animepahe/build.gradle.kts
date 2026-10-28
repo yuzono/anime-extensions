@@ -4,10 +4,16 @@ plugins {
 
 yuzono {
     name = "AnimePahe"
-    className = "AnimePahe"
-    versionCode = 55
+    versionCode = 56
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
+
+    source {
+        lang = "en"
+        baseUrl("https://animepahe.pw") {
+            mirrors = listOf("https://animepahe.com", "https://animepahe.org")
+        }
+    }
 }
 
 dependencies {

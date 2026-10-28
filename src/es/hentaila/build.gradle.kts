@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Hentaila"
-    className = "Hentaila"
     versionCode = 49
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://hentaila.com"
+    }
 }
 
 dependencies {

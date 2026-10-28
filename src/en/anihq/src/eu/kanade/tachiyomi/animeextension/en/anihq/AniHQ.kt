@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
@@ -36,15 +37,10 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.roundToInt
 
-class AniHQ :
+@Source
+abstract class AniHQ :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "AniHQ"
-
-    override val baseUrl = "https://anihq.cc"
-
-    override val lang = "en"
 
     override val supportsLatest = true
 

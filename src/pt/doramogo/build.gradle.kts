@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Doramogo"
-    className = "Doramogo"
     versionCode = 21
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "pt-BR"
+        baseUrl = "https://doramogo.com"
+    }
 
     deeplink {
         host("doramogo.com")

@@ -10,6 +10,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
@@ -20,15 +21,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class Xnxx :
+@Source
+abstract class Xnxx :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Xnxx"
-
-    override val baseUrl = "https://www.xnxx.com"
-
-    override val lang = "all"
 
     override val supportsLatest = false
 

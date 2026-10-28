@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "YoMovies"
-    className = "YoMovies"
     versionCode = 35
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "hi"
+        baseUrl = "https://yomovies.town"
+    }
 }
 
 dependencies {

@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Jkhentai"
-    className = "Jkhentai"
     versionCode = 11
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://www.jkhentai.net"
+    }
 }
 
 dependencies {

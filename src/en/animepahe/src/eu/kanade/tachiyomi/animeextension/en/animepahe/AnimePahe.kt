@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
@@ -42,7 +43,8 @@ import kotlin.math.floor
 import kotlin.time.Duration.Companion.milliseconds
 
 /* API: https://gist.github.com/Ellivers/f7716b6b6895802058c367963f3a2c51 */
-class AnimePahe :
+@Source
+abstract class AnimePahe :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
@@ -63,23 +65,6 @@ class AnimePahe :
             interceptors().removeAll { it is CloudflareInterceptor }
         }.build()
     }
-
-    override val name = "AnimePahe"
-
-    override val baseUrl by lazy {
-        val stored = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
-        if (stored != null && stored in PREF_DOMAIN_VALUES) {
-            stored
-        } else {
-            // Normalize invalid or null value back to the default to keep preferences consistent
-            preferences.edit()
-                .putString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
-                .apply()
-            PREF_DOMAIN_DEFAULT
-        }
-    }
-
-    override val lang = "en"
 
     override val supportsLatest = false
 
@@ -732,15 +717,6 @@ class AnimePahe :
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
-            key = PREF_DOMAIN_KEY,
-            title = PREF_DOMAIN_TITLE,
-            entries = PREF_DOMAIN_ENTRIES,
-            entryValues = PREF_DOMAIN_VALUES,
-            default = PREF_DOMAIN_DEFAULT,
-            summary = "%s",
-            restartRequired = true,
-        )
-        screen.addListPreference(
             key = PREF_QUALITY_KEY,
             title = PREF_QUALITY_TITLE,
             entries = PREF_QUALITY_ENTRIES,
@@ -955,16 +931,6 @@ class AnimePahe :
         private const val PREF_QUALITY_TITLE = "Preferred Quality"
         private const val PREF_QUALITY_DEFAULT = "1080p"
         private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "360p")
-
-        private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private const val PREF_DOMAIN_TITLE = "Preferred Domain (Requires App Restart)"
-        private val PREF_DOMAIN_ENTRIES = listOf(
-            "animepahe.pw",
-            "animepahe.com",
-            "animepahe.org",
-        )
-        private val PREF_DOMAIN_VALUES = PREF_DOMAIN_ENTRIES.map { "https://$it" }
-        private val PREF_DOMAIN_DEFAULT = PREF_DOMAIN_VALUES.first()
 
         private const val PREF_LANG_KEY = "preferred_lang"
         private const val PREF_LANG_TITLE = "Preferred Language"

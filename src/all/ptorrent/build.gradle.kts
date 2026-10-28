@@ -4,11 +4,15 @@ plugins {
 
 yuzono {
     name = "PTorrent (Torrent)"
-    className = "PTorrent"
     versionCode = 5
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
     torrent = true
+
+    source {
+        lang = "all"
+        baseUrl = "https://www.ptorrents.com"
+    }
 
     deeplink {
         host("www.ptorrents.com")

@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "MonosChinos"
-    className = "MonosChinos"
     versionCode = 57
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://monoschinos.st"
+    }
 }
 
 dependencies {

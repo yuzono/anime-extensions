@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "AnimeMovil"
-    className = "AnimeMovil"
     versionCode = 50
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://animemeow.xyz"
+    }
 }
 
 dependencies {

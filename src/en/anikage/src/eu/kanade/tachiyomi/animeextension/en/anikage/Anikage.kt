@@ -28,7 +28,8 @@ import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.util.concurrent.TimeUnit
 
-class Anikage : Source() {
+@keiyoushi.annotation.Source
+abstract class Anikage : Source() {
 
     override val migration: SharedPreferences.() -> Unit = {
         val oldType = getString("sub_or_dub", null)
@@ -45,13 +46,7 @@ class Anikage : Source() {
         }
     }
 
-    override val name = "Anikage"
-
-    override val baseUrl = "https://anikage.cc"
-
     private val apiUrl = "$baseUrl/api/media"
-
-    override val lang = "en"
 
     override val supportsLatest = true
 

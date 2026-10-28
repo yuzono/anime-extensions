@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -30,12 +31,10 @@ import org.jsoup.select.Elements
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class NeoNime :
+@Source
+abstract class NeoNime :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-    override val baseUrl: String = "https://neonime.ink"
-    override val lang: String = "id"
-    override val name: String = "NeoNime"
     override val supportsLatest: Boolean = true
 
     private val preferences by getPreferencesLazy()

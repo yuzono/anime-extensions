@@ -4,10 +4,15 @@ plugins {
 
 yuzono {
     name = "AniWorld"
-    className = "AniWorld"
     versionCode = 41
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "de"
+        id = 8286900189409315836L
+        baseUrl = "https://aniworld.to"
+    }
 }
 
 dependencies {

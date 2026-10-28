@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Latanime"
-    className = "Latanime"
     versionCode = 44
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://latanime.org"
+    }
 }
 
 dependencies {

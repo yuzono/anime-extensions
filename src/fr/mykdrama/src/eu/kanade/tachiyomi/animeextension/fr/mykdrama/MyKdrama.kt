@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl
@@ -26,12 +27,8 @@ import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class MyKdrama :
-    AnimeStream(
-        "fr",
-        "MyKdrama",
-        "https://mykdrama.co",
-    ) {
+@Source
+abstract class MyKdrama : AnimeStream() {
     override val animeListUrl = "$baseUrl/drama"
 
     override val dateFormatter by lazy {

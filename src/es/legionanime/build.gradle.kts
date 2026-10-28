@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "LegionAnime"
-    className = "LegionAnime"
     versionCode = 52
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://legionanime.club/api"
+    }
 }
 
 dependencies {

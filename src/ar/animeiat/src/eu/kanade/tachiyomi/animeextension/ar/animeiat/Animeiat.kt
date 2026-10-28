@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
@@ -24,15 +25,10 @@ import okhttp3.Request
 import okhttp3.Response
 import java.util.Base64
 
-class Animeiat :
+@Source
+abstract class Animeiat :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Animeiat"
-
-    override val baseUrl = "https://api.animeiat.co/v1"
-
-    override val lang = "ar"
 
     override val supportsLatest = true
 

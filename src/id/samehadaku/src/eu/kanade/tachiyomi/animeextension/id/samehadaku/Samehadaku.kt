@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.bodyString
@@ -31,13 +32,11 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Samehadaku :
+@Source
+abstract class Samehadaku :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-    override val name: String = "Samehadaku"
 
-    override val baseUrl: String = "https://v2.samehadaku.how"
-    override val lang: String = "id"
     override val supportsLatest: Boolean = true
 
     private val bloggerExtractor by lazy { BloggerExtractor(client) }

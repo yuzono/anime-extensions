@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Kuronime"
-    className = "Kuronime"
     versionCode = 13
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "id"
+        baseUrl = "https://tv1.kuronime.vip"
+    }
 }
 
 dependencies {

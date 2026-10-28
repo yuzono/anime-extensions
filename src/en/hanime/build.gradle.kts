@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "hanime.tv"
-    className = "Hanime"
     versionCode = 24
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "en"
+        baseUrl = "https://hanime.tv"
+    }
 }
 
 android {

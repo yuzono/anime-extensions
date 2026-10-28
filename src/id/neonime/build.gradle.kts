@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "NeoNime"
-    className = "NeoNime"
     versionCode = 27
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "id"
+        baseUrl = "https://neonime.ink"
+    }
 }
 
 dependencies {

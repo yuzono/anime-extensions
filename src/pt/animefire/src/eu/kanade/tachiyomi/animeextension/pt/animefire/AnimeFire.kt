@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.firstInstanceOrNull
@@ -32,12 +33,10 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
-class AnimeFire :
+@Source
+abstract class AnimeFire :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-    override val name = "Anime Fire"
-    override val baseUrl = "https://animefire.one"
-    override val lang = "pt-BR"
     override val supportsLatest = true
 
     private val apiUrl = "https://api.animefire.one"
@@ -377,6 +376,8 @@ class AnimeFire :
     companion object {
         const val PREFIX_SEARCH = "id:"
         private const val LEGACY_SUFFIX = "-todos-os-episodios"
+
+        // Old domains: keep in sync with their deeplink hosts in build.gradle.kts
         private val LEGACY_HOSTS = setOf("animefire.io", "animefire.plus")
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_AUDIO_KEY = "preferred_audio"

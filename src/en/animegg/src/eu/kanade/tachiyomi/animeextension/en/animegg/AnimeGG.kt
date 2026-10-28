@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
@@ -24,15 +25,10 @@ import okhttp3.Response
 import org.jsoup.nodes.Element
 import java.util.Locale
 
-class AnimeGG :
+@Source
+abstract class AnimeGG :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "AnimeGG"
-
-    override val baseUrl = "https://www.animegg.org"
-
-    override val lang = "en"
 
     override val supportsLatest = true
 

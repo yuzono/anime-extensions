@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "Animes Online CC"
-    className = "AnimesOnlineCC"
     versionCode = 3
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
     theme = "dooplay"
-    baseUrl = "https://animesonlinecc.to"
+
+    source {
+        lang = "pt-BR"
+        baseUrl = "https://animesonlinecc.to"
+    }
 }
 
 dependencies {

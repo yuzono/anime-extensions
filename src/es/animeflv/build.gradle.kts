@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "AnimeFLV"
-    className = "AnimeFlv"
     versionCode = 78
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://www3.animeflv.net"
+    }
 }
 
 dependencies {

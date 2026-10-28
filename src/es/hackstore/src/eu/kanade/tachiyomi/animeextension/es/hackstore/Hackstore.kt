@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.catchingFlatMapBlocking
@@ -33,15 +34,10 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Hackstore :
+@Source
+abstract class Hackstore :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Hackstore"
-
-    override val baseUrl = "https://www.hackstore.fo"
-
-    override val lang = "es"
 
     override val supportsLatest = false // currently not supported
 

@@ -15,7 +15,7 @@ class CustomUrlPreferences(
     private val title: String,
     private val dialogMessage: String,
 ) {
-    private val prefBaseKey = "overrideBaseUrl"
+    private val prefBaseKey = PREF_BASE_URL_KEY
     private val prefDefaultKey = "defaultBaseUrl"
 
     init {
@@ -89,5 +89,10 @@ class CustomUrlPreferences(
                 false
             }
         }.also(screen::addPreference)
+    }
+
+    companion object {
+        /** Key of the custom base URL, for a source that stores a new domain announced by the site. */
+        const val PREF_BASE_URL_KEY = "overrideBaseUrl"
     }
 }

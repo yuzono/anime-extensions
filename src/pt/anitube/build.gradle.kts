@@ -4,10 +4,16 @@ plugins {
 
 yuzono {
     name = "Anitube"
-    className = "Anitube"
-    versionCode = 29
+    versionCode = 30
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "pt-BR"
+        baseUrl("https://www.anitube.vip") {
+            withCustom = true
+        }
+    }
 
     deeplink {
         host("anitube.vip")

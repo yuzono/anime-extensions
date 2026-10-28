@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
@@ -32,15 +33,10 @@ import okhttp3.Response
 import org.jsoup.nodes.Element
 import kotlin.math.ceil
 
-class Doramasyt :
+@Source
+abstract class Doramasyt :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Doramasyt"
-
-    override val baseUrl = "https://www.doramasyt.com"
-
-    override val lang = "es"
 
     override val supportsLatest = true
 

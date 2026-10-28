@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Goyabu"
-    className = "Goyabu"
     versionCode = 6
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "pt-BR"
+        baseUrl = "https://goyabu.io"
+    }
 
     deeplink {
         host("goyabu.io")

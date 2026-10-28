@@ -23,6 +23,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.get
@@ -53,24 +54,18 @@ import java.util.Locale
 import java.util.TimeZone.getTimeZone
 import kotlin.math.roundToInt
 
-class ReAnime :
+@Source
+abstract class ReAnime :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "Re:ANIME"
-
-    override val lang = "en"
 
     override val supportsLatest = true
 
     private val preferences: SharedPreferences by getPreferencesLazy()
-    override val baseUrl: String
-        get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT) ?: PREF_DOMAIN_DEFAULT
-
     private val apiUrl: String
         get() = "$baseUrl/api/v1"
 
-    private val flixUrl = "$baseUrl/api/flix"
+    private val flixUrl: String get() = "$baseUrl/api/flix"
 
     private val preferredLang: String
         get() = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT) ?: PREF_LANG_DEFAULT
@@ -257,7 +252,7 @@ class ReAnime :
     }
 
     // =========================== Anime Details ============================
-    private val detailsUrl = "$baseUrl/anime"
+    private val detailsUrl: String get() = "$baseUrl/anime"
     override fun getAnimeUrl(anime: SAnime): String = "$detailsUrl/${anime.url}"
 
     override fun animeDetailsRequest(anime: SAnime): Request = GET("$detailsFromApiUrl/${anime.url}", apiHeaders(getAnimeUrl(anime)))
@@ -511,7 +506,7 @@ class ReAnime :
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
-    private val detailsFromApiUrl = "$apiUrl/anime"
+    private val detailsFromApiUrl: String get() = "$apiUrl/anime"
 
     private suspend fun fetchRecommendations(slug: String): List<RecommendationDto> {
         return try {
@@ -1123,15 +1118,6 @@ class ReAnime :
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
-            key = PREF_DOMAIN_KEY,
-            title = "Preferred Domain",
-            entries = PREF_DOMAIN_ENTRIES,
-            entryValues = PREF_DOMAIN_VALUES,
-            default = PREF_DOMAIN_DEFAULT,
-            summary = "%s",
-        )
-
-        screen.addListPreference(
             key = PREF_TITLE_LANG_KEY,
             title = "Preferred Title Language",
             entries = PREF_TITLE_LANG_ENTRIES,
@@ -1206,10 +1192,6 @@ class ReAnime :
 
     // Status domain: https://restatus.me/
     companion object {
-        private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private val PREF_DOMAIN_ENTRIES = listOf("reanime.to", "reanime.cz", "reanime.wtf")
-        private val PREF_DOMAIN_VALUES = listOf("https://reanime.to", "https://reanime.cz", "https://reanime.wtf")
-        private const val PREF_DOMAIN_DEFAULT = "https://reanime.to"
         private const val PREF_LANG_KEY = "preferred_lang"
         private val PREF_LANG_ENTRIES = listOf("All", "Sub", "Dub")
         private val PREF_LANG_VALUES = listOf("", "sub", "dub")

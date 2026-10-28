@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Anikage"
-    className = "Anikage"
     versionCode = 9
     contentWarning = ContentWarning.NSFW
     libVersion = "16"
+
+    source {
+        lang = "en"
+        baseUrl = "https://anikage.cc"
+    }
 }
 
 dependencies {

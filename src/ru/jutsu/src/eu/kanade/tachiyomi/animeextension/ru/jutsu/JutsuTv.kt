@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
@@ -33,13 +34,11 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class JutsuTv :
+@Source
+abstract class JutsuTv :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "Jutsu TV"
-    override val baseUrl = "https://jutsu.tv"
-    override val lang = "ru"
     override val supportsLatest = true
 
     // The DLE search is a loose full-text match over posts, so a title query also drags in

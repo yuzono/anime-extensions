@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "EstrenosDoramas"
-    className = "EstrenosDoramas"
     versionCode = 21
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://estrenosdoramas.es"
+    }
 }
 
 dependencies {

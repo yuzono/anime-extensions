@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "az-animex"
-    className = "Azanimex"
     versionCode = 3
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://www.az-animex.com"
+    }
 
     deeplink {
         host("www.az-animex.com")

@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "MiniOppai"
-    className = "MiniOppai"
     versionCode = 11
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
     theme = "animestream"
-    baseUrl = "https://minioppai.org"
+
+    source {
+        lang = "id"
+        baseUrl = "https://minioppai.org"
+    }
 }
 
 dependencies {

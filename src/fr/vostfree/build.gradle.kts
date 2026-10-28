@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Vostfree"
-    className = "Vostfree"
     versionCode = 43
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "fr"
+        baseUrl = "https://vostfree.ws"
+    }
 }
 
 dependencies {

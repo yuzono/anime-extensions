@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "MyKdrama"
-    className = "MyKdrama"
     versionCode = 13
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "animestream"
-    baseUrl = "https://mykdrama.co"
+
+    source {
+        lang = "fr"
+        baseUrl = "https://mykdrama.co"
+    }
 }
 
 dependencies {

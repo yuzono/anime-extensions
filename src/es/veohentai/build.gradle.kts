@@ -4,8 +4,12 @@ plugins {
 
 yuzono {
     name = "VeoHentai"
-    className = "VeoHentai"
     versionCode = 1
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://veohentai.com"
+    }
 }

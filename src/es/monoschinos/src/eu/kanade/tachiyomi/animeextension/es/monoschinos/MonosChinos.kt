@@ -22,6 +22,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
@@ -31,14 +32,11 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class MonosChinos :
+@Source
+abstract class MonosChinos :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val name = "MonosChinos"
-    override val baseUrl = "https://monoschinos.st"
-    override val id = 6957694006954649296
-    override val lang = "es"
     override val supportsLatest = true
 
     private val preferences by getPreferencesLazy()

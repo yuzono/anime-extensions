@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Cine24h"
-    className = "Cine24h"
     versionCode = 26
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://cine24h.online"
+    }
 }
 
 dependencies {

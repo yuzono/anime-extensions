@@ -4,10 +4,15 @@ plugins {
 
 yuzono {
     name = "Cimaleek"
-    className = "Cimaleek"
     versionCode = 12
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        name = "سيما ليك"
+        lang = "ar"
+        baseUrl = "https://m.cimaleek.to"
+    }
 }
 
 dependencies {

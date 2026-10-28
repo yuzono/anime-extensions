@@ -4,10 +4,15 @@ plugins {
 
 yuzono {
     name = "Kayoanime"
-    className = "Kayoanime"
     versionCode = 13
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "en"
+        id = 203922289858257167L
+        baseUrl = "https://kayoanime.com"
+    }
 }
 
 dependencies {

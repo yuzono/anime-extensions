@@ -4,12 +4,16 @@ plugins {
 
 yuzono {
     name = "AnimeXin"
-    className = "AnimeXin"
     versionCode = 24
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "animestream"
-    baseUrl = "https://animexin.dev"
+
+    source {
+        lang = "all"
+        id = 4620219025406449669L
+        baseUrl = "https://animexin.dev"
+    }
 }
 
 dependencies {

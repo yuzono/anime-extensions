@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "AniWaves.ru"
-    className = "AniWaves"
-    versionCode = 3
+    versionCode = 4
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
+
+    source {
+        lang = "en"
+        baseUrl = "https://aniwaves.ru"
+    }
 }
 
 dependencies {

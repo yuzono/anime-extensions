@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Doramasyt"
-    className = "Doramasyt"
     versionCode = 41
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://www.doramasyt.com"
+    }
 }
 
 dependencies {

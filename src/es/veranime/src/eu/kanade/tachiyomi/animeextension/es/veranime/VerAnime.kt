@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
@@ -27,15 +28,10 @@ import okhttp3.Request
 import okhttp3.Response
 import java.net.URLEncoder
 
-class VerAnime :
+@Source
+abstract class VerAnime :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "VerAni.me"
-
-    override val baseUrl = "https://verani.me"
-
-    override val lang = "es"
 
     override val supportsLatest = true
 

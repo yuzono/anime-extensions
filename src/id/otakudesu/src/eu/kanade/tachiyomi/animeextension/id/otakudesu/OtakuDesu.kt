@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
@@ -32,15 +33,10 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class OtakuDesu :
+@Source
+abstract class OtakuDesu :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "OtakuDesu"
-
-    override val baseUrl = "https://otakudesu.blog"
-
-    override val lang = "id"
 
     override val supportsLatest = true
 

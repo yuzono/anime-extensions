@@ -8,6 +8,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
@@ -18,13 +19,8 @@ import okhttp3.Request
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Voiranime : ParsedAnimeHttpLegacySource() {
-
-    override val name = "Voiranime"
-
-    override val baseUrl = "https://voir-anime.to"
-
-    override val lang = "fr"
+@Source
+abstract class Voiranime : ParsedAnimeHttpLegacySource() {
 
     override val supportsLatest = true
 

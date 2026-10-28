@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "AnimeKhor"
-    className = "AnimeKhor"
     versionCode = 22
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "animestream"
-    baseUrl = "https://animekhor.org"
+
+    source {
+        lang = "en"
+        baseUrl = "https://animekhor.org"
+    }
 }
 
 dependencies {

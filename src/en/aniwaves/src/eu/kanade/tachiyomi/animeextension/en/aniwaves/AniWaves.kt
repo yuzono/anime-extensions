@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
@@ -38,16 +39,11 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.time.Duration.Companion.seconds
 
-class AniWaves :
+@Source
+abstract class AniWaves :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "AniWaves.ru"
-
-    override val baseUrl: String
-        get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
-
-    override val lang = "en"
     override val supportsLatest = true
 
     /**
@@ -802,9 +798,6 @@ class AniWaves :
     companion object {
         private const val TAG = "AniWaves"
 
-        private val DOMAINS = arrayOf("aniwaves.ru")
-        private val BASE_URLS = DOMAINS.map { "https://$it" }.toTypedArray()
-
         private const val ANIME_ITEM_SELECTOR = "div.ani.items > div.item"
         private const val NEXT_PAGE_SELECTOR = "nav > ul.pagination > li.active ~ li"
         private const val EPISODE_ITEM_SELECTOR = "div.episodes ul li a"
@@ -831,9 +824,6 @@ class AniWaves :
         private val DATE_FORMATTER = SimpleDateFormat("yyyy/MM/dd HH:mm", Locale.ROOT)
 
         private val META_EXCLUDED_LABELS = listOf("Genres", "Status", "Studios", "Producers", "Scores")
-
-        private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private val PREF_DOMAIN_DEFAULT = BASE_URLS[0]
 
         private const val PREF_TITLE_LANG_KEY = "preferred_title_lang"
         private const val PREF_TITLE_LANG_DEFAULT = "English"
@@ -881,15 +871,6 @@ class AniWaves :
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        ListPreference(screen.context).apply {
-            key = PREF_DOMAIN_KEY
-            title = "Preferred Domain"
-            entries = DOMAINS
-            entryValues = BASE_URLS
-            setDefaultValue(PREF_DOMAIN_DEFAULT)
-            summary = "%s"
-        }.also(screen::addPreference)
-
         ListPreference(screen.context).apply {
             key = PREF_TITLE_LANG_KEY
             title = "Preferred Title Language"

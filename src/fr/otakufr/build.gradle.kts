@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "OtakuFR"
-    className = "OtakuFR"
     versionCode = 44
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "fr"
+        baseUrl = "https://otakufr.cc"
+    }
 }
 
 dependencies {

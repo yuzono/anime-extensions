@@ -37,11 +37,7 @@ import org.jsoup.nodes.Element
 import kotlin.time.Duration.Companion.hours
 
 abstract class DopeFlix(
-    override val name: String,
-    override val lang: String,
     private val megaCloudApi: String,
-    private val domainList: List<String>,
-    private val defaultDomain: String = "https://${domainList.first()}",
     private val hosterNames: List<String> = listOf(
         "UpCloud",
         "MegaCloud",
@@ -57,11 +53,9 @@ abstract class DopeFlix(
         clearOldPrefs()
     }
 
-    override var baseUrl by LazyMutable { preferences.domainUrl }
-
-    protected open var docHeaders by LazyMutable {
-        newHeaders()
-    }
+    // Built on each use, so a change of the mirror preference applies at once
+    protected open val docHeaders: Headers
+        get() = newHeaders()
 
     protected open fun newHeaders(): Headers = headers.newBuilder().apply {
         add(
@@ -420,9 +414,6 @@ abstract class DopeFlix(
 
     // ============================== Settings ==============================
 
-    protected open var SharedPreferences.domainUrl
-        by LazyMutable { preferences.getString(PREF_DOMAIN_KEY, defaultDomain)!! }
-
     protected open var SharedPreferences.prefPopularType
         by LazyMutable { preferences.getString(PREF_POPULAR_TYPE_KEY, PREF_POPULAR_TYPE_DEFAULT.value)!! }
 
@@ -442,40 +433,20 @@ abstract class DopeFlix(
         by LazyMutable { preferences.getStringSet(PREF_HOSTER_KEY, hosterNames.toSet())!! }
 
     protected open fun SharedPreferences.clearOldPrefs(): SharedPreferences {
-        val domain = getString(PREF_DOMAIN_KEY, defaultDomain)!!.removePrefix("https://")
         val hostToggle = getStringSet(PREF_HOSTER_KEY, hosterNames.toSet())!!
 
-        val invalidDomain = domain !in domainList
         val invalidHosters = hostToggle.any { it !in hosterNames }
 
-        if (invalidDomain || invalidHosters) {
-            edit().also { editor ->
-                if (invalidDomain) {
-                    editor.putString(PREF_DOMAIN_KEY, defaultDomain)
-                }
-                if (invalidHosters) {
-                    editor.putStringSet(PREF_HOSTER_KEY, hosterNames.toSet())
-                    editor.putString(PREF_SERVER_KEY, preferredHoster)
-                }
-            }.apply()
+        if (invalidHosters) {
+            edit()
+                .putStringSet(PREF_HOSTER_KEY, hosterNames.toSet())
+                .putString(PREF_SERVER_KEY, preferredHoster)
+                .apply()
         }
         return this
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        screen.addListPreference(
-            key = PREF_DOMAIN_KEY,
-            title = PREF_DOMAIN_TITLE,
-            entries = domainList,
-            entryValues = domainList.map { "https://$it" },
-            default = defaultDomain,
-            summary = "%s",
-        ) {
-            baseUrl = it
-            preferences.domainUrl = it
-            docHeaders = newHeaders()
-        }
-
         screen.addListPreference(
             key = PREF_POPULAR_TYPE_KEY,
             title = PREF_POPULAR_TYPE_TITLE,
@@ -557,9 +528,6 @@ abstract class DopeFlix(
     }
 
     companion object {
-        protected const val PREF_DOMAIN_KEY = "preferred_domain"
-        protected const val PREF_DOMAIN_TITLE = "Preferred domain"
-
         protected const val PREF_POPULAR_TYPE_KEY = "preferred_popular_type"
         protected const val PREF_POPULAR_TYPE_TITLE = "Popular type"
         protected const val PREF_LATEST_PRIORITY_KEY = "preferred_latest_priority"

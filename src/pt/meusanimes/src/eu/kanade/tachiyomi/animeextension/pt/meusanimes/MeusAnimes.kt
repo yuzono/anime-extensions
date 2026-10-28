@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.useAsJsoup
@@ -17,11 +18,9 @@ import org.json.JSONObject
 import org.jsoup.nodes.Document
 import java.net.URLEncoder
 
-class MeusAnimes : AnimeHttpLegacySource() {
+@Source
+abstract class MeusAnimes : AnimeHttpLegacySource() {
 
-    override val name = "Meus Animes"
-    override val baseUrl = "https://meusanimes.vip"
-    override val lang = "pt-BR"
     override val supportsLatest = false
 
     override fun headersBuilder() = super.headersBuilder()

@@ -4,10 +4,16 @@ plugins {
 
 yuzono {
     name = "Re:ANIME"
-    className = "ReAnime"
-    versionCode = 13
+    versionCode = 14
     contentWarning = ContentWarning.MIXED
     libVersion = "16"
+
+    source {
+        lang = "en"
+        baseUrl("https://reanime.to") {
+            mirrors = listOf("https://reanime.cz", "https://reanime.wtf")
+        }
+    }
 }
 
 dependencies {

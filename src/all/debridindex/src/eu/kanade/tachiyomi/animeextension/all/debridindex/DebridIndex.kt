@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
@@ -24,15 +25,10 @@ import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class DebridIndex :
+@Source
+abstract class DebridIndex :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Debrid Index"
-
-    override val baseUrl = "https://torrentio.strem.fun"
-
-    override val lang = "all"
 
     override val supportsLatest = false
 

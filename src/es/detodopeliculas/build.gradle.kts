@@ -4,12 +4,16 @@ plugins {
 
 yuzono {
     name = "DeTodoPeliculas"
-    className = "DeTodoPeliculas"
     versionCode = 20
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "dooplay"
-    baseUrl = "https://detodopeliculas.nu"
+
+    source {
+        name = "DeTodo Peliculas"
+        lang = "es"
+        baseUrl = "https://detodopeliculas.nu"
+    }
 }
 
 dependencies {

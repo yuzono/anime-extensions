@@ -22,6 +22,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.utils.applicationContext
 import keiyoushi.utils.getPreferencesLazy
@@ -36,15 +37,10 @@ import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Torrentio :
+@Source
+abstract class Torrentio :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "Torrentio (Torrent / Debrid)"
-
-    override val baseUrl = "https://torrentio.strem.fun"
-
-    override val lang = "all"
 
     override val supportsLatest = true
 

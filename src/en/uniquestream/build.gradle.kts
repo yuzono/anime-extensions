@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "UniqueStream"
-    className = "UniqueStream"
     versionCode = 10
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
+
+    source {
+        lang = "en"
+        baseUrl = "https://anime.uniquestream.net"
+    }
 }
 
 dependencies {

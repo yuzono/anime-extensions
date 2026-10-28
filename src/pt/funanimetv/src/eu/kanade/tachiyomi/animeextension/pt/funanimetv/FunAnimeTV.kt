@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.POST
+import keiyoushi.annotation.Source
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
@@ -32,19 +33,14 @@ import okhttp3.RequestBody
 import okhttp3.Response
 import java.security.MessageDigest
 
-class FunAnimeTV :
+@Source
+abstract class FunAnimeTV :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Fun Anime TV"
-
-    override val baseUrl = "https://betterclass.click"
 
     val apiUrl by lazy {
         "$baseUrl/api.php"
     }
-
-    override val lang = "pt-BR"
 
     override val supportsLatest = true
 

@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "DonghuaStream"
-    className = "DonghuaStream"
     versionCode = 24
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "animestream"
-    baseUrl = "https://donghuastream.org"
+
+    source {
+        lang = "en"
+        baseUrl = "https://donghuastream.org"
+    }
 }
 
 dependencies {

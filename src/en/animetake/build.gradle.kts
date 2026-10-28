@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "AnimeTake"
-    className = "AnimeTake"
     versionCode = 21
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
+
+    source {
+        lang = "en"
+        baseUrl = "https://animetake.tv"
+    }
 }
 
 dependencies {

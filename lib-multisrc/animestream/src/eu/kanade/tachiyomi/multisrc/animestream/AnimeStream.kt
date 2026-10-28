@@ -38,11 +38,8 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-abstract class AnimeStream(
-    override val lang: String,
-    override val name: String,
-    override val baseUrl: String,
-) : ParsedAnimeHttpLegacySource(),
+abstract class AnimeStream :
+    ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = true

@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "AnimeLek"
-    className = "AnimeLek"
     versionCode = 41
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "ar"
+        baseUrl = "https://animelek.me"
+    }
 }
 
 dependencies {

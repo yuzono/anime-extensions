@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "AniZone"
-    className = "AniZone"
     versionCode = 15
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
+
+    source {
+        lang = "all"
+        baseUrl = "https://anizone.to"
+    }
 }
 
 dependencies {

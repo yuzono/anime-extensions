@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
@@ -27,21 +28,15 @@ import java.net.URLDecoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Hstream :
+@Source
+abstract class Hstream :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Hstream"
-
-    override val baseUrl = "https://hstream.moe"
-
-    override val lang = "en"
 
     override val supportsLatest = true
 
     // URLs from the old extension are invalid now, so we're bumping this to
     // make aniyomi interpret it as a new source, forcing old users to migrate.
-    override val versionId = 2
 
     private val preferences by getPreferencesLazy()
 

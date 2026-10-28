@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Gnula"
-    className = "Gnula"
     versionCode = 52
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://gnula.life"
+    }
 }
 
 dependencies {

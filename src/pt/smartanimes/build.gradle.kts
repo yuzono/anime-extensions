@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "SmartAnimes"
-    className = "SmartAnimes"
     versionCode = 1
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
     theme = "animestream"
-    baseUrl = "https://smartanimes.net"
+
+    source {
+        lang = "pt-BR"
+        baseUrl = "https://smartanimes.net"
+    }
 }
 
 dependencies {

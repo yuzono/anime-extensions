@@ -20,6 +20,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
@@ -39,20 +40,16 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.roundToInt
 
-class Gotaku :
+@Source
+abstract class Gotaku :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "Gotaku"
-    override val lang = "en"
     override val supportsLatest = true
 
     private val apiUrl: String get() = "$baseUrl/api/v1"
 
     private val preferences: SharedPreferences by getPreferencesLazy()
-
-    override val baseUrl: String
-        get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT) ?: PREF_DOMAIN_DEFAULT
 
     private val latestTrack: String
         get() = preferences.getString(PREF_LATEST_TRACK_KEY, PREF_LATEST_TRACK_DEFAULT) ?: PREF_LATEST_TRACK_DEFAULT
@@ -759,14 +756,6 @@ class Gotaku :
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
-            key = PREF_DOMAIN_KEY,
-            title = "Preferred Domain",
-            entries = PREF_DOMAIN_ENTRIES,
-            entryValues = PREF_DOMAIN_VALUES,
-            default = PREF_DOMAIN_DEFAULT,
-            summary = "%s",
-        )
-        screen.addListPreference(
             key = PREF_LATEST_TRACK_KEY,
             title = "Preferred Type For Latest",
             entries = listOf("All", "Sub", "Dub"),
@@ -826,11 +815,6 @@ class Gotaku :
     }
 
     companion object {
-        private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private val PREF_DOMAIN_ENTRIES = listOf("gotaku.to")
-        private val PREF_DOMAIN_VALUES = listOf("https://gotaku.to")
-        private const val PREF_DOMAIN_DEFAULT = "https://gotaku.to"
-
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_DEFAULT = "1080"
 

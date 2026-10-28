@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "MetroSeries"
-    className = "MetroSeries"
     versionCode = 34
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://www3.seriesmetro.net"
+    }
 }
 
 dependencies {

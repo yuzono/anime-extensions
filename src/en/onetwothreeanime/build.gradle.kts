@@ -4,10 +4,17 @@ plugins {
 
 yuzono {
     name = "123Anime"
-    className = "OneThreeTwoAnime"
-    versionCode = 2
+    versionCode = 3
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "en"
+        // Mirrors verified live; others 301 to the hub
+        baseUrl("https://123animehub.cc") {
+            mirrors = listOf("https://123anime.la")
+        }
+    }
 }
 
 dependencies {

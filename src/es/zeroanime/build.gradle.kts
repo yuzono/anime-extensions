@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "zeroanime"
-    className = "Zeroanime"
     versionCode = 15
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://www4.zeroanime.xyz"
+    }
 }
 
 dependencies {

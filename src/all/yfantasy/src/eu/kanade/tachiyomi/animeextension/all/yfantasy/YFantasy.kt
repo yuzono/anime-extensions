@@ -22,13 +22,8 @@ import keiyoushi.utils.parseAs
 import kotlinx.coroutines.CancellationException
 import okhttp3.HttpUrl.Companion.toHttpUrl
 
-class YFantasy : Source() {
-
-    override val name = "YFantasy"
-
-    override val baseUrl = "https://yfantasy.me"
-
-    override val lang = "all"
+@keiyoushi.annotation.Source
+abstract class YFantasy : Source() {
 
     override val supportsLatest = true
 

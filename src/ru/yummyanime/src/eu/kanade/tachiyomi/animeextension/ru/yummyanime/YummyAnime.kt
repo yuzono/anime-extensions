@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
@@ -32,13 +33,11 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 
-class YummyAnime :
+@Source
+abstract class YummyAnime :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "YummyAnime"
-    override val baseUrl = "https://ru.yummyani.me"
-    override val lang = "ru"
     override val supportsLatest = true
 
     private val apiUrl = "https://api.yani.tv"

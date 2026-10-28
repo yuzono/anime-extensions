@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "French Anime"
-    className = "FrenchAnime"
     versionCode = 34
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "datalifeengine"
-    baseUrl = "https://french-anime.com"
+
+    source {
+        lang = "fr"
+        baseUrl = "https://french-anime.com"
+    }
 }
 
 dependencies {

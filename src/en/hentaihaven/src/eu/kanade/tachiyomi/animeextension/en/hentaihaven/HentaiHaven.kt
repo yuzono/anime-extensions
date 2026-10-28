@@ -31,11 +31,9 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
-class HentaiHaven : Source() {
+@keiyoushi.annotation.Source
+abstract class HentaiHaven : Source() {
 
-    override val name = "HentaiHaven"
-    override val baseUrl = "https://hentaihaven.xxx"
-    override val lang = "en"
     override val supportsLatest = true
 
     override val client = network.client.newBuilder()

@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "LuciferDonghua"
-    className = "LuciferDonghua"
     versionCode = 20
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "animestream"
-    baseUrl = "https://luciferdonghua.in"
+
+    source {
+        lang = "en"
+        baseUrl = "https://luciferdonghua.in"
+    }
 }
 
 dependencies {

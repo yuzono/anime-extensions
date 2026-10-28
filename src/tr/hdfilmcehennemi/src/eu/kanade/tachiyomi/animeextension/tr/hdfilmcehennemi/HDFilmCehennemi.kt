@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
@@ -32,14 +33,10 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class HDFilmCehennemi :
+@Source
+abstract class HDFilmCehennemi :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-    override val name = "HDFilmCehennemi"
-
-    override val baseUrl = "https://www.hdfilmcehennemi.nl"
-
-    override val lang = "tr"
 
     override val supportsLatest = true
 

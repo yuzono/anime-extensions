@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "HentaiMama"
-    className = "HentaiMama"
     versionCode = 9
     contentWarning = ContentWarning.NSFW
     libVersion = "16"
+
+    source {
+        lang = "en"
+        baseUrl = "https://hentaimama.io"
+    }
 }
 
 dependencies {

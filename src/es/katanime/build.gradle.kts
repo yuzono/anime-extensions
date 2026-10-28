@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Katanime"
-    className = "Katanime"
     versionCode = 25
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://katanime.net"
+    }
 }
 
 dependencies {

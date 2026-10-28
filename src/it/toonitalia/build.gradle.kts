@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Toonitalia"
-    className = "Toonitalia"
     versionCode = 38
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "it"
+        baseUrl = "https://toonitalia.green"
+    }
 }
 
 dependencies {

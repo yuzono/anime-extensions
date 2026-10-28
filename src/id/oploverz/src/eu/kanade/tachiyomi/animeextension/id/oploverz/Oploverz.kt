@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.lib.autoUnpacker
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
@@ -27,12 +28,10 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 
-class Oploverz :
+@Source
+abstract class Oploverz :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-    override val name: String = "Oploverz"
-    override val baseUrl: String = "https://oploverz.site"
-    override val lang: String = "id"
     override val supportsLatest: Boolean = true
 
     private val apiUrl: String = "https://backapi.oploverz.ac"

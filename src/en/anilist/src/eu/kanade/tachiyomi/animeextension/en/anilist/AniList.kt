@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.getPreferencesLazy
@@ -47,17 +48,12 @@ internal val MAL_API_URLS = listOf(
     "https://jikanfortheweebs.midnightignite.me/v4",
 )
 
-class AniList :
+@Source
+abstract class AniList :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "AniList"
-
-    override val baseUrl = "https://anilist.co"
-
     private val apiUrl = "https://graphql.anilist.co"
-
-    override val lang = "en"
 
     override val supportsLatest = true
 

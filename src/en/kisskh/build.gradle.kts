@@ -4,10 +4,22 @@ plugins {
 
 yuzono {
     name = "KissKH"
-    className = "KissKH"
-    versionCode = 9
+    versionCode = 10
     contentWarning = ContentWarning.NSFW
     libVersion = "16"
+
+    source {
+        lang = "en"
+        baseUrl("https://kisskh.ovh") {
+            mirrors = listOf(
+                "https://kisskh.do",
+                "https://kisskh.co",
+                "https://kisskh.id",
+                "https://kisskh.la",
+                "https://kisskh.is",
+            )
+        }
+    }
 }
 
 dependencies {

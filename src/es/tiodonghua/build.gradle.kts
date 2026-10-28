@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "Tiodonghua.com"
-    className = "Tiodonghua"
     versionCode = 19
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "animestream"
-    baseUrl = "https://anime.tiodonghua.com"
+
+    source {
+        lang = "es"
+        baseUrl = "https://anime.tiodonghua.com"
+    }
 }
 
 dependencies {

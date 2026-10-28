@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Docchi"
-    className = "Docchi"
     versionCode = 17
     contentWarning = ContentWarning.NSFW
     libVersion = "16"
+
+    source {
+        lang = "pl"
+        baseUrl = "https://docchi.pl"
+    }
 }
 
 dependencies {

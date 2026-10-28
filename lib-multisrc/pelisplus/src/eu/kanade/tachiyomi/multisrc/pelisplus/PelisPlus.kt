@@ -34,8 +34,6 @@ abstract class PelisPlus :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val lang = "es"
-
     override val supportsLatest = false
 
     protected val json: Json by injectLazy()

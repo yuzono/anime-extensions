@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "AnimeLatinoHD"
-    className = "AnimeLatinoHD"
     versionCode = 56
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://www.animelatinohd.com"
+    }
 }
 
 dependencies {

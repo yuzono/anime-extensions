@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Anizm"
-    className = "Anizm"
     versionCode = 47
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "tr"
+        baseUrl = "https://anizm.net"
+    }
 
     deeplink {
         host("anizm.net")

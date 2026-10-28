@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "AnimeOnline.Ninja"
-    className = "AnimeOnlineNinja"
     versionCode = 63
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "dooplay"
-    baseUrl = "https://ww3.animeonline.ninja"
+
+    source {
+        lang = "es"
+        baseUrl = "https://ww3.animeonline.ninja"
+    }
 }
 
 dependencies {

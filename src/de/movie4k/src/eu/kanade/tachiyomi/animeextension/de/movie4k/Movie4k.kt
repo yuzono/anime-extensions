@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
@@ -28,17 +29,12 @@ import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 
-class Movie4k :
+@Source
+abstract class Movie4k :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val name = "Movie4k"
-
-    override val baseUrl = "https://movie4k.stream"
-
     private val apiUrl = "https://api.movie4k.stream"
-
-    override val lang = "de"
 
     override val supportsLatest = false
 

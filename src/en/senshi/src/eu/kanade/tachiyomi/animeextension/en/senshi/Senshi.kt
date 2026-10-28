@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
+import keiyoushi.annotation.Source
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.get
@@ -44,20 +45,14 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.roundToInt
 
-class Senshi :
+@Source
+abstract class Senshi :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "Senshi"
-
-    override val lang = "en"
 
     override val supportsLatest = true
 
     private val preferences: SharedPreferences by getPreferencesLazy()
-    override val baseUrl: String
-        get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT) ?: PREF_DOMAIN_DEFAULT
-
     private val titleLanguage: String
         get() = preferences.getString(PREF_TITLE_LANG_KEY, PREF_TITLE_LANG_DEFAULT) ?: PREF_TITLE_LANG_DEFAULT
 
@@ -513,15 +508,6 @@ class Senshi :
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
-            key = PREF_DOMAIN_KEY,
-            title = "Preferred Domain",
-            entries = PREF_DOMAIN_ENTRIES,
-            entryValues = PREF_DOMAIN_VALUES,
-            default = PREF_DOMAIN_DEFAULT,
-            summary = "%s",
-        )
-
-        screen.addListPreference(
             key = PREF_TITLE_LANG_KEY,
             title = "Preferred Title Language",
             entries = PREF_TITLE_LANG_ENTRIES,
@@ -560,11 +546,6 @@ class Senshi :
 
     companion object {
         private const val PAGE_LIMIT = 30
-
-        private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private val PREF_DOMAIN_ENTRIES = listOf("senshi.to")
-        private val PREF_DOMAIN_VALUES = listOf("https://senshi.to")
-        private const val PREF_DOMAIN_DEFAULT = "https://senshi.to"
 
         private const val PREF_TITLE_LANG_KEY = "preferred_title_lang"
         private const val PREF_TITLE_LANG_DEFAULT = "romaji"

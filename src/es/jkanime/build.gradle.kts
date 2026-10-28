@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Jkanime"
-    className = "Jkanime"
     versionCode = 53
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://jkanime.net"
+    }
 }
 
 dependencies {

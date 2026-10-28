@@ -4,8 +4,12 @@ plugins {
 
 yuzono {
     name = "Fun Anime TV"
-    className = "FunAnimeTV"
     versionCode = 2
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "pt-BR"
+        baseUrl = "https://betterclass.click"
+    }
 }

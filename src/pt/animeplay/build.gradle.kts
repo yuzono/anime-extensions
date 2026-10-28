@@ -4,12 +4,16 @@ plugins {
 
 yuzono {
     name = "AnimePlay"
-    className = "AnimePlay"
     versionCode = 4
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
     theme = "dooplay"
-    baseUrl = "https://animeplay.cloud"
+
+    source {
+        name = "Anime Play"
+        lang = "pt-BR"
+        baseUrl = "https://animeplay.cloud"
+    }
 }
 
 dependencies {

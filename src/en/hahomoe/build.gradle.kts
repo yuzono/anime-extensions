@@ -4,8 +4,12 @@ plugins {
 
 yuzono {
     name = "haho.moe"
-    className = "HahoMoe"
     versionCode = 10
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "en"
+        baseUrl = "https://haho.moe"
+    }
 }

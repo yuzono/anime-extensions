@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "Animenix"
-    className = "Animenix"
     versionCode = 23
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "dooplay"
-    baseUrl = "https://animenix.com"
+
+    source {
+        lang = "es"
+        baseUrl = "https://animenix.com"
+    }
 }
 
 dependencies {

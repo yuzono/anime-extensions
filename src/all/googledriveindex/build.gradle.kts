@@ -4,8 +4,13 @@ plugins {
 
 yuzono {
     name = "GoogleDriveIndex"
-    className = "GoogleDriveIndex"
     versionCode = 7
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "all"
+        baseUrl = ""
+        skipCodeGen = true
+    }
 }

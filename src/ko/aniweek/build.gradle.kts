@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Aniweek"
-    className = "Aniweek"
     versionCode = 19
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "ko"
+        baseUrl = "https://aniweek.com"
+    }
 }
 
 dependencies {

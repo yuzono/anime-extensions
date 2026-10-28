@@ -26,11 +26,8 @@ import java.util.Locale
  * Multisrc class for the DooPlay wordpress theme.
  * This class takes some inspiration from Tachiyomi's Madara multisrc class.
  */
-abstract class DooPlay(
-    override val lang: String,
-    override val name: String,
-    override val baseUrl: String,
-) : ParsedAnimeHttpLegacySource(),
+abstract class DooPlay :
+    ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = true

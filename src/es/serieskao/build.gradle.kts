@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "SeriesKao"
-    className = "Serieskao"
     versionCode = 25
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://serieskao.top"
+    }
 }
 
 dependencies {

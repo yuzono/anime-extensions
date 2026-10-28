@@ -4,12 +4,16 @@ plugins {
 
 yuzono {
     name = "LaMovie"
-    className = "LaMovie"
     versionCode = 2
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "dopeflix"
-    baseUrl = "https://la.movie"
+
+    source {
+        lang = "es"
+        id = 5419283741928374105L
+        baseUrl = "https://la.movie"
+    }
 }
 
 dependencies {

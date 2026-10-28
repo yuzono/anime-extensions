@@ -4,12 +4,16 @@ plugins {
 
 yuzono {
     name = "AnimesDrive"
-    className = "AnimesDrive"
     versionCode = 6
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
     theme = "dooplay"
-    baseUrl = "https://animesdrive.online"
+
+    source {
+        name = "Animes Drive"
+        lang = "pt-BR"
+        baseUrl = "https://animesdrive.online"
+    }
 }
 
 dependencies {

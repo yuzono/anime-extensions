@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "LocoPelis"
-    className = "LocoPelis"
     versionCode = 41
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://www.locopelis.com"
+    }
 }
 
 dependencies {

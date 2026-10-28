@@ -29,6 +29,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -49,13 +50,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class Doramasflix :
+@Source
+abstract class Doramasflix :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Doramasflix"
-
-    override val baseUrl = "https://doramasflix.in"
 
     private val apiUrl = "https://sv1.fluxcedene.net/api/gql"
 
@@ -63,8 +61,6 @@ class Doramasflix :
     // with other calculated strings, the milliseconds indicate the expiration date
     // of the token, so it was calculated to expire in 100 years.
     private val accessPlatform = "RxARncfg1S_MdpSrCvreoLu_SikCGMzE1NzQzODc3NjE2MQ=="
-
-    override val lang = "es"
 
     override val supportsLatest = true
 

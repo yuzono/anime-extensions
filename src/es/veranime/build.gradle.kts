@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "VerAni.me"
-    className = "VerAnime"
     versionCode = 7
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://verani.me"
+    }
 }
 
 dependencies {

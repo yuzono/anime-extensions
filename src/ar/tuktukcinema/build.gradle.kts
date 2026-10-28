@@ -4,10 +4,17 @@ plugins {
 
 yuzono {
     name = "Tuktuk Cinema"
-    className = "Tuktukcinema"
-    versionCode = 9
+    versionCode = 10
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        name = "توك توك سينما"
+        lang = "ar"
+        baseUrl("https://tuktukhd.com") {
+            withCustom = true
+        }
+    }
 }
 
 dependencies {

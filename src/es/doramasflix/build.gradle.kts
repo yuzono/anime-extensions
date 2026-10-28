@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "Doramasflix"
-    className = "Doramasflix"
     versionCode = 54
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "es"
+        baseUrl = "https://doramasflix.in"
+    }
 }
 
 dependencies {

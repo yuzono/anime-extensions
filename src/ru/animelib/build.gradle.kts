@@ -4,10 +4,16 @@ plugins {
 
 yuzono {
     name = "Animelib"
-    className = "Animelib"
-    versionCode = 17
+    versionCode = 18
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
+
+    source {
+        lang = "ru"
+        baseUrl("https://animelib.org/ru") {
+            mirrors = listOf("https://v3.animelib.org/ru", "https://v4.animelib.org/ru", "https://v5.animelib.org/ru")
+        }
+    }
 }
 
 dependencies {

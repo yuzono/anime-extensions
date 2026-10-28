@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "AniPM"
-    className = "AniPM"
     versionCode = 7
     contentWarning = ContentWarning.MIXED
     libVersion = "16"
+
+    source {
+        lang = "en"
+        baseUrl = "https://ani.pm"
+    }
 }
 
 dependencies {

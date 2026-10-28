@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
@@ -36,11 +37,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class Movy :
+@Source
+abstract class Movy :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "Movy"
 
     override val client = network.client.newBuilder()
         .rateLimit(2) { it.host.contains("wecollege.net") }
@@ -50,9 +50,6 @@ class Movy :
         clearOldPrefs()
     }
 
-    override val baseUrl
-        get() = preferences.domainPref
-
     // Movy/Videasy proxy
     private val apiUrl = "https://db.wecollege.net/3"
 
@@ -60,7 +57,6 @@ class Movy :
 
     override val disableRelatedAnimesBySearch = true
 
-    override val lang = "all"
     override val supportsLatest = true
 
     private val extractor by lazy { MovyExtractor(client, headers) }
@@ -122,7 +118,7 @@ class Movy :
     ): AnimesPage {
         if (query.startsWith("https://")) {
             val url = query.toHttpUrl()
-            if (url.host != baseUrl.toHttpUrl().host) {
+            if (url.host.removePrefix("www.") != baseUrl.toHttpUrl().host.removePrefix("www.")) {
                 throw Exception("Unsupported url")
             }
             val type = url.pathSegments.getOrNull(0)
@@ -614,10 +610,6 @@ class Movy :
     }
 
     // ============================== Settings ==============================
-    private val SharedPreferences.domainPref by preferences.delegate(
-        PREF_DOMAIN_KEY,
-        PREF_DOMAIN_DEFAULT,
-    )
     private val SharedPreferences.qualityPref by preferences.delegate(
         PREF_QUALITY_KEY,
         PREF_QUALITY_DEFAULT,
@@ -636,14 +628,6 @@ class Movy :
     )
 
     private fun SharedPreferences.clearOldPrefs(): SharedPreferences {
-        val domain = getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
-            .removePrefix("https://")
-        val invalidDomain = domain !in DOMAIN_ENTRIES
-
-        if (invalidDomain) {
-            edit().putString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT).apply()
-        }
-
         // Drop server names removed from the catalog; restore defaults
         // if nothing valid remains (catalog pruning happens occasionally).
         val storedServers = getStringSet(PREF_SERVERS_KEY, null)
@@ -660,15 +644,6 @@ class Movy :
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        screen.addListPreference(
-            key = PREF_DOMAIN_KEY,
-            title = "Preferred Domain",
-            entries = DOMAIN_ENTRIES.toList(),
-            entryValues = DOMAIN_VALUES.toList(),
-            default = PREF_DOMAIN_DEFAULT,
-            summary = "%s",
-        )
-
         screen.addListPreference(
             key = PREF_QUALITY_KEY,
             title = "Preferred Quality",
@@ -763,11 +738,6 @@ class Movy :
         // with a handful of perfect-score votes that would dominate.
         private const val MIN_VOTES_FOR_RATING_SORT = "200"
         private const val MIN_VOTES_FOR_RECENT_SORT = "50"
-
-        private const val PREF_DOMAIN_KEY = "pref_domain"
-        private val DOMAIN_ENTRIES = arrayOf("www.movy.sx")
-        private val DOMAIN_VALUES = DOMAIN_ENTRIES.map { "https://$it" }
-        private val PREF_DOMAIN_DEFAULT = DOMAIN_VALUES.first()
 
         private const val PREF_LATEST_KEY = "pref_latest"
         private const val PREF_LATEST_DEFAULT = "movie"

@@ -4,10 +4,14 @@ plugins {
 
 yuzono {
     name = "AnimeToast"
-    className = "AnimeToast"
     versionCode = 36
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
+
+    source {
+        lang = "de"
+        baseUrl = "https://www.animetoast.cc"
+    }
 }
 
 dependencies {

@@ -8,6 +8,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toHex
@@ -27,13 +28,8 @@ import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Iyf : AnimeHttpLegacySource() {
-    override val baseUrl: String
-        get() = "https://www.iyf.tv"
-    override val lang: String
-        get() = "zh"
-    override val name: String
-        get() = "爱壹帆"
+@Source
+abstract class Iyf : AnimeHttpLegacySource() {
     override val supportsLatest: Boolean
         get() = true
 

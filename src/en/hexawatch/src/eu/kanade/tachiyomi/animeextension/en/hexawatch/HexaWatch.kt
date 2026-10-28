@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
@@ -42,19 +43,15 @@ import java.util.Locale
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
-class HexaWatch :
+@Source
+abstract class HexaWatch :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "HexaWatch"
-
-    override val baseUrl = "https://hexa.su"
     private val animeUrl = "$baseUrl/details"
     private val apiUrl = "https://theemoviedb.hexa.su/api/tmdb"
     private val subtitleUrl = "https://sub.wyzie.ru"
     private val decryptionApiUrl = "https://enc-dec.app/api/dec-hexa"
-
-    override val lang = "en"
 
     override val supportsLatest = true
 

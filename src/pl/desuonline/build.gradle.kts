@@ -4,12 +4,15 @@ plugins {
 
 yuzono {
     name = "desu-online"
-    className = "DesuOnline"
     versionCode = 14
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "animestream"
-    baseUrl = "https://desu-online.pl"
+
+    source {
+        lang = "pl"
+        baseUrl = "https://desu-online.pl"
+    }
 }
 
 dependencies {
