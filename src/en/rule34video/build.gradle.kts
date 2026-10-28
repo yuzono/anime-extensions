@@ -4,9 +4,9 @@ plugins {
 
 yuzono {
     name = "Rule34Video"
-    versionCode = 10
+    versionCode = 11
     contentWarning = ContentWarning.NSFW
-    libVersion = "14"
+    libVersion = "16"
 
     source {
         lang = "en"
@@ -15,6 +15,7 @@ yuzono {
 
     deeplink {
         host("rule34video.com")
+        path("/video/..*")
         path("/videos/..*")
     }
 }
