@@ -851,7 +851,7 @@ abstract class Gotaku :
 
         private const val TAG = "Gotaku"
 
-        private const val API_VERSION = 6
+        private const val API_VERSION = 7
 
         private const val MAX_HTML_BODY_BYTES = 2 * 1024 * 1024
 
