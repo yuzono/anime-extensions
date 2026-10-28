@@ -4,8 +4,8 @@ plugins {
 
 yuzono {
     name = "AniHQ"
-    versionCode = 3
-    contentWarning = ContentWarning.NSFW
+    versionCode = 4
+    contentWarning = ContentWarning.MIXED
     libVersion = "16"
 
     source {

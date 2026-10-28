@@ -83,7 +83,7 @@ abstract class AniHQ :
             }
             searchNonce?.let { return it }
         }
-        throw Exception("Unable to fetch search nonce")
+        return "a10a90be95".also { searchNonce = it }
     }
 
     private suspend fun <T> withNonceRetry(block: suspend () -> T): T = try {
