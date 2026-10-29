@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.gotaku
 
 import android.annotation.SuppressLint
-import android.app.Application
 import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.os.Handler
@@ -12,13 +11,13 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import keiyoushi.utils.applicationContext
 import okhttp3.Headers
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 class GotakuSync(
-    private val context: Application,
     private val preferences: SharedPreferences,
     private val baseUrl: String,
     private val headers: Headers,
@@ -107,7 +106,7 @@ class GotakuSync(
 
             handler.post {
                 try {
-                    val view = WebView(context)
+                    val view = WebView(applicationContext)
                     webView = view
 
                     @SuppressLint("SetJavaScriptEnabled")

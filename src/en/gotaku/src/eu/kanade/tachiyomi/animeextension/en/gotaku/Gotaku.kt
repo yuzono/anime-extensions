@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.en.gotaku
 
-import android.app.Application
 import android.content.SharedPreferences
 import android.util.Log
 import android.util.LruCache
@@ -35,7 +34,6 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.nanohttpd.protocols.http.NanoHTTPD
-import uy.kohesive.injekt.injectLazy
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -116,10 +114,8 @@ abstract class Gotaku :
 
     private fun Response.readBodyBoundedString(limit: Int): String? = readBodyBounded(limit)?.let { String(it, Charsets.UTF_8) }
 
-    private val context: Application by injectLazy()
-
     private val sync by lazy {
-        GotakuSync(context, preferences, baseUrl, headers)
+        GotakuSync(preferences, baseUrl, headers)
     }
 
     private val apiVersion: String
