@@ -199,11 +199,12 @@ class GotakuSync(
                                 if (capturedSeed == null) {
                                     handler.post(injectHook)
                                 }
-                                if (request?.isForMainFrame == true || reqUrl.contains("/api/")) {
+                                // Only capture API version 'k' from actual API endpoint requests (containing /api/)
+                                if (reqUrl.contains("/api/")) {
                                     val kParam = request?.url?.getQueryParameter("k")
                                     if (!kParam.isNullOrEmpty() && kParam.all { it.isDigit() }) {
                                         capturedVersion = kParam
-                                        Log.d(TAG, "Captured API_VERSION from request URL: $kParam")
+                                        Log.d(TAG, "Captured API_VERSION from API request URL: $kParam")
                                         checkAndFinish(captureLatch, capturedSeed, capturedVersion)
                                     }
                                 }
@@ -329,7 +330,7 @@ class GotakuSync(
                 window.fetch = async function(...args) {
                     try {
                         const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url);
-                        if (url) {
+                        if (url && String(url).includes('/api/')) {
                             const match = String(url).match(/[?&]k=(\d+)/);
                             if (match && match[1] && window.GotakuBridge && window.GotakuBridge.onVersionCaptured) {
                                 window.GotakuBridge.onVersionCaptured(match[1]);
@@ -342,7 +343,7 @@ class GotakuSync(
                 const origOpen = XMLHttpRequest.prototype.open;
                 XMLHttpRequest.prototype.open = function(method, url, ...rest) {
                     try {
-                        if (url) {
+                        if (url && String(url).includes('/api/')) {
                             const match = String(url).match(/[?&]k=(\d+)/);
                             if (match && match[1] && window.GotakuBridge && window.GotakuBridge.onVersionCaptured) {
                                 window.GotakuBridge.onVersionCaptured(match[1]);
