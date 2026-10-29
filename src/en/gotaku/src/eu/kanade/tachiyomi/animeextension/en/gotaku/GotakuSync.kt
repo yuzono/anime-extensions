@@ -16,6 +16,7 @@ import okhttp3.Headers
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class GotakuSync(
     private val preferences: SharedPreferences,
@@ -24,82 +25,119 @@ class GotakuSync(
 ) {
     private val handler by lazy { Handler(Looper.getMainLooper()) }
     private val isSyncing = AtomicBoolean(false)
+    private val syncSessionCounter = AtomicInteger(0)
 
-    @Volatile private var capturedSeed: ByteArray? = null
+    @Volatile private var activeLatch: CountDownLatch? = null
 
-    @Volatile private var capturedVersion: String? = null
-
-    @Volatile private var capturedInfo: String? = null
+    class GotakuCredentials(
+        val version: String,
+        val seed: ByteArray,
+        val info: String,
+    ) {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (javaClass != other?.javaClass) return false
+            other as GotakuCredentials
+            return version == other.version && seed.contentEquals(other.seed) && info == other.info
+        }
+        override fun hashCode(): Int {
+            var result = version.hashCode()
+            result = 31 * result + seed.contentHashCode()
+            result = 31 * result + info.hashCode()
+            return result
+        }
+    }
 
     class JsBridge(
-        private val onSeed: (String) -> Unit,
-        private val onInfo: (String) -> Unit,
-        private val onVersion: (String) -> Unit,
+        private val sessionId: Int,
+        private val currentSessionIdProvider: () -> Int,
+        private val onSeed: (Int, String) -> Unit,
+        private val onInfo: (Int, String) -> Unit,
+        private val onVersion: (Int, String) -> Unit,
     ) {
         @JavascriptInterface
         fun onSeedCaptured(seedJson: String) {
-            onSeed(seedJson)
+            if (sessionId == currentSessionIdProvider()) {
+                onSeed(sessionId, seedJson)
+            }
         }
 
         @JavascriptInterface
         fun onInfoCaptured(infoStr: String) {
-            onInfo(infoStr)
+            if (sessionId == currentSessionIdProvider()) {
+                onInfo(sessionId, infoStr)
+            }
         }
 
         @JavascriptInterface
         fun onVersionCaptured(versionStr: String) {
-            onVersion(versionStr)
+            if (sessionId == currentSessionIdProvider()) {
+                onVersion(sessionId, versionStr)
+            }
         }
     }
 
-    /**
-     * Spawns background WebView to capture API_SEED and API_VERSION.
-     * @param force If true, forces a fresh capture even if values are stored.
-     */
-    fun sync(force: Boolean = false): Boolean {
-        if (!force && hasValidStoredCredentials()) {
-            return true
+    fun sync(force: Boolean = false): GotakuCredentials? {
+        if (!force) {
+            readStoredCredentials()?.let { return it }
+        }
+
+        val existingLatch = activeLatch
+        if (existingLatch != null && isSyncing.get()) {
+            try {
+                existingLatch.await(TIMEOUT_SEC, TimeUnit.SECONDS)
+                readStoredCredentials()?.let { return it }
+            } catch (_: Exception) {}
         }
 
         if (!isSyncing.compareAndSet(false, true)) {
-            return hasValidStoredCredentials()
+            activeLatch?.await(TIMEOUT_SEC, TimeUnit.SECONDS)
+            return readStoredCredentials()
         }
 
-        try {
-            Log.d(TAG, "Starting WebView sync for Gotaku crypto parameters...")
-            capturedSeed = null
-            capturedVersion = null
-            capturedInfo = null
+        val sessionId = syncSessionCounter.incrementAndGet()
+        val latch = CountDownLatch(1)
+        activeLatch = latch
 
-            val latch = CountDownLatch(1)
-            var webView: WebView? = null
+        var capturedSeed: ByteArray? = null
+        var capturedVersion: String? = null
+        var capturedInfo: String = "api-seal|v1"
+
+        var webView: WebView? = null
+
+        try {
+            Log.d(TAG, "Starting WebView sync session #$sessionId for Gotaku crypto...")
 
             val bridge = JsBridge(
-                onSeed = { seedJson ->
-                    try {
-                        val bytes = seedJson.trim('[', ']').split(",")
-                            .mapNotNull { it.trim().toIntOrNull()?.toByte() }
-                            .toByteArray()
-                        if (bytes.size == 32) {
-                            capturedSeed = bytes
-                            Log.d(TAG, "Captured API_SEED (${bytes.size} bytes)")
-                            checkAndFinish(latch)
+                sessionId = sessionId,
+                currentSessionIdProvider = { sessionId },
+                onSeed = { sId, seedJson ->
+                    if (sId == sessionId) {
+                        try {
+                            val bytes = seedJson.trim('[', ']').split(",")
+                                .mapNotNull { it.trim().toIntOrNull()?.toByte() }
+                                .toByteArray()
+                            if (bytes.size == 32) {
+                                capturedSeed = bytes
+                                Log.d(TAG, "Captured API_SEED (${bytes.size} bytes)")
+                                checkAndFinish(latch, capturedSeed, capturedVersion)
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to parse captured seed", e)
                         }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to parse captured seed", e)
                     }
                 },
-                onInfo = { infoStr ->
-                    if (infoStr.isNotBlank()) {
+                onInfo = { sId, infoStr ->
+                    if (sId == sessionId && infoStr.isNotBlank()) {
                         capturedInfo = infoStr
                         Log.d(TAG, "Captured HKDF Info: $infoStr")
                     }
                 },
-                onVersion = { ver ->
-                    if (ver.isNotBlank()) {
+                onVersion = { sId, ver ->
+                    if (sId == sessionId && ver.isNotBlank() && ver.all { it.isDigit() }) {
                         capturedVersion = ver
                         Log.d(TAG, "Captured API_VERSION: $ver")
-                        checkAndFinish(latch)
+                        checkAndFinish(latch, capturedSeed, capturedVersion)
                     }
                 },
             )
@@ -122,18 +160,30 @@ class GotakuSync(
                     view.webViewClient = object : WebViewClient() {
                         override fun onPageStarted(v: WebView?, url: String?, favicon: Bitmap?) {
                             super.onPageStarted(v, url, favicon)
-                            v?.evaluateJavascript(HOOK_SCRIPT, null)
+                            if (url != null && url.startsWith(baseUrl)) {
+                                v?.evaluateJavascript(HOOK_SCRIPT, null)
+                            }
+                        }
+
+                        override fun onPageFinished(v: WebView?, url: String?) {
+                            super.onPageFinished(v, url)
+                            if (url != null && url.startsWith(baseUrl)) {
+                                v?.evaluateJavascript(HOOK_SCRIPT, null)
+                            }
                         }
 
                         override fun shouldInterceptRequest(
                             v: WebView?,
                             request: WebResourceRequest?,
                         ): WebResourceResponse? {
-                            val kParam = request?.url?.getQueryParameter("k")
-                            if (!kParam.isNullOrEmpty() && kParam.all { it.isDigit() }) {
-                                capturedVersion = kParam
-                                Log.d(TAG, "Captured API_VERSION from URL parameter k: $kParam")
-                                checkAndFinish(latch)
+                            val reqUrl = request?.url?.toString().orEmpty()
+                            if (reqUrl.startsWith(baseUrl)) {
+                                val kParam = request?.url?.getQueryParameter("k")
+                                if (!kParam.isNullOrEmpty() && kParam.all { it.isDigit() }) {
+                                    capturedVersion = kParam
+                                    Log.d(TAG, "Captured API_VERSION from request URL: $kParam")
+                                    checkAndFinish(latch, capturedSeed, capturedVersion)
+                                }
                             }
                             return super.shouldInterceptRequest(v, request)
                         }
@@ -141,56 +191,68 @@ class GotakuSync(
 
                     view.loadUrl("$baseUrl/browse")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to initialize WebView for sync", e)
+                    Log.e(TAG, "Failed to initialize WebView for sync session #$sessionId", e)
                     latch.countDown()
                 }
             }
 
-            val completed = latch.await(TIMEOUT_SEC, TimeUnit.SECONDS)
-            Log.d(
-                TAG,
-                "WebView sync finished (completed=$completed, seed=${capturedSeed != null}, version=$capturedVersion)",
-            )
+            latch.await(TIMEOUT_SEC, TimeUnit.SECONDS)
 
+            val seed = capturedSeed
+            val version = capturedVersion
+            val info = capturedInfo
+
+            if (seed != null && version != null) {
+                val creds = GotakuCredentials(version, seed, info)
+                saveStoredCredentials(creds)
+                return creds
+            }
+
+            return readStoredCredentials()
+        } finally {
             handler.post {
                 try {
                     webView?.stopLoading()
                     webView?.destroy()
                 } catch (_: Exception) {}
-                webView = null
             }
-
-            val seed = capturedSeed
-            val version = capturedVersion
-            val info = capturedInfo ?: "api-seal|v1"
-
-            if (seed != null && version != null) {
-                saveCredentials(seed, version, info)
-                return true
-            }
-
-            return hasValidStoredCredentials()
-        } finally {
+            activeLatch = null
             isSyncing.set(false)
         }
     }
 
-    private fun checkAndFinish(latch: CountDownLatch) {
-        if (capturedSeed != null && capturedVersion != null) {
+    private fun checkAndFinish(latch: CountDownLatch, seed: ByteArray?, version: String?) {
+        if (seed != null && version != null) {
             latch.countDown()
         }
     }
 
-    private fun hasValidStoredCredentials(): Boolean = preferences.contains(PREF_API_SEED_KEY) && preferences.contains(PREF_API_VERSION_KEY)
+    fun readStoredCredentials(): GotakuCredentials? {
+        val prefs = preferences
+        if (!prefs.contains(PREF_API_SEED_KEY) || !prefs.contains(PREF_API_VERSION_KEY)) {
+            return null
+        }
+        val ver = prefs.getString(PREF_API_VERSION_KEY, null) ?: Crypto.DEFAULT_API_VERSION
+        val seedStr = prefs.getString(PREF_API_SEED_KEY, null) ?: return null
+        val seed = try {
+            seedStr.split(",").mapNotNull { it.trim().toIntOrNull()?.toByte() }
+                .toByteArray()
+                .takeIf { it.size == 32 }
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        val info = prefs.getString(PREF_HKDF_INFO_KEY, null) ?: "api-seal|v1"
+        return GotakuCredentials(ver, seed, info)
+    }
 
-    private fun saveCredentials(seed: ByteArray, version: String, info: String) {
-        val seedStr = seed.joinToString(",") { it.toInt().toString() }
+    private fun saveStoredCredentials(creds: GotakuCredentials) {
+        val seedStr = creds.seed.joinToString(",") { it.toInt().toString() }
         preferences.edit()
             .putString(PREF_API_SEED_KEY, seedStr)
-            .putString(PREF_API_VERSION_KEY, version)
-            .putString(PREF_HKDF_INFO_KEY, info)
+            .putString(PREF_API_VERSION_KEY, creds.version)
+            .putString(PREF_HKDF_INFO_KEY, creds.info)
             .apply()
-        Log.d(TAG, "Saved Gotaku credentials: version=$version, seed=${seed.size} bytes, info=$info")
+        Log.d(TAG, "Saved Gotaku credentials: version=${creds.version}, seed=${creds.seed.size} bytes, info=${creds.info}")
     }
 
     companion object {

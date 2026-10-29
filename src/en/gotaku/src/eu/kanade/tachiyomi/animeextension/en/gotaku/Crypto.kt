@@ -58,14 +58,14 @@ object Crypto {
         apiSeed: ByteArray = DEFAULT_API_SEED,
         hkdfInfo: String = "api-seal|v1",
     ): String? {
-        val versionByte = apiVersion.toByteOrNull() ?: DEFAULT_API_VERSION.toByte()
-        val blob = if (body.isNotEmpty() && (body[0] == versionByte)) {
+        val versionInt = apiVersion.toIntOrNull() ?: DEFAULT_API_VERSION.toInt()
+        val versionByte = versionInt.and(0xFF).toByte()
+        val blob = if (body.isNotEmpty() && (body[0] == versionByte || body[0].toInt().and(0xFF) == versionInt)) {
             body
         } else {
             b64UrlDecode(body.decodeToString()) ?: return null
         }
-        // [API_VERSION] (version) + 12 (IV) + 16 (GCM tag) = 29 = empty payload
-        if (blob.size <= 29 || (blob[0] != versionByte)) return null
+        if (blob.size <= 29 || (blob[0].toInt().and(0xFF) != versionInt)) return null
 
         val keySpec = getApiKeySpec(apiSeed, hkdfInfo)
         val compressed = gcmDecrypt(
