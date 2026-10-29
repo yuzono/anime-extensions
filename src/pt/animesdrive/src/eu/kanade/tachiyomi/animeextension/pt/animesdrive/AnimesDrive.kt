@@ -6,6 +6,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
+import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
@@ -79,7 +80,7 @@ abstract class AnimesDrive : DooPlay() {
         ?: ""
 
     fun Document.getAlternativeTitle(): String = select("$additionalInfoSelector p")
-        .first { it.text().contains("Título Alternativo") }
+        .firstOrNull { it.text().contains("Título Alternativo") }
         ?.let { it.text() + "\n" }
         ?: ""
 
@@ -112,10 +113,22 @@ abstract class AnimesDrive : DooPlay() {
         }
     }
 
+    // ============================== Episodes ==============================
+    override fun episodeListSelector(): String = ".episodios-grid > .episode-card"
+
+    override fun episodeFromElement(element: Element, seasonName: String): SEpisode = SEpisode.create().apply {
+        val epTitle = element.selectFirst(".episode-title")!!
+        val href = epTitle.selectFirst("a[href]")!!
+        val episodeName = href.ownText()
+        episode_number = episodeName.substringBefore(" - ").toFloatOrNull() ?: 0F
+        name = "$episodeSeasonPrefix $seasonName x $episodeName"
+        setUrlWithoutDomain(href.attr("href"))
+    }
+
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
         val document = response.useAsJsoup()
-        val players = document.select("ul#playeroptionsul li")
+        val players = document.select(".animeq-player__server")
         return players.parallelCatchingFlatMapBlocking(::getPlayerVideos)
     }
 
@@ -123,18 +136,18 @@ abstract class AnimesDrive : DooPlay() {
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
     private suspend fun getPlayerVideos(player: Element): List<Video> {
-        val name = player.selectFirst("span.title")!!.text()
+        val name = player.attr("data-source-name")
             .run {
                 when (this.uppercase()) {
                     "SD" -> "360p"
                     "HD" -> "720p"
-                    "SD/HD", "SD / HD" -> "720p"
+                    "SD/HD", "SD / HD", "MOBILE / CELULAR" -> "720p"
                     "FHD", "FULLHD", "FULLHD / HLS" -> "1080p"
                     else -> this
                 }
             }
 
-        val url = getPlayerUrl(player)
+        val url = getPlayerUrl(player) ?: return emptyList()
 
         val videos = when {
             "blogger.com" in url -> bloggerExtractor.videosFromUrl(url, headers)
@@ -143,10 +156,7 @@ abstract class AnimesDrive : DooPlay() {
                 val videoUrl = url.toHttpUrl().queryParameter("source") ?: return emptyList()
 
                 val videoHeaders = headers.newBuilder()
-                    .add("Accept", "*/*")
-                    .add("Host", videoUrl.toHttpUrl().host)
-                    .add("Origin", "https://${url.toHttpUrl().host}")
-                    .add("Referer", "https://${url.toHttpUrl().host}/")
+                    .set("Referer", "https://${baseUrl.toHttpUrl().host}/")
                     .build()
 
                 return listOf(
@@ -157,16 +167,16 @@ abstract class AnimesDrive : DooPlay() {
             else -> emptyList()
         }
 
-        if (videos.isEmpty()) {
-            return universalExtractor.videosFromUrl(url, headers, name)
-        }
         return videos
     }
 
-    private suspend fun getPlayerUrl(player: Element): String {
-        val type = player.attr("data-type")
-        val id = player.attr("data-post")
-        val num = player.attr("data-nume")
+    private suspend fun getPlayerUrl(player: Element): String? {
+        val type = "tv"
+        val id = player.parents()
+            .selectFirst("meta#dooplay-ajax-counter")
+            ?.attr("data-postid")
+            ?: return null
+        val num = player.attr("data-animeq-switch").toInt() + 1
         return client.newCall(GET("$baseUrl/wp-json/dooplayer/v2/$id/$type/$num"))
             .awaitSuccess().bodyString()
             .substringAfter("\"embed_url\":\"")
@@ -266,6 +276,8 @@ abstract class AnimesDrive : DooPlay() {
         )
 
     // ============================= Utilities ==============================
+    override val animeMenuSelector = ".pag_episodes .aq-nav-icon:has(.fa-list)"
+
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!
 
