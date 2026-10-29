@@ -4,7 +4,7 @@ plugins {
 
 yuzono {
     name = "Gotaku"
-    versionCode = 5
+    versionCode = 6
     contentWarning = ContentWarning.MIXED
     libVersion = "16"
 
