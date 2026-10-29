@@ -130,6 +130,7 @@ abstract class Gotaku :
 
     @Volatile private var initialSyncStarted = false
 
+    @Synchronized
     private fun ensureSync() {
         if (!initialSyncStarted) {
             initialSyncStarted = true
