@@ -82,22 +82,27 @@ class GotakuSync(
             readStoredCredentials()?.let { return it }
         }
 
-        val existingLatch = activeLatch
-        if (existingLatch != null && isSyncing.get()) {
-            try {
-                existingLatch.await(TIMEOUT_SEC, TimeUnit.SECONDS)
-                readStoredCredentials()?.let { return it }
-            } catch (_: Exception) {}
+        var latchToWait: CountDownLatch? = null
+        val latch = CountDownLatch(1)
+
+        synchronized(this) {
+            if (isSyncing.get()) {
+                latchToWait = activeLatch
+            } else {
+                isSyncing.set(true)
+                activeLatch = latch
+            }
         }
 
-        if (!isSyncing.compareAndSet(false, true)) {
-            activeLatch?.await(TIMEOUT_SEC, TimeUnit.SECONDS)
+        if (latchToWait != null) {
+            Log.d(TAG, "Sync session already running, waiting for active session...")
+            try {
+                latchToWait.await(TIMEOUT_SEC, TimeUnit.SECONDS)
+            } catch (_: Exception) {}
             return readStoredCredentials()
         }
 
         val sessionId = syncSessionCounter.incrementAndGet()
-        val latch = CountDownLatch(1)
-        activeLatch = latch
 
         var capturedSeed: ByteArray? = null
         var capturedVersion: String? = null
@@ -157,18 +162,30 @@ class GotakuSync(
 
                     view.addJavascriptInterface(bridge, "GotakuBridge")
 
+                    val hookScript = HOOK_SCRIPT_TEMPLATE.replace("%BASE_URL%", baseUrl)
+                    val injectHook = {
+                        view.evaluateJavascript(hookScript, null)
+                    }
+
                     view.webViewClient = object : WebViewClient() {
                         override fun onPageStarted(v: WebView?, url: String?, favicon: Bitmap?) {
                             super.onPageStarted(v, url, favicon)
                             if (url != null && url.startsWith(baseUrl)) {
-                                v?.evaluateJavascript(HOOK_SCRIPT, null)
+                                injectHook()
+                            }
+                        }
+
+                        override fun onLoadResource(v: WebView?, url: String?) {
+                            super.onLoadResource(v, url)
+                            if (capturedSeed == null && url != null && url.startsWith(baseUrl)) {
+                                injectHook()
                             }
                         }
 
                         override fun onPageFinished(v: WebView?, url: String?) {
                             super.onPageFinished(v, url)
                             if (url != null && url.startsWith(baseUrl)) {
-                                v?.evaluateJavascript(HOOK_SCRIPT, null)
+                                injectHook()
                             }
                         }
 
@@ -178,11 +195,16 @@ class GotakuSync(
                         ): WebResourceResponse? {
                             val reqUrl = request?.url?.toString().orEmpty()
                             if (reqUrl.startsWith(baseUrl)) {
-                                val kParam = request?.url?.getQueryParameter("k")
-                                if (!kParam.isNullOrEmpty() && kParam.all { it.isDigit() }) {
-                                    capturedVersion = kParam
-                                    Log.d(TAG, "Captured API_VERSION from request URL: $kParam")
-                                    checkAndFinish(latch, capturedSeed, capturedVersion)
+                                if (capturedSeed == null) {
+                                    handler.post(injectHook)
+                                }
+                                if (request?.isForMainFrame == true || reqUrl.contains("/api/")) {
+                                    val kParam = request?.url?.getQueryParameter("k")
+                                    if (!kParam.isNullOrEmpty() && kParam.all { it.isDigit() }) {
+                                        capturedVersion = kParam
+                                        Log.d(TAG, "Captured API_VERSION from request URL: $kParam")
+                                        checkAndFinish(latch, capturedSeed, capturedVersion)
+                                    }
                                 }
                             }
                             return super.shouldInterceptRequest(v, request)
@@ -202,7 +224,7 @@ class GotakuSync(
             val version = capturedVersion
             val info = capturedInfo
 
-            if (seed != null && version != null) {
+            if (seed != null && version != null && seed.size == 32 && version.all { it.isDigit() }) {
                 val creds = GotakuCredentials(version, seed, info)
                 saveStoredCredentials(creds)
                 return creds
@@ -216,13 +238,16 @@ class GotakuSync(
                     webView?.destroy()
                 } catch (_: Exception) {}
             }
-            activeLatch = null
-            isSyncing.set(false)
+            synchronized(this) {
+                latch.countDown()
+                activeLatch = null
+                isSyncing.set(false)
+            }
         }
     }
 
     private fun checkAndFinish(latch: CountDownLatch, seed: ByteArray?, version: String?) {
-        if (seed != null && version != null) {
+        if (seed != null && seed.size == 32 && version != null && version.all { it.isDigit() }) {
             latch.countDown()
         }
     }
@@ -263,8 +288,13 @@ class GotakuSync(
         const val PREF_API_VERSION_KEY = "gotaku_api_version"
         const val PREF_HKDF_INFO_KEY = "gotaku_hkdf_info"
 
-        private val HOOK_SCRIPT = """
+        private val HOOK_SCRIPT_TEMPLATE = """
             (function() {
+                try {
+                    if (window !== window.top) return;
+                    if (!window.location.href.startsWith('%BASE_URL%')) return;
+                } catch(e) { return; }
+
                 if (window.__gotakuCaptured) return;
                 window.__gotakuCaptured = true;
 
