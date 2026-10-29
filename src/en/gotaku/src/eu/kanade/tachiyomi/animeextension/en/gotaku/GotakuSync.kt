@@ -27,7 +27,7 @@ class GotakuSync(
     private val isSyncing = AtomicBoolean(false)
     private val syncSessionCounter = AtomicInteger(0)
 
-    @Volatile private var activeLatch: CountDownLatch? = null
+    @Volatile private var activeCompletionLatch: CountDownLatch? = null
 
     class GotakuCredentials(
         val version: String,
@@ -83,19 +83,19 @@ class GotakuSync(
         }
 
         var latchToWait: CountDownLatch? = null
-        val latch = CountDownLatch(1)
+        val completionLatch = CountDownLatch(1)
 
         synchronized(this) {
             if (isSyncing.get()) {
-                latchToWait = activeLatch
+                latchToWait = activeCompletionLatch
             } else {
                 isSyncing.set(true)
-                activeLatch = latch
+                activeCompletionLatch = completionLatch
             }
         }
 
         if (latchToWait != null) {
-            Log.d(TAG, "Sync session already running, waiting for active session...")
+            Log.d(TAG, "Sync session already running, waiting for completion...")
             try {
                 latchToWait.await(TIMEOUT_SEC, TimeUnit.SECONDS)
             } catch (_: Exception) {}
@@ -103,6 +103,7 @@ class GotakuSync(
         }
 
         val sessionId = syncSessionCounter.incrementAndGet()
+        val captureLatch = CountDownLatch(1)
 
         var capturedSeed: ByteArray? = null
         var capturedVersion: String? = null
@@ -125,7 +126,7 @@ class GotakuSync(
                             if (bytes.size == 32) {
                                 capturedSeed = bytes
                                 Log.d(TAG, "Captured API_SEED (${bytes.size} bytes)")
-                                checkAndFinish(latch, capturedSeed, capturedVersion)
+                                checkAndFinish(captureLatch, capturedSeed, capturedVersion)
                             }
                         } catch (e: Exception) {
                             Log.w(TAG, "Failed to parse captured seed", e)
@@ -142,7 +143,7 @@ class GotakuSync(
                     if (sId == sessionId && ver.isNotBlank() && ver.all { it.isDigit() }) {
                         capturedVersion = ver
                         Log.d(TAG, "Captured API_VERSION: $ver")
-                        checkAndFinish(latch, capturedSeed, capturedVersion)
+                        checkAndFinish(captureLatch, capturedSeed, capturedVersion)
                     }
                 },
             )
@@ -203,7 +204,7 @@ class GotakuSync(
                                     if (!kParam.isNullOrEmpty() && kParam.all { it.isDigit() }) {
                                         capturedVersion = kParam
                                         Log.d(TAG, "Captured API_VERSION from request URL: $kParam")
-                                        checkAndFinish(latch, capturedSeed, capturedVersion)
+                                        checkAndFinish(captureLatch, capturedSeed, capturedVersion)
                                     }
                                 }
                             }
@@ -214,11 +215,11 @@ class GotakuSync(
                     view.loadUrl("$baseUrl/browse")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to initialize WebView for sync session #$sessionId", e)
-                    latch.countDown()
+                    captureLatch.countDown()
                 }
             }
 
-            latch.await(TIMEOUT_SEC, TimeUnit.SECONDS)
+            captureLatch.await(TIMEOUT_SEC, TimeUnit.SECONDS)
 
             val seed = capturedSeed
             val version = capturedVersion
@@ -239,8 +240,8 @@ class GotakuSync(
                 } catch (_: Exception) {}
             }
             synchronized(this) {
-                latch.countDown()
-                activeLatch = null
+                completionLatch.countDown()
+                activeCompletionLatch = null
                 isSyncing.set(false)
             }
         }
