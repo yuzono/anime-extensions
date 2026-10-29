@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.es.cuevana
+package eu.kanade.tachiyomi.animeextension.es.cuevanach
 
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
@@ -25,6 +25,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
@@ -42,11 +43,10 @@ import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class CuevanaCh(override val name: String, override val baseUrl: String) :
+@Source
+abstract class CuevanaCh :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val lang = "es"
 
     override val supportsLatest = false
 

@@ -322,8 +322,8 @@ With the example used above, the version would be `14.1`.
 
 > [!NOTE]
 > `className` (and `baseUrl` for themed extensions) in the `yuzono {}` block is the legacy way to point at the source
-> class. Only `src/all/jellyfin`, `src/all/streamingcommunity` and `src/es/cuevana` still use it; every other extension
-> declares its sources with `source {}`.
+> class. Only `src/all/jellyfin` and `src/all/streamingcommunity` still use it; every other extension declares its
+> sources with `source {}`.
 
 ### Source declaration
 
