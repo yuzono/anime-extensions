@@ -1,0 +1,9 @@
+ext {
+    extName = 'HentaiDB'
+    extClass = '.HentaiDB'
+    libVersion = 16
+    extVersionCode = 1
+    isNsfw = true
+}
+
+apply plugin: "kei.plugins.extension.legacy"
