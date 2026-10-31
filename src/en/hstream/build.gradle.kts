@@ -4,9 +4,9 @@ plugins {
 
 yuzono {
     name = "Hstream"
-    versionCode = 12
+    versionCode = 13
     contentWarning = ContentWarning.NSFW
-    libVersion = "14"
+    libVersion = "16"
 
     source {
         lang = "en"
