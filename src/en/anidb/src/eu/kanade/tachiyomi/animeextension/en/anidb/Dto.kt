@@ -78,12 +78,12 @@ class EpisodeDto(
     private val name: String? = null,
     val number: String,
     private val filler: Boolean = false,
-    val servers: List<ServerDto> = emptyList(),
+    val servers: List<ServerDto>? = null,
 ) {
     fun toSEpisode(postId: String, offset: Float): SEpisode = SEpisode.create().apply {
         val adjustedNumber = number.toFloatOrNull()?.minus(offset) ?: 0f
         url = "$postId/$id"
-        name = this@EpisodeDto.name ?: "Episode ${adjustedNumber.toString().removeSuffix(".0")}"
+        name = this@EpisodeDto.name?.takeIf { it.isNotBlank() } ?: "Episode ${adjustedNumber.toString().removeSuffix(".0")}"
         episode_number = adjustedNumber
         fillermark = filler
     }

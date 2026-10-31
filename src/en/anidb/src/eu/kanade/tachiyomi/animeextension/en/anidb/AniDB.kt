@@ -130,7 +130,7 @@ abstract class AniDB :
         val minEpNumber = episodes.mapNotNull { it.number.toFloatOrNull() }.minOrNull() ?: 0f
         val offset = if (minEpNumber > 1f) minEpNumber - 1f else 0f
 
-        return episodes.map { ep -> ep.toSEpisode(postId, offset).also { serverCache.put(it.url, ep.servers) } }.reversed()
+        return episodes.map { ep -> ep.toSEpisode(postId, offset).also { serverCache.put(it.url, ep.servers.orEmpty()) } }.reversed()
     }
 
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
