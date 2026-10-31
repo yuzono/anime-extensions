@@ -26,7 +26,7 @@ Module paths are colon-separated and mirror the directory layout: `:src:en:mirur
 
 The repo's only unit tests are in `core/src/test/kotlin/keiyoushi/utils/`, `lib/unpacker/test/kotlin/`
 and `lib/megaextractor/test/`. Extensions have none – they are verified by compiling and running
-against the live site (`CONTRIBUTING.md#submitting-the-changes` ~ `1435`).
+against the live site (`CONTRIBUTING.md#submitting-the-changes` ~ `1768`).
 
 ```bash
 ./gradlew --continue :core:testDebugUnitTest :lib:unpacker:testDebugUnitTest :lib:megaextractor:testDebugUnitTest
@@ -145,7 +145,7 @@ Untracked files can stay where they are, unless the pick adds a file at the same
 
 ## Versioning – bump once per PR, theme bump propagates
 
-Source of truth: `CONTRIBUTING.md:281-310` (individual) + `CONTRIBUTING.md:1179-1255` (themes) + `gradle/build-logic/src/main/kotlin/PluginExtension.kt:124-132`:
+Source of truth: `CONTRIBUTING.md:326-365` (individual) + `CONTRIBUTING.md:1466-1591` (themes) + `gradle/build-logic/src/main/kotlin/ExtensionPlugin.kt:128-136`:
 
 ```kotlin
 val versionCodeProvider = themeExtension.flatMap { themeKeiyoushi ->
@@ -159,7 +159,7 @@ Rules:
 - Individual extension (no theme): increment `versionCode` by **1** if code affecting users changed. Bump **once per PR** – do not increment multiple times across commits.
 - Theme (`lib-multisrc/<theme>/build.gradle.kts`): increment `baseVersionCode` by **1** when theme logic changes.
 - When `baseVersionCode` is bumped, **do not** bump `versionCode` for extensions using that theme in the same PR – the addition already bumps every extension's effective version code. Only bump the extension's `versionCode` when the extension itself changed independently of the theme.
-- Checklist mirrors this: `CONTRIBUTING.md#pull-request-checklist` ~ `1458-1459` and `.github/pull_request_template.md:3-4`.
+- Checklist mirrors this: `CONTRIBUTING.md#pull-request-checklist` ~ `1785-1786` and `.github/pull_request_template.md:3-4`.
 
 ## CI – what it bumps and builds for you
 
@@ -176,11 +176,11 @@ From `.github/workflows/build_pull_request.yml` + `.github/scripts/`:
 
 - Do not change `versionName` manually (generated `<libVersion>.<versionCode>`; set `libVersion = "14"` unless the extension uses the lib 16 API, and never lower than its theme's `libVersion`).
 - Do not commit `web_hi_res_512.png` (delete after Icon Generator).
-- Do not push to `upstream` (`no_pushing` – fork workflow `CONTRIBUTING.md:171-203`). Use `origin` (your fork) for PRs.
+- Do not push to `upstream` (`no_pushing` – fork workflow `CONTRIBUTING.md:182-211`). Use `origin` (your fork) for PRs.
 - Never commit secrets, keystore, or `local.properties`.
 
 ## PR Instructions
 
-- Follow `CONTRIBUTING.md#submitting-the-changes` ~ `1435-1466` checklist; test build in Android Studio.
+- Follow `CONTRIBUTING.md#submitting-the-changes` ~ `1768-1793` checklist; test build in Android Studio.
 - Title: keep concise; reference issues (`Closes #xyz`).
 - One version bump per module per PR as above.

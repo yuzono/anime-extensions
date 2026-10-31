@@ -1553,6 +1553,8 @@ abstract class <ThemeName> : AnimeHttpSource() {
 To use a theme in your extension, follow the regular extension creation steps and configure `theme` in your `build.gradle.kts`:
 
 ```kotlin
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
