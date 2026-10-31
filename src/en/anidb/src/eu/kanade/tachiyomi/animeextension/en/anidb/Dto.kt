@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.en.anidb
 
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Track
 import kotlinx.serialization.Serializable
 import kotlin.math.roundToInt
 
@@ -107,7 +108,10 @@ class StreamResponse(
 
 @Serializable
 class SubtitleDto(
-    val file: String,
-    val label: String,
-    val lang: String? = null,
-)
+    private val file: String? = null,
+    private val label: String? = null,
+    private val lang: String? = null,
+) {
+    // The "OFF" entry is the player's "subtitles off" option, not a track
+    fun toTrack(): Track? = file?.takeIf { lang != "OFF" }?.let { Track(it, label ?: lang.orEmpty()) }
+}

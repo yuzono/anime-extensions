@@ -11,7 +11,6 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
-import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
@@ -173,9 +172,7 @@ abstract class AniDB :
         val stream = client.newCall(apiRequest("/stream", "id" to postId, "server" to serverId))
             .awaitSuccess().parseAs<StreamResponse>()
         val link = stream.link?.takeIf { it.isNotBlank() } ?: return emptyList()
-        val subtitles = stream.subtitles.orEmpty()
-            .filterNot { it.lang == "OFF" }
-            .map { Track(it.file, it.label) }
+        val subtitles = stream.subtitles.orEmpty().mapNotNull { it.toTrack() }
 
         return playlistUtils.extractFromHls(
             playlistUrl = link,
