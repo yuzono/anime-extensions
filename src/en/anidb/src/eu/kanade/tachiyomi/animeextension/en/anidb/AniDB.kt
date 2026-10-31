@@ -14,13 +14,14 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.annotation.Source
 import keiyoushi.network.get
+import keiyoushi.network.post
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
+import okhttp3.Headers.Companion.headersOf
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
@@ -38,8 +39,10 @@ abstract class AniDB :
 
     private val preferences by getPreferencesLazy()
 
+    private val deviceModel by lazy { preferences.kyotoDeviceModel() }
+
     override val client = network.client.newBuilder()
-        .addInterceptor(KyotoInterceptor())
+        .addInterceptor(KyotoInterceptor { deviceModel })
         .build()
 
     private val playlistUtils by lazy {
@@ -47,6 +50,9 @@ abstract class AniDB :
     }
 
     private val postCache by lazy { LruCache<Long, PostDto>(POST_CACHE_SIZE) }
+
+    // Keyed by episode url: the episode list already carries each episode's servers
+    private val serverCache by lazy { LruCache<String, List<ServerDto>>(SERVER_CACHE_SIZE) }
 
     // ============================== Popular ===============================
 
@@ -118,18 +124,23 @@ abstract class AniDB :
     override fun episodeListRequest(anime: SAnime): Request = apiRequest("/episodes", "id" to anime.url.toPostId().toString())
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val postId = response.request.url.queryParameter("id") ?: return emptyList()
+        val postId = response.request.url.queryParameter("id")!!
         val episodes = response.parseAs<EpisodesResponse>().list.orEmpty()
 
         val minEpNumber = episodes.mapNotNull { it.number.toFloatOrNull() }.minOrNull() ?: 0f
         val offset = if (minEpNumber > 1f) minEpNumber - 1f else 0f
 
-        return episodes.map { it.toSEpisode(postId, offset) }.reversed()
+        return episodes.map { ep -> ep.toSEpisode(postId, offset).also { serverCache.put(it.url, ep.servers) } }.reversed()
     }
 
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
+
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
+        val servers = serverCache[episode.url]?.takeIf { it.isNotEmpty() } ?: return super.getHosterList(episode)
+        return servers.toHosters(episode.url.substringBefore('/'))
+    }
 
     override fun hosterListRequest(episode: SEpisode): Request {
         val postId = episode.url.substringBefore('/')
@@ -138,19 +149,17 @@ abstract class AniDB :
         return apiRequest("/servers", "id" to postId, "episode" to episodeId)
     }
 
+    override fun hosterListParse(response: Response): List<Hoster> = response.parseAs<ServerListDto>().list.orEmpty()
+        .toHosters(response.request.url.queryParameter("id")!!)
+
     // Server ids are "<episodeId>/<language code>", and each one is listed twice ("Server #1", "Server #2")
-    override fun hosterListParse(response: Response): List<Hoster> {
-        val postId = response.request.url.queryParameter("id") ?: return emptyList()
-        return response.parseAs<ServerListDto>().list.orEmpty()
-            .distinctBy { it.id }
-            .map { server ->
-                val langCode = server.id.substringAfterLast('/')
-                Hoster(
-                    hosterUrl = "$PLAY_URL/stream?id=$postId&server=${server.id}",
-                    hosterName = LANGUAGES[langCode] ?: langCode.uppercase(),
-                    internalData = langCode,
-                )
-            }
+    private fun List<ServerDto>.toHosters(postId: String): List<Hoster> = distinctBy { it.id }.map { server ->
+        val langCode = server.id.substringAfterLast('/')
+        Hoster(
+            hosterUrl = "$PLAY_URL/stream?id=$postId&server=${server.id}",
+            hosterName = LANGUAGES[langCode] ?: langCode.uppercase(),
+            internalData = langCode,
+        )
     }
 
     override fun List<Hoster>.sortHosters(): List<Hoster> {
@@ -159,9 +168,8 @@ abstract class AniDB :
     }
 
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
-        val link = client.newCall(
-            Request.Builder().url(hoster.hosterUrl).post(EMPTY_BODY).build(),
-        ).awaitSuccess().use { it.parseAs<StreamResponse>().link } ?: return emptyList()
+        val link = client.post(hoster.hosterUrl, headersOf(), EMPTY_BODY)
+            .parseAs<StreamResponse>().link ?: return emptyList()
 
         return playlistUtils.extractFromHls(
             playlistUrl = link,
@@ -245,6 +253,7 @@ abstract class AniDB :
         private const val POPULAR_SECTION = "Most Popular"
         private const val POST_ID_OFFSET = 1_000_000_000L
         private const val POST_CACHE_SIZE = 300
+        private const val SERVER_CACHE_SIZE = 2000
         private const val PAGE_SIZE = 30
 
         private val POST_ID_REGEX = Regex("""\d+$""")

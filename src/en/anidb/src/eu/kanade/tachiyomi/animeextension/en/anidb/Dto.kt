@@ -78,6 +78,7 @@ class EpisodeDto(
     private val name: String? = null,
     val number: String,
     private val filler: Boolean = false,
+    val servers: List<ServerDto> = emptyList(),
 ) {
     fun toSEpisode(postId: String, offset: Float): SEpisode = SEpisode.create().apply {
         val adjustedNumber = number.toFloatOrNull()?.minus(offset) ?: 0f
