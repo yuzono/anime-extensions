@@ -6,22 +6,23 @@ import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.torrentutils.TorrentUtils
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
+import keiyoushi.network.get
 import keiyoushi.source.CustomUrlPreferences
-import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferences
+import kotlinx.coroutines.CancellationException
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.net.SocketTimeoutException
 import java.net.URLEncoder
@@ -30,7 +31,7 @@ import java.util.Locale
 
 @Source
 abstract class NyaaTorrent :
-    ParsedAnimeHttpLegacySource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     private val extId: Int
@@ -49,33 +50,35 @@ abstract class NyaaTorrent :
     // ============================== Shared ===============================
     private val animeSelector = "table.torrent-list tbody tr"
     private val animeNextPageSelector = "ul.pagination a[rel='next']"
+
     private fun animeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
-        anime.setUrlWithoutDomain(element.select("td:nth-child(2) a").attr("href"))
-        anime.title = element.select("td:nth-child(2) a:not(.comments)").attr("title")
-        // anime.thumbnail_url = "$baseUrl/" + element.select("td:nth-child(1) img").attr("src")
+        val link = element.selectFirst("td:nth-child(2) a:not(.comments)") ?: element.selectFirst("td:nth-child(2) a")
+        anime.setUrlWithoutDomain(link?.attr("href").orEmpty())
+        anime.title = link?.attr("title")?.ifBlank { link.text() }.orEmpty()
         return anime
     }
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int): Request {
         val categoryParam = if (extId == 1) "1_0" else "1_1"
-        return GET("$baseUrl/?f=0&c=$categoryParam&p=$page&s=seeders&o=desc")
+        return GET("$baseUrl/?f=0&c=$categoryParam&p=$page&s=seeders&o=desc", headers)
     }
 
-    override fun popularAnimeSelector(): String = animeSelector
-    override fun popularAnimeFromElement(element: Element): SAnime = animeFromElement(element)
-    override fun popularAnimeNextPageSelector(): String = animeNextPageSelector
+    override fun popularAnimeParse(response: Response): AnimesPage {
+        val document = response.asJsoup()
+        val animeList = document.select(animeSelector).map { animeFromElement(it) }
+        val hasNext = document.selectFirst(animeNextPageSelector) != null
+        return AnimesPage(animeList, hasNext)
+    }
 
     // =============================== Latest ===============================
     override fun latestUpdatesRequest(page: Int): Request {
         val categoryParam = if (extId == 1) "1_0" else "1_1"
-        return GET("$baseUrl/?f=0&c=$categoryParam&p=$page")
+        return GET("$baseUrl/?f=0&c=$categoryParam&p=$page", headers)
     }
 
-    override fun latestUpdatesSelector(): String = animeSelector
-    override fun latestUpdatesFromElement(element: Element): SAnime = animeFromElement(element)
-    override fun latestUpdatesNextPageSelector(): String = animeNextPageSelector
+    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     // =============================== Search ===============================
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
@@ -90,15 +93,24 @@ abstract class NyaaTorrent :
         }
         if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH)
-            return client.newCall(GET("$baseUrl/anime/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
+            val response = try {
+                client.get("$baseUrl/view/$id", headers)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                return AnimesPage(emptyList(), false)
+            }
+            return searchAnimeByIdParse(response, id)
         }
         return super.getSearchAnime(page, query, filters)
     }
 
-    private fun searchAnimeByIdParse(response: Response): AnimesPage {
-        val details = animeDetailsParse(response.use { it.asJsoup() })
+    private fun searchAnimeByIdParse(response: Response, id: String): AnimesPage {
+        if (!response.isSuccessful) return AnimesPage(emptyList(), false)
+        val details = animeDetailsParse(response).apply {
+            setUrlWithoutDomain("/view/$id")
+        }
+        if (details.title.isBlank()) return AnimesPage(emptyList(), false)
         return AnimesPage(listOf(details), false)
     }
 
@@ -122,27 +134,37 @@ abstract class NyaaTorrent :
                 else -> {}
             }
         }
-        return GET("$baseUrl/?f=$filterParam&c=$categoryParam&s=$sortParam&o=$sortDirection&q=$encodedQuery&p=$page")
+        return GET("$baseUrl/?f=$filterParam&c=$categoryParam&s=$sortParam&o=$sortDirection&q=$encodedQuery&p=$page", headers)
     }
 
-    override fun searchAnimeSelector() = animeSelector
-    override fun searchAnimeFromElement(element: Element) = animeFromElement(element)
-    override fun searchAnimeNextPageSelector() = animeNextPageSelector
+    override fun searchAnimeParse(response: Response): AnimesPage {
+        if (response.request.url.encodedPath.startsWith("/view/")) {
+            val anime = animeDetailsParse(response).apply {
+                setUrlWithoutDomain(response.request.url.encodedPath)
+            }
+            if (anime.title.isBlank()) return AnimesPage(emptyList(), false)
+            return AnimesPage(listOf(anime), false)
+        }
+        return popularAnimeParse(response)
+    }
 
     // =========================== Anime Details ============================
-    override fun animeDetailsParse(document: Document): SAnime {
+    override fun animeDetailsParse(response: Response): SAnime {
+        val document = response.asJsoup()
         val anime = SAnime.create()
 
+        anime.title = document.selectFirst("h3.panel-title")?.text()?.trim().orEmpty()
         val category = document.select("div.panel-body > div:nth-child(1) > div:nth-child(2)").text()
         val seeders = document.select("div.panel-body > div:nth-child(2) > div:nth-child(4)").text()
         val leechers = document.select("div.panel-body > div:nth-child(3) > div:nth-child(4) > span").text()
         val filesize = document.select("div.panel-body > div:nth-child(4) > div:nth-child(2)").text()
-        val genre = mutableListOf<String>()
-        genre.add("Category: $category")
-        genre.add("Seeders: $seeders")
-        genre.add("Leechers: $leechers")
-        genre.add("File Size: $filesize")
-        anime.genre = genre.joinToString(", ")
+        val genre = buildList {
+            if (category.isNotEmpty()) add("Category: $category")
+            if (seeders.isNotEmpty()) add("Seeders: $seeders")
+            if (leechers.isNotEmpty()) add("Leechers: $leechers")
+            if (filesize.isNotEmpty()) add("File Size: $filesize")
+        }.joinToString(", ")
+        anime.genre = genre
         val desc = document.select("#torrent-description").text()
         anime.description = desc
         anime.author = document.select("a[title=user]").text()
@@ -155,12 +177,13 @@ abstract class NyaaTorrent :
         return anime
     }
 
-    // ============================== Episodes ==============================
-    override fun episodeListSelector() = "div.torrent-file-list ul li li"
+    override fun getAnimeUrl(anime: SAnime): String = baseUrl + anime.url
 
+    override fun getEpisodeUrl(episode: SEpisode): String = if (episode.url.startsWith("magnet:")) episode.url else baseUrl + episode.url
+
+    // ============================== Episodes ==============================
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
-        // val torrentMagnet = document.select("a.card-footer-item:contains(Magnet)").attr("href")
         val torrentFile = document.selectFirst("div.panel-footer a")?.absUrl("href").orEmpty()
         val torrentDate = parseDate(document.select("div.panel-body > div:nth-child(1) > div:nth-child(4)").text())
         try {
@@ -211,15 +234,25 @@ abstract class NyaaTorrent :
         }
     }
 
-    override fun episodeFromElement(element: Element) = throw Exception("Not used")
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> = listOf(Video(episode.url, episode.name, episode.url))
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> = listOf(
+        Hoster(
+            hosterName = "Torrent",
+            videoList = listOf(
+                Video(
+                    videoUrl = episode.url,
+                    videoTitle = episode.name,
+                ),
+            ),
+        ),
+    )
 
-    override fun videoListSelector() = throw Exception("Not used")
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
 
-    override fun videoFromElement(element: Element) = throw Exception("Not used")
+    override suspend fun getVideoList(hoster: Hoster): List<Video> = hoster.videoList.orEmpty()
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         SwitchPreferenceCompat(screen.context).apply {
@@ -259,11 +292,16 @@ abstract class NyaaTorrent :
     private class CategoriesList(availableCategories: Array<String>) : AnimeFilter.Select<String>("Category", availableCategories)
     private val availableCategories = if (extId == 1) {
         listOf(
-            Category("All", "1_0"),
-            Category("Anime Music Video", "1_1"),
-            Category("English-translated", "1_2"),
-            Category("Non-English-translated", "1_3"),
-            Category("Raw", "1_4"),
+            Category("Anime", "1_0"),
+            Category("- Anime Music Video", "1_1"),
+            Category("- English-translated", "1_2"),
+            Category("- Non-English-translated", "1_3"),
+            Category("- Raw", "1_4"),
+            Category("Live Action", "4_0"),
+            Category("- English-translated", "4_1"),
+            Category("- Idol/Promotional Video", "4_2"),
+            Category("- Non-English-translated", "4_3"),
+            Category("- Raw", "4_4"),
         )
     } else {
         listOf(
