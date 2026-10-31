@@ -102,4 +102,12 @@ class ServerDto(
 @Serializable
 class StreamResponse(
     val link: String? = null,
+    val subtitles: List<SubtitleDto>? = null,
+)
+
+@Serializable
+class SubtitleDto(
+    val file: String,
+    val label: String,
+    val lang: String? = null,
 )

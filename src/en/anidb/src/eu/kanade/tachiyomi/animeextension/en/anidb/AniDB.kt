@@ -11,21 +11,21 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.annotation.Source
 import keiyoushi.network.get
-import keiyoushi.network.post
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parseAs
-import okhttp3.Headers.Companion.headersOf
+import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 
 @Source
@@ -124,7 +124,7 @@ abstract class AniDB :
     override fun episodeListRequest(anime: SAnime): Request = apiRequest("/episodes", "id" to anime.url.toPostId().toString())
 
     override fun episodeListParse(response: Response): List<SEpisode> {
-        val postId = response.request.url.queryParameter("id")!!
+        val postId = (response.request.body as FormBody).value(0)
         val episodes = response.parseAs<EpisodesResponse>().list.orEmpty()
 
         val minEpNumber = episodes.mapNotNull { it.number.toFloatOrNull() }.minOrNull() ?: 0f
@@ -150,13 +150,13 @@ abstract class AniDB :
     }
 
     override fun hosterListParse(response: Response): List<Hoster> = response.parseAs<ServerListDto>().list.orEmpty()
-        .toHosters(response.request.url.queryParameter("id")!!)
+        .toHosters((response.request.body as FormBody).value(0))
 
     // Server ids are "<episodeId>/<language code>", and each one is listed twice ("Server #1", "Server #2")
     private fun List<ServerDto>.toHosters(postId: String): List<Hoster> = distinctBy { it.id }.map { server ->
         val langCode = server.id.substringAfterLast('/')
         Hoster(
-            hosterUrl = "$PLAY_URL/stream?id=$postId&server=${server.id}",
+            hosterUrl = "$postId/${server.id}",
             hosterName = LANGUAGES[langCode] ?: langCode.uppercase(),
             internalData = langCode,
         )
@@ -168,13 +168,18 @@ abstract class AniDB :
     }
 
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
-        val link = client.post(hoster.hosterUrl, headersOf(), EMPTY_BODY)
-            .parseAs<StreamResponse>().link ?: return emptyList()
+        val postId = hoster.hosterUrl.substringBefore('/')
+        val serverId = hoster.hosterUrl.substringAfter('/')
+        val stream = client.newCall(apiRequest("/stream", "id" to postId, "server" to serverId))
+            .awaitSuccess().parseAs<StreamResponse>()
+        val link = stream.link?.takeIf { it.isNotBlank() } ?: return emptyList()
+        val subtitles = stream.subtitles.orEmpty()
+            .filterNot { it.lang == "OFF" }
+            .map { Track(it.file, it.label) }
 
         return playlistUtils.extractFromHls(
             playlistUrl = link,
-            masterHeaders = headers,
-            videoHeaders = headers,
+            subtitleList = subtitles,
         )
     }
 
@@ -231,11 +236,11 @@ abstract class AniDB :
 
     private fun postRequest(id: Long): Request = GET("$baseUrl/api/post?id=$id", headers)
 
-    private fun apiRequest(path: String, vararg params: Pair<String, String>): Request {
-        val url = "$PLAY_URL$path".toHttpUrl().newBuilder().apply {
-            params.forEach { addQueryParameter(it.first, it.second) }
+    private fun apiRequest(path: String, vararg fields: Pair<String, String>): Request {
+        val body = FormBody.Builder().apply {
+            fields.forEach { (name, value) -> add(name, value) }
         }.build()
-        return Request.Builder().url(url).post(EMPTY_BODY).build()
+        return Request.Builder().url("$PLAY_URL$path").post(body).build()
     }
 
     // Entries saved from the old site use "/anime/<slug>-<id>", where post id = id + 1e9
@@ -246,8 +251,6 @@ abstract class AniDB :
     }
 
     companion object {
-        private val EMPTY_BODY = ByteArray(0).toRequestBody(null)
-
         // Keep in sync with the deeplink host in build.gradle.kts
         private const val LEGACY_HOST = "anidb.app"
         private const val POPULAR_SECTION = "Most Popular"
