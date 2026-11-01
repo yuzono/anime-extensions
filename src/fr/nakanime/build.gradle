@@ -1,0 +1,16 @@
+ext {
+    libVersion = 16
+    extName = 'Nakanime'
+    extClass = '.Nakanime'
+    extVersionCode = 1
+    isNsfw = false
+}
+
+apply plugin: "kei.plugins.extension.legacy"
+
+dependencies {
+    implementation(project(':lib:cloudflareinterceptor'))
+    implementation(project(':lib:okruextractor'))
+    implementation(project(':lib:vidmolyextractor'))
+    implementation(project(':lib:voeextractor'))
+}
