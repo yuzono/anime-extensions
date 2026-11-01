@@ -4,9 +4,9 @@ plugins {
 
 yuzono {
     name = "Jav Guru"
-    versionCode = 47
+    versionCode = 48
     contentWarning = ContentWarning.NSFW
-    libVersion = "14"
+    libVersion = "16"
 
     source {
         lang = "all"
@@ -19,11 +19,13 @@ yuzono {
 }
 
 dependencies {
-    implementation(project(":lib:streamwishextractor"))
-    implementation(project(":lib:streamtapeextractor"))
     implementation(project(":lib:doodextractor"))
-    implementation(project(":lib:mixdropextractor"))
-    implementation(project(":lib:unpacker"))
-    implementation(project(":lib:playlistutils"))
     implementation(project(":lib:javcoverfetcher"))
+    implementation(project(":lib:luluextractor"))
+    implementation(project(":lib:mixdropextractor"))
+    implementation(project(":lib:playlistutils"))
+    implementation(project(":lib:streamtapeextractor"))
+    implementation(project(":lib:streamwishextractor"))
+    implementation(project(":lib:unpacker"))
+    implementation(project(":lib:vidhideextractor"))
 }
