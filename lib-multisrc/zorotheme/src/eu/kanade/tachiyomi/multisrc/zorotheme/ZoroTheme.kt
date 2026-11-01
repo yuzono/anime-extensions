@@ -31,9 +31,6 @@ import org.jsoup.nodes.Element
 import kotlin.getValue
 
 abstract class ZoroTheme(
-    override val lang: String,
-    override val name: String,
-    override val baseUrl: String,
     private val hosterNames: List<String>,
 ) : ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
@@ -44,9 +41,9 @@ abstract class ZoroTheme(
         clearOldHosts()
     }
 
-    protected var docHeaders by LazyMutable {
-        newHeaders()
-    }
+    // Built on each use, so a change of the mirror preference applies at once
+    protected val docHeaders: Headers
+        get() = newHeaders()
 
     protected fun newHeaders(): Headers = headers.newBuilder().apply {
         add(
