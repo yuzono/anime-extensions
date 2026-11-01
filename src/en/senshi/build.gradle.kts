@@ -4,13 +4,18 @@ plugins {
 
 yuzono {
     name = "Senshi"
-    versionCode = 5
+    versionCode = 6
     contentWarning = ContentWarning.NSFW
     libVersion = "16"
 
     source {
         lang = "en"
-        baseUrl = "https://senshi.to"
+        baseUrl {
+            mirrors(
+            "https://senshi.to",
+            "https://senshi.wtf",
+            )
+        }
     }
 }
 

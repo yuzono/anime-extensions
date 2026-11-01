@@ -138,6 +138,7 @@ abstract class Senshi :
         searchTerm: String = "",
         types: List<String> = emptyList(),
         genres: List<String> = emptyList(),
+        excludeGenres: List<String> = emptyList(),
         status: List<String> = emptyList(),
         seasons: List<String> = emptyList(),
         year: String = "",
@@ -148,6 +149,7 @@ abstract class Senshi :
             put("searchTerm", searchTerm)
             put("types", JsonArray(types.map(::JsonPrimitive)))
             put("genres", JsonArray(genres.map(::JsonPrimitive)))
+            put("excludeGenres", JsonArray(genres.map(::JsonPrimitive)))
             put("status", JsonArray(status.map(::JsonPrimitive)))
             put("seasons", JsonArray(seasons.map(::JsonPrimitive)))
             put("year", year)
@@ -184,6 +186,7 @@ abstract class Senshi :
         var sortBy = "score_desc"
         var types: List<String> = emptyList()
         var genres: List<String> = emptyList()
+        var excludeGenres: List<String> = emptyList()
         var status: List<String> = emptyList()
         var seasons: List<String> = emptyList()
         var year = ""
@@ -199,14 +202,14 @@ abstract class Senshi :
                 is Filters.YearFilter -> year = filter.getValue() ?: ""
                 is Filters.GenreFilter -> {
                     genres = filter.getIncluded()
-                    // Site shows genre exclusion, but it just ignores the genre (STATE_IGNORE behavior).
+                    excludeGenres = filter.getExcluded()
                 }
                 else -> {}
             }
         }
         if (searchTerm.isBlank()) searchTerm = ""
 
-        return filterRequest(page, sortBy, searchTerm, types, genres, status, seasons, year, languages)
+        return filterRequest(page, sortBy, searchTerm, types, genres, excludeGenres, status, seasons, year, languages)
     }
 
     override fun searchAnimeParse(response: Response) = filterParse(response)
