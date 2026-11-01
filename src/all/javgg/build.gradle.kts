@@ -4,9 +4,9 @@ plugins {
 
 yuzono {
     name = "JavGG"
-    versionCode = 22
+    versionCode = 23
     contentWarning = ContentWarning.NSFW
-    libVersion = "14"
+    libVersion = "16"
 
     source {
         lang = "all"
@@ -16,6 +16,7 @@ yuzono {
 
 dependencies {
     implementation(project(":lib:okruextractor"))
+    implementation(project(":lib:playlistutils"))
     implementation(project(":lib:streamwishextractor"))
     implementation(project(":lib:vidhideextractor"))
     implementation(project(":lib:voeextractor"))
