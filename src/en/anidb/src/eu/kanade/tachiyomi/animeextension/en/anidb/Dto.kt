@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.en.anidb
 
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Track
 import kotlinx.serialization.Serializable
 import kotlin.math.roundToInt
 
@@ -68,28 +69,30 @@ class PostDto(
 }
 
 @Serializable
-class EpisodeListDto(
-    val list: List<EpisodeDto>,
+class EpisodesResponse(
+    val list: List<EpisodeDto>? = null,
 )
 
 @Serializable
 class EpisodeDto(
     private val id: String,
+    private val name: String? = null,
     val number: String,
     private val filler: Boolean = false,
+    val servers: List<ServerDto>? = null,
 ) {
-    fun toSEpisode(offset: Float): SEpisode = SEpisode.create().apply {
+    fun toSEpisode(postId: String, offset: Float): SEpisode = SEpisode.create().apply {
         val adjustedNumber = number.toFloatOrNull()?.minus(offset) ?: 0f
-        name = "Episode ${adjustedNumber.toString().removeSuffix(".0")}"
+        url = "$postId/$id"
+        name = this@EpisodeDto.name?.takeIf { it.isNotBlank() } ?: "Episode ${adjustedNumber.toString().removeSuffix(".0")}"
         episode_number = adjustedNumber
         fillermark = filler
-        url = id
     }
 }
 
 @Serializable
 class ServerListDto(
-    val list: List<ServerDto>,
+    val list: List<ServerDto>? = null,
 )
 
 @Serializable
@@ -98,6 +101,17 @@ class ServerDto(
 )
 
 @Serializable
-class IframeDto(
-    val link: String,
+class StreamResponse(
+    val link: String? = null,
+    val subtitles: List<SubtitleDto>? = null,
 )
+
+@Serializable
+class SubtitleDto(
+    private val file: String? = null,
+    private val label: String? = null,
+    private val lang: String? = null,
+) {
+    // The "OFF" entry is the player's "subtitles off" option, not a track
+    fun toTrack(): Track? = file?.takeIf { lang != "OFF" }?.let { Track(it, label ?: lang.orEmpty()) }
+}
