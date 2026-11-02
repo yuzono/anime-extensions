@@ -122,7 +122,9 @@ abstract class HentaiSaturn :
 
     override fun hosterListParse(response: Response): List<Hoster> {
         val episodePage = response.asJsoup()
-        val url = episodePage.selectFirst("iframe")!!.attr("src")
+        val url = episodePage.selectFirst("iframe")?.attr("src")
+            ?.takeIf { it.isNotBlank() }
+            ?: return emptyList()
         return listOf(
             Hoster(
                 hosterName = "HentaiSaturn Server",
