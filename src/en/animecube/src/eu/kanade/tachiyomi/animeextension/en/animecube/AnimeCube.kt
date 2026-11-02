@@ -52,7 +52,7 @@ abstract class AnimeCube :
     private val preferences by getPreferencesLazy()
 
     override val client: OkHttpClient = network.client.newBuilder()
-        .rateLimit(permits = 3, period = 1.seconds)
+        .rateLimit(permits = 3, period = 1.seconds) { it.host.endsWith("animecube.live") }
         .build()
 
     override fun headersBuilder() = super.headersBuilder()
