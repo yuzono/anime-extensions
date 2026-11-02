@@ -158,10 +158,13 @@ abstract class HentaiSaturn :
                     Video(
                         videoUrl = videoUrl,
                         videoTitle = "Qualità predefinita",
+                        headers = headers.newBuilder()
+                            .set("Referer", hoster.internalData)
+                            .build(),
                     ),
                 )
             }
-            return playlistUtils.extractFromHls(videoUrl)
+            return playlistUtils.extractFromHls(videoUrl, referer = hoster.internalData)
         }
     }
 
