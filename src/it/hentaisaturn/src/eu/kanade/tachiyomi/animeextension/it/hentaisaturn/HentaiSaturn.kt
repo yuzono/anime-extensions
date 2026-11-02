@@ -170,7 +170,9 @@ abstract class HentaiSaturn :
             .header("Referer", hoster.internalData)
             .build()
         client.newCall(request).awaitSuccess().use { response ->
-            val token = response.request.url.queryParameter("token") ?: return emptyList()
+            val token = response.request.url.queryParameter("token")
+                ?.takeIf { it.isNotEmpty() }
+                ?: return emptyList()
             val playlistModel = response.parseAs<PlaylistModel>()
             val videoUrl = decodeUrl(playlistModel.d, token)
             if (!isAllowedMediaUrl(videoUrl)) {
