@@ -33,7 +33,9 @@ How it works (full explanation in README.md next to this file):
   Rows already marked ``O`` skip this check.
   A commit and its copies in other upstreams share one status.
 * Re-running keeps ``O`` / ``X`` (and any other hand-written status) and the Notes
-  column, re-checks empty / ``?`` rows, adds new upstream commits, and moves commits
+  column, re-checks empty / ``?`` rows (keeping an AI verdict, and a ``?`` with a
+  ``Partial <date>:`` / ``Folded <date>:`` note, unless ``O`` evidence appears),
+  adds new upstream commits, and moves commits
   that disappeared from upstream into a "Gone from upstream" section. Rows dated before
   ``since`` that are already in the file (added by a one-off pass over older history) are
   kept as they are at the end of the list (also by time); an empty / ``?`` one only changes to ``O``.
@@ -76,6 +78,10 @@ RECHECKED_STATUSES = ("", STATUS_MAYBE)
 # Notes written by the AI review start with this; an empty status with such a note is a
 # reviewed "not picked" verdict and is only overridden by strong (O) evidence.
 AI_NOTE_MARK = "AI checked"
+# Notes the cherry-pick skill writes for a partial pick ("Partial <date>: …", or "Folded <date>: …" when only a part
+# was folded into another pick). The '?' they come with is set by hand: detection only sees whole files and citing
+# commits, so it would reset it, and it is kept unless strong (O) evidence appears.
+PARTIAL_NOTE_RE = re.compile(r"\b(?:Partial|Folded) \d{4}-\d{2}-\d{2}:")
 # Notes for rows the script itself flags '?' (commits that cancel each other out). Older versions
 # marked them X with an "Omitted (script):" note; such rows are released the same way.
 REVERT_NOTE_MARK = "Cancels out (script):"
@@ -758,7 +764,7 @@ def flag_revert_chains(rendered: list[tuple[Entry, list[str]]]) -> int:
 
     Works on clusters (a primary commit plus its secondary copies). Revert links form chains
     (C <- revert C <- revert of the revert ...). A chain is only touched if it is linear, every
-    row in it is still empty / '?' (the fork has none of them) and none has an AI verdict. An even-length chain cancels out
+    row in it is still empty / '?' (the fork has none of them) and none has an AI verdict or a partial-pick note. An even-length chain cancels out
     completely; in an odd-length chain the oldest commit carries the net change and is not flagged.
     Flagged rows get '?' and a ``Cancels out (script):`` note; a human (or the AI review) decides.
     Rows this function flagged on an earlier run are released first by ``release_script_flag``, so
@@ -813,6 +819,8 @@ def flag_revert_chains(rendered: list[tuple[Entry, list[str]]]) -> int:
             continue
         if any(AI_NOTE_MARK in unesc(cells[-1]) for c in chain for cells in cluster_rows[c]):
             continue  # an AI-reviewed row: its verdict wins, a human decides
+        if any(cells[0] == STATUS_MAYBE and PARTIAL_NOTE_RE.search(unesc(cells[-1])) for c in chain for cells in cluster_rows[c]):
+            continue  # a partly picked commit: the fork has part of the chain, a human decides
         flagged = chain if len(chain) % 2 == 0 else chain[1:]
         for older, newer in zip(flagged[::2], flagged[1::2]):
             for key, text in ((older, f"reverted by `{cluster_head[newer].short}`"), (newer, f"reverts `{cluster_head[older].short}`")):
@@ -869,13 +877,15 @@ def carry_over(old_status: str, old_notes: str, computed: str) -> tuple[str, str
     """Status and Notes of a regenerated row, from its previous row and this run's detection.
 
     Script revert-chain flags are released first. A manual status (O, X, …) is kept. An empty / '?' row is
-    re-checked (``computed``), except that an AI verdict (Notes with ``AI checked``) is kept unless
-    strong O evidence appears.
+    re-checked (``computed``), except that an AI verdict (Notes with ``AI checked``) and a partial pick
+    (a '?' whose Notes have ``Partial <date>:`` or ``Folded <date>:``) are kept unless strong O evidence appears.
     """
     status, notes = release_script_flag(old_status, old_notes)
     if status not in RECHECKED_STATUSES:
         return status, notes
     if AI_NOTE_MARK in unesc(notes) and computed != STATUS_DONE:
+        return status, notes
+    if status == STATUS_MAYBE and PARTIAL_NOTE_RE.search(unesc(notes)) and computed != STATUS_DONE:
         return status, notes
     return computed, notes
 
