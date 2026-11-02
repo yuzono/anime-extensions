@@ -11,8 +11,9 @@ yuzono {
     source {
         name = "HentaiSaturn"
         lang = "it"
-        baseUrl("https://hentaisaturn.tv") {
-            mirrors = listOf(
+        baseUrl {
+            mirrors(
+                "https://hentaisaturn.tv",
                 "https://hentaisaturn.com",
             )
         }
