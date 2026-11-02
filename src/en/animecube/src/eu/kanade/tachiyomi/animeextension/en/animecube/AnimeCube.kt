@@ -360,7 +360,16 @@ abstract class AnimeCube :
                 }
                 else -> null
             }
-        }.distinctBy { it.hosterUrl }
+        }.distinctBy { it.hosterUrl }.sortHosters()
+    }
+
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT) ?: PREF_SERVER_DEFAULT
+        return sortedWith(
+            compareBy(
+                { it.hosterName.contains(server, ignoreCase = true) || it.hosterUrl.contains(server, ignoreCase = true) },
+            ),
+        ).reversed()
     }
 
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
@@ -561,6 +570,14 @@ abstract class AnimeCube :
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
+            key = PREF_SERVER_KEY,
+            title = "Preferred server",
+            default = PREF_SERVER_DEFAULT,
+            summary = "%s",
+            entries = PREF_SERVER_ENTRIES,
+            entryValues = PREF_SERVER_VALUES,
+        )
+        screen.addListPreference(
             key = PREF_QUALITY_KEY,
             title = "Preferred quality",
             default = PREF_QUALITY_DEFAULT,
@@ -603,6 +620,11 @@ abstract class AnimeCube :
     }
 
     companion object {
+        private const val PREF_SERVER_KEY = "preferred_server"
+        private const val PREF_SERVER_DEFAULT = "Dailymotion"
+        private val PREF_SERVER_ENTRIES = listOf("Dailymotion", "Rumble", "YouTube")
+        private val PREF_SERVER_VALUES = PREF_SERVER_ENTRIES
+
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_DEFAULT = "1080p"
         private val PREF_QUALITY_ENTRIES = listOf(
