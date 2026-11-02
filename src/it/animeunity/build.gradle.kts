@@ -4,12 +4,14 @@ plugins {
 
 yuzono {
     name = "AnimeUnity"
-    versionCode = 9
+    versionCode = 10
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 
     source {
         lang = "it"
-        baseUrl = "https://www.animeunity.so"
+        baseUrl("https://www.animeunity.co") {
+            withCustom = true
+        }
     }
 }
