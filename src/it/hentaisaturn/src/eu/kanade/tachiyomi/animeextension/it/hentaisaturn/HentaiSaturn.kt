@@ -35,6 +35,7 @@ import java.util.Locale
 import kotlin.io.encoding.Base64
 
 private const val ANIME_SELECTOR = "a.group[href]:not(.flex)"
+private const val RANKED_ANIME_SELECTOR = "a.hs-rankrow[href]:not(.flex)"
 private const val NEXT_PAGE_SELECTOR = "a[rel=\"next\"]"
 private val alterTitleRegex = Regex("\\s+\\(\\w+\\)")
 private val iframeHosts = setOf("play.hentaisaturn.tv", "streamtape.com")
@@ -52,9 +53,9 @@ abstract class HentaiSaturn :
 
     private val preferences by getPreferencesLazy()
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/ongoing/$page", headers)
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/toplist/$page", headers)
 
-    override fun popularAnimeParse(response: Response): AnimesPage = searchAnimeParse(response)
+    override fun popularAnimeParse(response: Response): AnimesPage = parseAnimePage(response, RANKED_ANIME_SELECTOR)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
@@ -222,9 +223,11 @@ abstract class HentaiSaturn :
         return GET(url.build(), headers)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
+    override fun searchAnimeParse(response: Response): AnimesPage = parseAnimePage(response, ANIME_SELECTOR)
+
+    private fun parseAnimePage(response: Response, selector: String): AnimesPage {
         val document = response.asJsoup()
-        val anime = document.select(ANIME_SELECTOR).map(::searchAnimeFromElement)
+        val anime = document.select(selector).map(::searchAnimeFromElement)
         return AnimesPage(anime, document.selectFirst(NEXT_PAGE_SELECTOR) != null)
     }
 
@@ -276,7 +279,7 @@ abstract class HentaiSaturn :
     }
 
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/newest/$page", headers)
-    override fun latestUpdatesParse(response: Response): AnimesPage = searchAnimeParse(response)
+    override fun latestUpdatesParse(response: Response): AnimesPage = parseAnimePage(response, ANIME_SELECTOR)
 
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
