@@ -4,6 +4,7 @@ import aniyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.animeextension.pt.animesdrive.extractors.UniversalExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
@@ -16,6 +17,7 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -31,6 +33,15 @@ abstract class AnimesDrive : DooPlay() {
     override fun latestUpdatesNextPageSelector() = "div.pagination > a.arrow_pag > i.fa-caret-right"
 
     // =============================== Search ===============================
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        val url = query.toHttpUrlOrNull()
+        if (url != null && url.host in LEGACY_HOSTS) {
+            val currentUrl = baseUrl.toHttpUrl().newBuilder().encodedPath(url.encodedPath).build()
+            return super.getSearchAnime(page, currentUrl.toString(), filters)
+        }
+        return super.getSearchAnime(page, query, filters)
+    }
+
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val filterList = if (filters.isEmpty()) getFilterList() else filters
 
@@ -286,6 +297,9 @@ abstract class AnimesDrive : DooPlay() {
     )
 
     companion object {
+        // Old domains: keep in sync with their deeplink in build.gradle.kts
+        private val LEGACY_HOSTS = setOf("animesdrive.online")
+
         private val REGEX_QUALITY by lazy { Regex("""(\d+)p""") }
         private val REGEX_IMAGE_SIZE_SUFFIX by lazy {
             Regex("""-\d+x\d+(?=\.[A-Za-z0-9]+$)""")

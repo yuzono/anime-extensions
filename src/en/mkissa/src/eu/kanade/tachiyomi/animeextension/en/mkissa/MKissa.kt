@@ -42,15 +42,9 @@ abstract class MKissa :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "MKissa"
-
-    override val id = 4709139914729853090L
-
     override val baseUrl by lazy { "${preferences.siteUrl}/anime" }
 
     private val apiUrl by lazy { preferences.apiUrl }
-
-    override val lang = "en"
 
     override val supportsLatest = true
 

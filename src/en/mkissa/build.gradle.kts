@@ -1,3 +1,5 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
@@ -12,7 +14,6 @@ yuzono {
         lang = "en"
         id = 4709139914729853090L
         baseUrl = "https://mkissa.to/anime"
-        skipCodeGen = true
     }
 }
 

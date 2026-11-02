@@ -42,6 +42,8 @@ abstract class Anikage :
 
     override val supportsLatest: Boolean = true
 
+    private val browseApiUrl: HttpUrl get() = "$baseUrl/api/media/anime/browse".toHttpUrl()
+
     override val disableRelatedAnimesBySearch = true
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
@@ -64,7 +66,7 @@ abstract class Anikage :
     // ============================== Popular ===============================
 
     override fun popularAnimeRequest(page: Int): Request {
-        val requestUrl = ANIKAGE_API_URL
+        val requestUrl = browseApiUrl
             .newBuilder()
         requestUrl.addQueryParameter("page", page.toString())
         requestUrl.addQueryParameter("sort", "popularity")
@@ -81,7 +83,7 @@ abstract class Anikage :
     // =============================== Latest ===============================
 
     override fun latestUpdatesRequest(page: Int): Request {
-        val requestUrl = ANIKAGE_API_URL
+        val requestUrl = browseApiUrl
             .newBuilder()
         requestUrl.addQueryParameter("page", page.toString())
         requestUrl.addQueryParameter("sort", "updated")
@@ -105,7 +107,7 @@ abstract class Anikage :
         filters: AnimeFilterList,
     ): Request {
         val searchParams = Filters.getSearchParameters(filters)
-        val requestUrl = ANIKAGE_API_URL
+        val requestUrl = browseApiUrl
             .newBuilder()
         requestUrl.addQueryParameter("page", page.toString())
         requestUrl.addQueryParameter("limit", "25")
@@ -438,9 +440,9 @@ abstract class Anikage :
     private fun buildGet(url: HttpUrl): Request {
         val postHeaders = headers.newBuilder().apply {
             set("Accept", "*/*")
-            set("Host", ANIKAGE_API_URL.host)
+            set("Host", browseApiUrl.host)
             set("Origin", baseUrl)
-            set("Referer", "$ANIKAGE_API/")
+            set("Referer", "$browseApiUrl/")
         }.build()
 
         return GET(url, headers = postHeaders)
@@ -548,8 +550,6 @@ abstract class Anikage :
         private val DATE_FORMAT by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.US) }
         private val DESCRIPTION_BR_REGEX = Regex("<br\\s*/?>", RegexOption.IGNORE_CASE)
 
-        private const val ANIKAGE_API = "https://anikage.cc/api/media/anime/browse"
-        private val ANIKAGE_API_URL by lazy { ANIKAGE_API.toHttpUrl() }
         private const val PREF_ADULT_KEY = "nsfw"
         private const val PREF_ADULT_DEFAULT = false
 

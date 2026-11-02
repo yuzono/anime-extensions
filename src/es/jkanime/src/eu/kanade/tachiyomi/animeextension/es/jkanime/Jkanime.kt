@@ -402,7 +402,7 @@ abstract class Jkanime :
 
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
-    private val jkanimeExtractor by lazy { JkanimeExtractor(client) }
+    private val jkanimeExtractor by lazy { JkanimeExtractor(client, baseUrl) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
     override fun videoListParse(response: Response): List<Video> {

@@ -43,13 +43,9 @@ abstract class GoogleDriveIndex :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val name = "GoogleDriveIndex"
-
     override val baseUrl by lazy {
         preferences.domainList.split(",").first().removeName()
     }
-
-    override val lang = "all"
 
     private var pageToken: String? = ""
 

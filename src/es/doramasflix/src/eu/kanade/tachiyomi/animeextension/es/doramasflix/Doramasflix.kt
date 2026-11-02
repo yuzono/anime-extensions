@@ -95,17 +95,19 @@ abstract class Doramasflix :
 
     private val preferences by getPreferencesLazy()
 
-    private val popularRequestHeaders = Headers.headersOf(
-        "authority", "sv1.fluxcedene.net",
-        "accept", "application/json, text/plain, */*",
-        "content-type", "application/json;charset=UTF-8",
-        "origin", "https://doramasflix.in",
-        "referer", "https://doramasflix.in/",
-        "platform", "doramasflix",
-        "authorization", "Bear",
-        "x-access-jwt-token", "",
-        "x-access-platform", accessPlatform,
-    )
+    private val popularRequestHeaders by lazy {
+        Headers.headersOf(
+            "authority", "sv1.fluxcedene.net",
+            "accept", "application/json, text/plain, */*",
+            "content-type", "application/json;charset=UTF-8",
+            "origin", baseUrl,
+            "referer", "$baseUrl/",
+            "platform", "doramasflix",
+            "authorization", "Bear",
+            "x-access-jwt-token", "",
+            "x-access-platform", accessPlatform,
+        )
+    }
 
     private fun externalOrInternalImg(url: String, isThumb: Boolean = false): String = if (url.contains("https")) {
         url

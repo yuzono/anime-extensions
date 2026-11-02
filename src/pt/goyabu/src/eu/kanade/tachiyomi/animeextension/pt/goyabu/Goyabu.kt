@@ -109,7 +109,7 @@ abstract class Goyabu :
     ): AnimesPage {
         val url = query.toHttpUrlOrNull()
         if (url != null) {
-            if (url.host != baseUrl.toHttpUrl().host) {
+            if (url.host != baseUrl.toHttpUrl().host && url.host !in LEGACY_HOSTS) {
                 throw Exception("Unsupported url")
             }
             val searchQuery = if (url.pathSegments.size > 1) {
@@ -256,6 +256,10 @@ abstract class Goyabu :
 
     companion object {
         const val PREFIX_SEARCH = "path:"
+
+        // Old domains: keep in sync with their deeplink in build.gradle.kts
+        private val LEGACY_HOSTS = setOf("goyabu.to")
+
         private val REGEX_QUALITY by lazy { Regex("""(\d+)p""") }
 
         private const val PREF_QUALITY_KEY = "preferred_quality"

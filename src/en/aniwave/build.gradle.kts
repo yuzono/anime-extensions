@@ -1,3 +1,5 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
@@ -11,8 +13,11 @@ yuzono {
 
     source {
         lang = "en"
-        baseUrl("https://animewave.to") {
-            mirrors = listOf("https://aniwave.cz")
+        baseUrl {
+            mirrors(
+                "https://animewave.to",
+                "https://aniwave.cz",
+            )
         }
     }
 }

@@ -153,7 +153,7 @@ abstract class AnimeMovil :
 
                 val requestBody = "{\"show\": \"$sid\",\"temporada\": \"$t\"}"
                 val request = Request.Builder()
-                    .url("https://animemeow.xyz/api/obtener_episodios_x_temporada/")
+                    .url("$baseUrl/api/obtener_episodios_x_temporada/")
                     .post(requestBody.toJsonRequestBody())
                     .header("authority", response.request.url.host)
                     .header("origin", "https://${response.request.url.host}")

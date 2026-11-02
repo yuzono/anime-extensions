@@ -36,8 +36,6 @@ abstract class UHDMovies :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val name = "UHD Movies"
-
     override val baseUrl by lazy {
         preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
     }
@@ -64,8 +62,6 @@ abstract class UHDMovies :
             }
         }.getOrDefault(baseUrl)
     }
-
-    override val lang = "en"
 
     override val supportsLatest = false
 

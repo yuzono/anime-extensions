@@ -97,7 +97,7 @@ class CustomUrlPreferences(
         private const val PREF_DEFAULT_KEY = "defaultBaseUrl"
 
         /**
-         * Moves a custom base URL that a source saved under [oldKey] before it declared `withCustom`, unless a custom URL
+         * Moves a custom base URL that a source saved under [oldKey] before it declared `custom(...)`, unless a custom URL
          * is already set. Call it before the generated preference first reads [preferences]: when no default is stored,
          * it resets the custom URL. Unlike the setting, it keeps a path: the old setting used it as is, and a site behind a
          * reverse proxy needs it.

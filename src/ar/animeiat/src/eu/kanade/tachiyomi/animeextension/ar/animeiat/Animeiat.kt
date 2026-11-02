@@ -21,6 +21,7 @@ import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import java.util.Base64
@@ -31,6 +32,8 @@ abstract class Animeiat :
     ConfigurableAnimeSource {
 
     override val supportsLatest = true
+
+    private val storageUrl: String get() = baseUrl.toHttpUrl().run { "$scheme://$host/storage" }
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -45,7 +48,7 @@ abstract class Animeiat :
             SAnime.create().apply {
                 url = "/anime/${it.slug}"
                 title = it.anime_name
-                thumbnail_url = "https://api.animeiat.co/storage/${it.poster_path}"
+                thumbnail_url = "$storageUrl/${it.poster_path}"
             }
         }
         val hasNextPage = responseJson.meta.current_page < responseJson.meta.last_page
@@ -117,7 +120,7 @@ abstract class Animeiat :
             author = details.studios.joinToString { it.name }
             genre = details.genres.joinToString { it.name }
             description = details.story
-            thumbnail_url = "https://api.animeiat.co/storage/${details.poster_path}"
+            thumbnail_url = "$storageUrl/${details.poster_path}"
         }
         return anime
     }
@@ -157,7 +160,7 @@ abstract class Animeiat :
             SAnime.create().apply {
                 url = "/anime/${it.slug.substringBefore("-episode-")}"
                 title = it.title
-                thumbnail_url = "https://api.animeiat.co/storage/${it.poster_path}"
+                thumbnail_url = "$storageUrl/${it.poster_path}"
             }
         }
         val hasNextPage = responseJson.meta.current_page < responseJson.meta.last_page

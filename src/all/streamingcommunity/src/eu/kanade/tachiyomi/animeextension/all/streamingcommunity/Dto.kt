@@ -18,7 +18,7 @@ data class BrowseResponse(
         val titles: List<TitleObject> = emptyList(),
         val totalCount: Int? = null,
         val scws_url: String? = null, // https://vixcloud.co
-        val cdn_url: String? = null, // https://cdn.streamingunity.vip
+        val cdn_url: String? = null, // https://cdn.streamingunity.fun
     )
 }
 

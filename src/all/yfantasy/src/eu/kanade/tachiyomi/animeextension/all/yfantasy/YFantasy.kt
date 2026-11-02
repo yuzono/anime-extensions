@@ -27,6 +27,8 @@ abstract class YFantasy : Source() {
 
     override val supportsLatest = true
 
+    private val feedUrl: String get() = "$baseUrl/api/videos/feed"
+
     /** The video CDN serves thumbnails and streams only to requests referred from the site. */
     override fun headersBuilder() = super.headersBuilder()
         .set("Origin", baseUrl)
@@ -326,7 +328,7 @@ abstract class YFantasy : Source() {
     private suspend fun getCatalog(): List<AnimeDto> = client.get(CATALOG_URL, headers).parseAs()
 
     private suspend fun getRandomFeed(): List<FeedItemDto> {
-        val url = FEED_URL.toHttpUrl().newBuilder()
+        val url = feedUrl.toHttpUrl().newBuilder()
             .addQueryParameter("shuffleTop", "1")
             .build()
 
@@ -335,7 +337,7 @@ abstract class YFantasy : Source() {
 
     /** The feed answers with its own first entry when the requested id does not exist. */
     private suspend fun getFeedEntry(videoId: String): FeedItemDto? {
-        val url = FEED_URL.toHttpUrl().newBuilder()
+        val url = feedUrl.toHttpUrl().newBuilder()
             .addQueryParameter("limit", "1")
             .addQueryParameter("videoId", videoId)
             .build()
@@ -403,7 +405,6 @@ abstract class YFantasy : Source() {
     }
 
     companion object {
-        private const val FEED_URL = "https://yfantasy.me/api/videos/feed"
         private const val CATALOG_URL =
             "https://raw.githubusercontent.com/baka-bon/truyen/refs/heads/master/yfantasy.json"
 

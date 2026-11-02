@@ -1,3 +1,5 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
@@ -11,8 +13,8 @@ yuzono {
     source {
         name = "توك توك سينما"
         lang = "ar"
-        baseUrl("https://tuktukhd.com") {
-            withCustom = true
+        baseUrl {
+            custom("https://tuktukhd.com")
         }
     }
 }

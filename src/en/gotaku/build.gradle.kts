@@ -1,10 +1,12 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "Gotaku"
-    versionCode = 4
+    versionCode = 7
     contentWarning = ContentWarning.MIXED
     libVersion = "16"
 

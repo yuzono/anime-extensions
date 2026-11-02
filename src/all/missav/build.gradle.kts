@@ -1,3 +1,5 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
@@ -10,8 +12,12 @@ yuzono {
 
     source {
         lang = "all"
-        baseUrl("https://missav.live") {
-            mirrors = listOf("https://missav.ai", "https://missav.ws")
+        baseUrl {
+            mirrors(
+                "https://missav.live",
+                "https://missav.ai",
+                "https://missav.ws",
+            )
         }
     }
 }

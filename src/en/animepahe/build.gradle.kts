@@ -1,3 +1,5 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
@@ -10,8 +12,12 @@ yuzono {
 
     source {
         lang = "en"
-        baseUrl("https://animepahe.pw") {
-            mirrors = listOf("https://animepahe.com", "https://animepahe.org")
+        baseUrl {
+            mirrors(
+                "https://animepahe.pw",
+                "https://animepahe.com",
+                "https://animepahe.org",
+            )
         }
     }
 }

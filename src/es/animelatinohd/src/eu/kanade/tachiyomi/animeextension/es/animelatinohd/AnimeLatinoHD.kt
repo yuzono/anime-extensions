@@ -181,7 +181,7 @@ abstract class AnimeLatinoHD :
                             GET(
                                 url = "https://api.animelatinohd.com/stream/${item["id"]!!.jsonPrimitive.content}",
                                 headers = headers.newBuilder()
-                                    .add("Referer", "https://www.animelatinohd.com/")
+                                    .add("Referer", "$baseUrl/")
                                     .add("authority", "api.animelatinohd.com")
                                     .add("upgrade-insecure-requests", "1")
                                     .build(),

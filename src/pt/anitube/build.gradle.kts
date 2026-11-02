@@ -1,3 +1,5 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
@@ -10,8 +12,8 @@ yuzono {
 
     source {
         lang = "pt-BR"
-        baseUrl("https://www.anitube.vip") {
-            withCustom = true
+        baseUrl {
+            custom("https://www.anitube.vip")
         }
     }
 

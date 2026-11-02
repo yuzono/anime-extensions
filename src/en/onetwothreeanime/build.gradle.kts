@@ -1,18 +1,23 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "123Anime"
-    versionCode = 3
+    versionCode = 4
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 
     source {
         lang = "en"
         // Mirrors verified live; others 301 to the hub
-        baseUrl("https://123animehub.cc") {
-            mirrors = listOf("https://123anime.la")
+        baseUrl {
+            mirrors(
+                "123animehub.cc (Primary)" to "https://123animehub.cc",
+                "123anime.la" to "https://123anime.la",
+            )
         }
     }
 }

@@ -63,7 +63,7 @@ abstract class AnimeKhor : AnimeStream() {
     }
     private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
     private val vidaraExtractor by lazy { VidaraExtractor(client, headers) }
-    private val turboVidExtractor by lazy { TurboVidExtractor(client, headers) }
+    private val turboVidExtractor by lazy { TurboVidExtractor(client, headers, "$baseUrl/") }
 
     // ============================ Video Links =============================
 

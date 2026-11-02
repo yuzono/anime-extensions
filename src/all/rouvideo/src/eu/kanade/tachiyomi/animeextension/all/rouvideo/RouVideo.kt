@@ -36,9 +36,9 @@ import java.util.Locale
 @Source
 abstract class RouVideo : AnimeHttpLegacySource() {
 
-    private val videoUrl = "https://rou.video"
+    private val videoUrl: String get() = baseUrl.toHttpUrl().run { "$scheme://$host" }
 
-    private val apiUrl = "https://rou.video/api"
+    private val apiUrl: String get() = "$videoUrl/api"
 
     override val supportsLatest = true
 

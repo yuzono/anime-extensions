@@ -114,17 +114,80 @@ abstract class Gotaku :
 
     private fun Response.readBodyBoundedString(limit: Int): String? = readBodyBounded(limit)?.let { String(it, Charsets.UTF_8) }
 
-    /** GET + native decrypt of a ?k=N endpoint. Returns inflated JSON text or null. */
-    private suspend fun decryptApiCall(url: String, referer: String = baseUrl): String? = try {
-        client.get(url, apiHeaders(referer)).readBodyBounded(MAX_API_BODY_BYTES)
-            ?.let(Crypto::decryptInfo)
-            ?: run {
-                Log.w(TAG, "decryptInfo failed url=$url")
-                null
+    private val sync by lazy {
+        GotakuSync(preferences, baseUrl, headers)
+    }
+
+    private val credentials: GotakuSync.GotakuCredentials
+        get() {
+            ensureSync()
+            return sync.readStoredCredentials() ?: GotakuSync.GotakuCredentials(
+                Crypto.DEFAULT_API_VERSION,
+                Crypto.DEFAULT_API_SEED,
+                "api-seal|v1",
+            )
+        }
+
+    @Volatile private var initialSyncStarted = false
+
+    @Synchronized
+    private fun ensureSync() {
+        if (!initialSyncStarted) {
+            initialSyncStarted = true
+            if (sync.readStoredCredentials() == null) {
+                Thread {
+                    try {
+                        sync.sync(force = false)
+                    } catch (_: Exception) {}
+                }.start()
             }
-    } catch (e: Exception) {
-        Log.w(TAG, "decryptApiCall threw: $url", e)
-        null
+        }
+    }
+
+    /** GET + native decrypt of a ?k=N endpoint. Returns inflated JSON text or null. */
+    private suspend fun decryptApiCall(
+        url: String,
+        referer: String = baseUrl,
+        isRetry: Boolean = false,
+    ): String? {
+        val creds = credentials
+        val version = creds.version
+        val seed = creds.seed
+        val info = creds.info
+
+        val finalUrl = if (url.contains("k=")) {
+            url.replace(API_VERSION_REGEX, "$1k=$version")
+        } else {
+            val sep = if (url.contains("?")) "&" else "?"
+            "$url${sep}k=$version"
+        }
+
+        var response: Response? = null
+        val responseBytes = try {
+            response = client.get(finalUrl, apiHeaders(referer))
+            response.readBodyBounded(MAX_API_BODY_BYTES)
+        } catch (e: Exception) {
+            Log.w(TAG, "decryptApiCall request failed: $finalUrl", e)
+            null
+        } finally {
+            response?.close()
+        }
+
+        if (responseBytes != null) {
+            val decrypted = Crypto.decryptInfo(responseBytes, version, seed, info)
+            if (decrypted != null) {
+                return decrypted
+            }
+            Log.w(TAG, "decryptInfo failed for $finalUrl with version=$version. Triggering WebView sync...")
+            val newCreds = sync.sync(force = true)
+            if (newCreds != null && !isRetry) {
+                return decryptApiCall(url, referer, isRetry = true)
+            }
+        } else {
+            Log.w(TAG, "decryptApiCall received no body for $finalUrl (network/size error)")
+        }
+
+        return null
     }
 
     // ========================== Popular & Latest ==========================
@@ -367,16 +430,11 @@ abstract class Gotaku :
     override fun relatedAnimeListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     // ========================= Episodes (encrypted) =======================
-    override fun episodeListRequest(anime: SAnime): Request = GET("$apiUrl/titles/${anime.url}/episodes?k=$API_VERSION", apiHeaders("$baseUrl/title/${anime.url}"))
+    override fun episodeListRequest(anime: SAnime): Request = GET("$apiUrl/titles/${anime.url}/episodes?k=${credentials.version}", apiHeaders("$baseUrl/title/${anime.url}"))
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        val json = try {
-            client.newCall(episodeListRequest(anime)).awaitSuccess()
-                .readBodyBounded(MAX_API_BODY_BYTES)
-                ?.let(Crypto::decryptInfo)
-        } catch (_: Exception) {
-            null
-        } ?: throw Exception("Failed to load or decrypt episode list. Try again or check the site in WebView.")
+        val json = decryptApiCall("$apiUrl/titles/${anime.url}/episodes?k=${credentials.version}", "$baseUrl/title/${anime.url}")
+            ?: throw Exception("Failed to load or decrypt episode list. Please try refreshing or check the site in WebView.")
 
         val episodes = try {
             json.parseAs<GotakuEnvelope<List<EpisodeDto>>>().data
@@ -428,7 +486,7 @@ abstract class Gotaku :
         val watchReferer = "$baseUrl/title/$slug?ep=$epId"
 
         val flags = try {
-            decryptApiCall("$apiUrl/episodes/$epId?k=$API_VERSION", watchReferer)
+            decryptApiCall("$apiUrl/episodes/$epId?k=${credentials.version}", watchReferer)
                 ?.parseAs<GotakuEnvelope<AudioFlagsDto>>()?.data
         } catch (_: Exception) {
             null
@@ -489,7 +547,7 @@ abstract class Gotaku :
 
         return when (kind) {
             "embed" -> {
-                val embedJson = decryptApiCall("$apiUrl/episodes/$epId/embed?type=$type&k=$API_VERSION", watchReferer)
+                val embedJson = decryptApiCall("$apiUrl/episodes/$epId/embed?type=$type&k=${credentials.version}", watchReferer)
                 val embedDto = try {
                     embedJson?.parseAs<GotakuEnvelope<EmbedDto>>()?.data
                 } catch (_: Exception) {
@@ -614,7 +672,7 @@ abstract class Gotaku :
         hoster: Hoster,
     ): List<Video> {
         // 1. Fetch the embed URL (same encrypted endpoint as streaming)
-        val embedJson = decryptApiCall("$apiUrl/episodes/$epId/embed?type=$type&k=$API_VERSION", watchReferer)
+        val embedJson = decryptApiCall("$apiUrl/episodes/$epId/embed?type=$type&k=${credentials.version}", watchReferer)
         val embedDto = try {
             embedJson?.parseAs<GotakuEnvelope<EmbedDto>>()?.data
         } catch (_: Exception) {
@@ -851,9 +909,9 @@ abstract class Gotaku :
 
         private const val TAG = "Gotaku"
 
-        private const val API_VERSION = 6
-
         private const val MAX_HTML_BODY_BYTES = 2 * 1024 * 1024
+
+        private val API_VERSION_REGEX = Regex("""([?&])k=\d+""")
 
         private val SOURCE_TYPE_REGEX = Regex("""<li class="source-type">([^<]+)</li>""")
         private val DOWNLOAD_URL_REGEX = Regex("""data-download-url="([^"]+)"""")

@@ -1,3 +1,5 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
@@ -11,15 +13,15 @@ yuzono {
 
     source {
         lang = "all"
-        baseUrl("https://nyaa.si") {
-            withCustom = true
+        baseUrl {
+            custom("https://nyaa.si")
         }
     }
     source {
         name = "Nyaa Sukebein (Torrent)"
         lang = "all"
-        baseUrl("https://sukebei.nyaa.si") {
-            withCustom = true
+        baseUrl {
+            custom("https://sukebei.nyaa.si")
         }
     }
 

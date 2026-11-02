@@ -1,3 +1,5 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
@@ -11,8 +13,12 @@ yuzono {
     source {
         name = "أنمي بالكوم"
         lang = "ar"
-        baseUrl("https://animeblkom.net") {
-            mirrors = listOf("https://animeblkom.tv", "https://blkom.com")
+        baseUrl {
+            mirrors(
+                "https://animeblkom.net",
+                "https://animeblkom.tv",
+                "https://blkom.com",
+            )
         }
     }
 }

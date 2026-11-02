@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -24,7 +25,7 @@ abstract class UFDub : ParsedAnimeHttpLegacySource() {
     private val animeSelector = "div.short"
     private val nextPageSelector = "div.pagi-nav a"
 
-    private val baseUrlWithoutAnime = "https://ufdub.com"
+    private val baseUrlWithoutAnime: String get() = baseUrl.toHttpUrl().run { "$scheme://$host" }
 
     // =========================== Anime Details ============================
 

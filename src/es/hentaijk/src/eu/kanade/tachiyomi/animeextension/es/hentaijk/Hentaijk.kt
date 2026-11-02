@@ -17,6 +17,7 @@ import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.catchingFlatMap
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Connection
@@ -35,7 +36,7 @@ abstract class Hentaijk :
 
     override fun popularAnimeSelector(): String = "div.col-lg-12 div.list"
 
-    override fun popularAnimeRequest(page: Int): Request = GET("https://hentaijk.com/top/")
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/top/")
 
     override fun popularAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
@@ -80,7 +81,7 @@ abstract class Hentaijk :
                 }
                 checkLast += 12
             }
-            Jsoup.connect("https://hentaijk.com/ajax/pagination_episodes/$animeId/$lastPage").get()
+            Jsoup.connect("$baseUrl/ajax/pagination_episodes/$animeId/$lastPage").get()
                 .body().select("body").text().replace("}]", "").split("}").forEach { json ->
                     val number = json.substringAfter("\"number\":\"").substringBefore("\"")
                     val episode = SEpisode.create().apply {
@@ -94,7 +95,7 @@ abstract class Hentaijk :
         }
 
         if (firstPage == lastPage) {
-            Jsoup.connect("https://hentaijk.com/ajax/pagination_episodes/$animeId/$lastPage").get()
+            Jsoup.connect("$baseUrl/ajax/pagination_episodes/$animeId/$lastPage").get()
                 .body().select("body").text().replace("}]", "").split("}").forEach { json ->
                     val number = json.substringAfter("\"number\":\"").substringBefore("\"")
                     val episode = SEpisode.create().apply {
@@ -133,12 +134,12 @@ abstract class Hentaijk :
                         val dataKey = doc.select("form input[value]").attr("value")
                         Jsoup.connect("$baseUrl/gsplay/redirect_post.php").headers(
                             mapOf(
-                                "Host" to "hentaijk.com",
+                                "Host" to baseUrl.toHttpUrl().host,
                                 "Accept" to "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
                                 "Accept-Language" to "en-US,en;q=0.5",
                                 "Referer" to url,
                                 "Content-Type" to "application/x-www-form-urlencoded",
-                                "Origin" to "https://hentaijk.com",
+                                "Origin" to baseUrl,
                                 "DNT" to "1",
                                 "Connection" to "keep-alive",
                                 "Upgrade-Insecure-Requests" to "1",
@@ -152,7 +153,7 @@ abstract class Hentaijk :
                         ).data(mapOf("data" to dataKey)).method(Connection.Method.POST).followRedirects(false)
                             .execute().headers("location").forEach { loc ->
                                 val postkey = loc.replace("/gsplay/player.html#", "")
-                                val nozomitext = Jsoup.connect("https://hentaijk.com/gsplay/api.php").method(Connection.Method.POST).data("v", postkey).ignoreContentType(true).execute().body()
+                                val nozomitext = Jsoup.connect("$baseUrl/gsplay/api.php").method(Connection.Method.POST).data("v", postkey).ignoreContentType(true).execute().body()
                                 nozomitext.split("}").forEach { file ->
                                     val nozomiUrl = file.substringAfter("\"file\":\"").substringBefore("\"").replace("\\", "")
                                     if (nozomiUrl.isNotBlank() && !nozomiUrl.contains("{")) {
@@ -311,7 +312,7 @@ abstract class Hentaijk :
         return anime
     }
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("https://hentaijk.com/directorio/$page/?filtro=fecha&tipo=none&estado=none&fecha=none&temporada=none&orden=desc")
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/directorio/$page/?filtro=fecha&tipo=none&estado=none&fecha=none&temporada=none&orden=desc")
 
     override fun latestUpdatesSelector(): String = "div.card.mb-3.custom_item2"
 

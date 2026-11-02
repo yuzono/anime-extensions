@@ -1,3 +1,5 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
@@ -11,8 +13,8 @@ yuzono {
     source {
         name = "فاصل اعلاني"
         lang = "ar"
-        baseUrl("https://www.faselhds.biz") {
-            withCustom = true
+        baseUrl {
+            custom("https://www.faselhds.biz")
         }
     }
 }

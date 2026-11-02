@@ -88,7 +88,7 @@ abstract class Animeler :
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.startsWith("https://")) {
             val url = query.toHttpUrl()
-            if (url.host != baseUrl.toHttpUrl().host) {
+            if (url.host != baseUrl.toHttpUrl().host && url.host !in LEGACY_HOSTS) {
                 throw Exception("Unsupported url")
             }
             val id = url.pathSegments.getOrNull(1)
@@ -357,6 +357,9 @@ abstract class Animeler :
         }
 
         const val PREFIX_SEARCH = "id:"
+
+        // Old domains: keep in sync with their deeplink in build.gradle.kts
+        private val LEGACY_HOSTS = setOf("animeler.me")
 
         private val SUPPORTED_PLAYERS = setOf(
             "doodstream.com",

@@ -1,3 +1,5 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
@@ -12,8 +14,9 @@ yuzono {
     source {
         lang = "en"
         // https://anikoto.site/#domains and https://megaplay.buzz/domains
-        baseUrl("https://anikototv.to") {
-            mirrors = listOf(
+        baseUrl {
+            mirrors(
+                "https://anikototv.to",
                 "https://anikoto.bz",
                 "https://anikoto.cz",
                 "https://anikoto.me",

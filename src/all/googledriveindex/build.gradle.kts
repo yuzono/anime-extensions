@@ -1,3 +1,5 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
@@ -11,6 +13,5 @@ yuzono {
     source {
         lang = "all"
         baseUrl = ""
-        skipCodeGen = true
     }
 }

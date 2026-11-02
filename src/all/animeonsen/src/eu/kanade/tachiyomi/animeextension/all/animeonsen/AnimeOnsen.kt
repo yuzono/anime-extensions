@@ -46,7 +46,7 @@ abstract class AnimeOnsen :
 
     override val client by lazy {
         network.client.newBuilder()
-            .addInterceptor(AOAPIInterceptor(network.client, apiUrl))
+            .addInterceptor(AOAPIInterceptor(network.client, apiUrl, baseUrl))
             .addInterceptor(SearchInterceptor(network.client, baseUrl, searchUrl))
             .build()
     }

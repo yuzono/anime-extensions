@@ -1,3 +1,5 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
@@ -10,8 +12,12 @@ yuzono {
 
     source {
         lang = "en"
-        baseUrl("https://reanime.to") {
-            mirrors = listOf("https://reanime.cz", "https://reanime.wtf")
+        baseUrl {
+            mirrors(
+                "https://reanime.to",
+                "https://reanime.cz",
+                "https://reanime.wtf",
+            )
         }
     }
 }

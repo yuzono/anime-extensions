@@ -24,6 +24,7 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import java.net.URLEncoder
@@ -45,10 +46,11 @@ abstract class VerAnime :
         val document = response.useAsJsoup()
         val elements = document.select(".anime-card a, article a")
         val nextPage = document.select(".pagination .next, a.next").any()
+        val siteHost = baseUrl.toHttpUrl().host
 
         val animeList = elements.mapNotNull { element ->
             val href = element.attr("abs:href")
-            if (href.isBlank() || href.contains("/page/") || href.contains("/animes/") || !href.contains("verani.me")) return@mapNotNull null
+            if (href.isBlank() || href.contains("/page/") || href.contains("/animes/") || !href.contains(siteHost)) return@mapNotNull null
 
             SAnime.create().apply {
                 setUrlWithoutDomain(href)
