@@ -76,8 +76,9 @@ abstract class HentaiSaturn :
             Log.w("HentaiSaturn", "Failed to fetch the latest episode date", e)
             null
         }
-        val date = latestDate ?: Calendar.getInstance().timeInMillis
-        episodes.forEach { it.date_upload = date }
+        if (latestDate != null) {
+            episodes.forEach { it.date_upload = latestDate }
+        }
         return episodes
     }
 
@@ -227,7 +228,8 @@ abstract class HentaiSaturn :
             }
             return playlistUtils.extractFromHls(videoUrl, referer = hoster.internalData)
                 .filter { isAllowedMediaUrl(it.videoUrl) }
-        } ?: return emptyList()
+        }
+        return emptyList()
     }
 
     override fun List<Video>.sortVideos(): List<Video> {
