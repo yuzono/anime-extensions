@@ -157,9 +157,8 @@ files changed by every target commit that cites it.
 - A file the target branch had at the same path before the first citing commit counts as picked only when the citing
   commits changed that path.
 - A file it had only in another package (a file of the same name in the same module, like upstream's
-  `gradle/build-logic/…/io/github/keiyoushi/gradle/internal/extensions/DependencyHandlerScope.kt`, here
-  `…/keiyoushi/gradle/extensions/DependencyHandlerScope.kt`) counts as picked when they changed a file of that name in
-  that module.
+  `core/…/keiyoushi/zip/coroutines/Zip.kt`, here `core/…/keiyoushi/zip/Zip.kt`) counts as picked when they changed a
+  file of that name in that module.
 - A new file applies when its module was there, or when the citing commits change files in it.
 - Anything else doesn't apply here, and doesn't count: a changed or deleted file the target branch didn't have in any
   package, or a new file in a module that neither the target branch nor the citing commits have (a manga-only lib).

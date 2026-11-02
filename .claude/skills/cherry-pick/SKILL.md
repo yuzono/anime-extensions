@@ -247,7 +247,7 @@ Keep Gradle scoped (AGENTS.md: never run an unscoped task).
   - Diff `index.json`, `index.min.json` and the decoded `index.pb` against the live files and against what the parent
     commit's scripts write for the same artifacts. The live `index.json` stores `versionCode` as a string and
     `contentWarning` as an enum name.
-  - When source metadata may change (the DSL, codegen, `ResolvedSourceData`), also run `generateSourceInfo` for every
+  - When source metadata may change (the DSL, codegen, `ResolvedSource`), also run `generateSourceInfo` for every
     extension with the full `settings.gradle.kts` (configuration only, about two minutes) and compare each file's
     sources (id, name, lang, baseUrl) with the live index. Any difference the pick doesn't mean to make reaches users.
 - **`.github/scripts`:**
