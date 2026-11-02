@@ -110,7 +110,6 @@ abstract class HentaiSaturn :
                 tvEpisode.datePublished
                     ?.takeIf { it.isNotEmpty() }
                     ?.let { SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).tryParse(it) }
-                    ?.takeIf { it > 0L }
             }
     }
 
