@@ -6,9 +6,9 @@ plugins {
 
 yuzono {
     name = "AnimeCube"
-    versionCode = 4
+    versionCode = 5
     contentWarning = ContentWarning.SAFE
-    libVersion = "16"
+    libVersion = "14"
 
     source {
         lang = "en"

@@ -8,15 +8,14 @@ import aniyomi.lib.youtubeextractor.YoutubeExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
-import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.annotation.Source
 import keiyoushi.network.rateLimit
+import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
@@ -44,7 +43,7 @@ import kotlin.time.Duration.Companion.seconds
 
 @Source
 abstract class AnimeCube :
-    AnimeHttpSource(),
+    AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = false
@@ -204,12 +203,6 @@ abstract class AnimeCube :
         return episodes.reversed()
     }
 
-    // ============================== Seasons ====================================
-    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
-
-    // ============================== Hosters & Videos ===========================
-    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
-
     private var cachedVersions: SourcesVersionsDto? = null
     private var versionsFetchedAt: Long = 0L
     private val versionsMutex = Mutex()
@@ -284,7 +277,7 @@ abstract class AnimeCube :
         return null
     }
 
-    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
+    override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val httpUrl = (baseUrl + episode.url).toHttpUrl()
         val slug = httpUrl.pathSegments.getOrNull(1) ?: ""
         val reqTabId = httpUrl.queryParameter("primaryTabId") ?: "primary-1"
@@ -324,7 +317,7 @@ abstract class AnimeCube :
             else -> runCatching { bodyStr.parseAs<EpisodeSourcesResponse>().sources }.getOrNull()
         } ?: return emptyList()
 
-        return rawSources.mapNotNull { source ->
+        return rawSources.flatMap { source ->
             val videoId = source.videoId
             val privateId = source.privateId
             val qualitySuffix = if (!source.quality.isNullOrBlank()) " - ${source.quality}" else ""
@@ -334,61 +327,28 @@ abstract class AnimeCube :
                 "dailymotion", null, "" -> {
                     val targetId = privateId.takeUnless { it.isNullOrBlank() }
                         ?: videoId.takeUnless { it.isNullOrBlank() }
-                        ?: return@mapNotNull null
+                        ?: return@flatMap emptyList()
                     val dailyUrl = "https://geo.dailymotion.com/player/x1h6z6.html?video=$targetId"
-                    Hoster(
-                        hosterName = "Dailymotion$qualitySuffix$subSuffix",
-                        hosterUrl = dailyUrl,
-                    )
+                    withContext(Dispatchers.IO) {
+                        dailymotionExtractor.videosFromUrl(dailyUrl, prefix = "Dailymotion$qualitySuffix$subSuffix - ")
+                    }
                 }
                 "rumble" -> {
-                    val targetId = videoId.takeUnless { it.isNullOrBlank() } ?: return@mapNotNull null
+                    val targetId = videoId.takeUnless { it.isNullOrBlank() } ?: return@flatMap emptyList()
                     val rumbleId = if (targetId.startsWith("v", ignoreCase = true)) targetId else "v$targetId"
                     val rumbleUrl = "https://rumble.com/embed/$rumbleId"
-                    Hoster(
-                        hosterName = "Rumble$qualitySuffix$subSuffix",
-                        hosterUrl = rumbleUrl,
-                    )
+                    withContext(Dispatchers.IO) {
+                        rumbleExtractor.videosFromUrl(rumbleUrl, prefix = "Rumble$qualitySuffix$subSuffix - ")
+                    }
                 }
                 "youtube" -> {
-                    val targetId = videoId.takeUnless { it.isNullOrBlank() } ?: return@mapNotNull null
+                    val targetId = videoId.takeUnless { it.isNullOrBlank() } ?: return@flatMap emptyList()
                     val ytUrl = "https://www.youtube.com/watch?v=$targetId"
-                    Hoster(
-                        hosterName = "YouTube$qualitySuffix$subSuffix",
-                        hosterUrl = ytUrl,
-                    )
+                    youtubeExtractor.videosFromUrl(ytUrl, prefix = "YouTube$qualitySuffix$subSuffix - ")
                 }
-                else -> null
+                else -> emptyList()
             }
-        }.distinctBy { it.hosterUrl }.sortHosters()
-    }
-
-    override fun List<Hoster>.sortHosters(): List<Hoster> {
-        val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT) ?: PREF_SERVER_DEFAULT
-        return sortedWith(
-            compareBy(
-                { it.hosterName.contains(server, ignoreCase = true) || it.hosterUrl.contains(server, ignoreCase = true) },
-            ),
-        ).reversed()
-    }
-
-    override suspend fun getVideoList(hoster: Hoster): List<Video> {
-        val url = hoster.hosterUrl
-        return when {
-            url.contains("dailymotion.com") -> withContext(Dispatchers.IO) {
-                dailymotionExtractor.videosFromUrl(url, prefix = "${hoster.hosterName} - ")
-                    .distinctBy { it.videoUrl }
-            }
-            url.contains("rumble.com") -> withContext(Dispatchers.IO) {
-                rumbleExtractor.videosFromUrl(url, prefix = "${hoster.hosterName} - ")
-                    .distinctBy { it.videoUrl }
-            }
-            url.contains("youtube.com") || url.contains("youtu.be") -> {
-                youtubeExtractor.videosFromUrl(url, prefix = "${hoster.hosterName} - ")
-                    .distinctBy { it.videoUrl }
-            }
-            else -> emptyList()
-        }.sortVideos()
+        }.distinctBy { it.videoUrl }.sortVideos()
     }
 
     // ============================== Helper Functions ===========================
@@ -590,9 +550,11 @@ abstract class AnimeCube :
     // ============================== Sorting & Helpers ==============================
 
     override fun List<Video>.sortVideos(): List<Video> {
+        val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT) ?: PREF_SERVER_DEFAULT
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT) ?: PREF_QUALITY_DEFAULT
         return sortedWith(
-            compareByDescending<Video> { matchesQuality(it.videoTitle, quality) }
+            compareByDescending<Video> { it.videoTitle.contains(server, ignoreCase = true) }
+                .thenByDescending { matchesQuality(it.videoTitle, quality) }
                 .thenByDescending { extractResolution(it.videoTitle) },
         )
     }
