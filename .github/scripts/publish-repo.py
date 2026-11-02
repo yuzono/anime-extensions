@@ -115,6 +115,18 @@ all_extensions = [
 all_extensions.extend(new_extensions)
 all_extensions.sort(key=lambda ext: ext.packageName)
 
+# Drop files no index entry points to, e.g. those of extensions a full rebuild removed:
+# their modules are gone from src/, so they never reach to_delete.
+referenced = {
+    REPO_APK_DIR: {ext.resources.apkUrl.rsplit("/", 1)[-1] for ext in all_extensions},
+    REPO_ICON_DIR: {f"{ext.packageName}.png" for ext in all_extensions},
+}
+for directory, keep in referenced.items():
+    for file in directory.iterdir():
+        if file.name not in keep:
+            print(f"removing unreferenced {file.relative_to(REPO_DIR)}")
+            file.unlink()
+
 index = index_pb2.Index(
     name="Yūzōnō",
         badgeLabel="Yū",

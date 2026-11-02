@@ -167,10 +167,14 @@ From `.github/workflows/build_pull_request.yml` + `.github/scripts/`:
 
 - Changing anything under `lib/` makes CI run `bump-versions.py`, which **auto-bumps every dependent
   extension**. Do not bump those by hand – only bump the module you actually edited.
-- CI builds only the changed modules (`generate-build-matrices.py` → `<module>:assembleDebug`), never
-  the whole tree.
+- CI builds only the changed modules (`generate-build-matrices.py` → `<module>:assembleRelease`, or
+  `assembleDebug` in a PR check without the signing key), except in a full rebuild, which builds every extension
+  and replaces the whole published index with the build output: extensions removed from `src/` drop out, with
+  their APKs and icons. A full rebuild happens when a core file changes (`CORE_FILES_REGEX`: `common/`,
+  `compiler/`, `core/`, `gradle/`, the root build files, `.github/scripts`), on a manual run of `build_push.yml`
+  with `full_rebuild`, and when no earlier successful run is found.
 - Head-commit message prefixes: `[skip bumping version]` skips the auto-bump; `[skip yuzono ci]` skips
-  the bump *and* the build.
+  the bump *and* the build, except in a manual `full_rebuild` run, which still builds.
 
 ## Boundaries
 
