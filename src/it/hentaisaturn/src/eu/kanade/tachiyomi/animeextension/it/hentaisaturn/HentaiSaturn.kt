@@ -39,11 +39,8 @@ private const val RANKED_ANIME_SELECTOR = "a.hs-rankrow[href]:not(.flex)"
 private const val NEXT_PAGE_SELECTOR = "a[rel=\"next\"]"
 private const val MAX_REDIRECTS = 5
 private val alterTitleRegex = Regex("\\s+\\(\\w+\\)")
-private val iframeHosts = setOf("play.hentaisaturn.tv", "streamtape.com")
-private val mediaHosts = setOf(
-    "server.hcontent.net",
-    "advtpe.com",
-)
+private val iframeHosts = setOf("play.hentaisaturn.tv")
+private val mediaHosts = setOf("server.hcontent.net")
 
 @Source
 abstract class HentaiSaturn :
