@@ -68,9 +68,8 @@ abstract class HentaiSaturn :
             Log.w("HentaiSaturn", "Failed to fetch the latest episode date", e)
             null
         }
-        if (latestDate != null) {
-            episodes.forEach { it.date_upload = latestDate }
-        }
+        val date = latestDate ?: Calendar.getInstance().timeInMillis
+        episodes.forEach { it.date_upload = date }
         return episodes
     }
 
@@ -102,6 +101,7 @@ abstract class HentaiSaturn :
                 tvEpisode.datePublished
                     ?.takeIf { it.isNotEmpty() }
                     ?.let { SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).tryParse(it) }
+                    ?.takeIf { it > 0L }
             }
     }
 
