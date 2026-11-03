@@ -25,6 +25,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
@@ -36,6 +37,8 @@ import kotlin.io.encoding.Base64
 private const val ANIME_SELECTOR = "a.group[href]:not(.flex)"
 private const val NEXT_PAGE_SELECTOR = "a[rel=\"next\"]"
 private val alterTitleRegex = Regex("\\s+\\(\\w+\\)")
+private val iframeHosts = setOf("play.saturncdn.net")
+private val mediaHosts = setOf("streampeaker.org")
 
 @Source
 abstract class AnimeSaturn :
@@ -122,6 +125,7 @@ abstract class AnimeSaturn :
         val episodePage = response.asJsoup()
         val url = episodePage.selectFirst("iframe")?.attr("src")
             ?.takeIf { it.isNotBlank() }
+            ?.takeIf(::isAllowedIframeUrl)
             ?: return emptyList()
         return listOf(
             Hoster(
@@ -143,7 +147,25 @@ abstract class AnimeSaturn :
         }
     }
 
+    private fun isAllowedUrl(url: String, allowedHosts: Set<String>): Boolean {
+        val parsed = url.toHttpUrlOrNull() ?: return false
+        return parsed.scheme == "https" &&
+            allowedHosts.any { parsed.host == it || parsed.host.endsWith(".$it") } &&
+            parsed.port == 443 &&
+            parsed.username.isEmpty() &&
+            parsed.password.isEmpty()
+    }
+
+    private fun isAllowedIframeUrl(url: String): Boolean = isAllowedUrl(url, iframeHosts)
+
+    private fun isAllowedMediaUrl(url: String): Boolean = isAllowedUrl(url, mediaHosts)
+
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        if (!isAllowedIframeUrl(hoster.internalData) ||
+            !isAllowedIframeUrl(hoster.hosterUrl)
+        ) {
+            return emptyList()
+        }
         val request = Request.Builder()
             .url(hoster.hosterUrl)
             .header("Referer", hoster.internalData)
@@ -152,6 +174,9 @@ abstract class AnimeSaturn :
             val token = response.request.url.queryParameter("token") ?: return emptyList()
             val playlistModel = response.parseAs<PlaylistModel>()
             val videoUrl = decodeUrl(playlistModel.d, token)
+            if (!isAllowedMediaUrl(videoUrl)) {
+                return emptyList()
+            }
 
             if (videoUrl.contains(".mp4")) {
                 return listOf(
@@ -165,6 +190,7 @@ abstract class AnimeSaturn :
                 )
             }
             return playlistUtils.extractFromHls(videoUrl, referer = hoster.internalData)
+                .filter { isAllowedMediaUrl(it.videoUrl) }
         }
     }
 
