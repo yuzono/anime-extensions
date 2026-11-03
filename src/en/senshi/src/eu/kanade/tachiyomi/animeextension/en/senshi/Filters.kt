@@ -99,7 +99,7 @@ object Filters {
             GenreFilter(),
             StatusFilter(),
             SeasonFilter(),
-            YearFilter(),
             LanguageFilter(),
+            YearFilter(),
         )
 }

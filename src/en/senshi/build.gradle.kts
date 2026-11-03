@@ -10,16 +10,12 @@ yuzono {
 
     source {
         lang = "en"
-        baseUrl {
-            mirrors(
-            "https://senshi.to",
-            "https://senshi.wtf",
-            )
+        baseUrl = "https://senshi.to"
         }
     }
-}
 
 dependencies {
     implementation("com.github.komikku-app.nanohttpd:nanohttpd:gradle-upgrade-SNAPSHOT")
     implementation(project(":lib:playlistutils"))
+    implementation(project(":lib:youtubeextractor"))
 }
