@@ -112,6 +112,13 @@ class RevertChainTest(unittest.TestCase):
         m.flag_revert_chains(rows)
         self.assertEqual(statuses(rows), ["", ""])
 
+    def test_partial_pick_blocks_chain(self):
+        note = "Partial 2026-11-02: picked without x"
+        rows = render([self.c, self.r1], [("?", note), ("", "")])
+        m.flag_revert_chains(rows)
+        self.assertEqual(statuses(rows), ["?", ""])
+        self.assertEqual(rows[0][1][-1], note)
+
     def test_picked_side_blocks_chain(self):
         rows = render([self.c, self.r1], [("O", ""), ("", "")])
         m.flag_revert_chains(rows)
@@ -173,6 +180,26 @@ class CarryOverTest(unittest.TestCase):
         self.assertEqual(m.carry_over("?", note, ""), ("?", note))
         self.assertEqual(m.carry_over("", note, "?"), ("", note))
         self.assertEqual(m.carry_over("?", note, "O"), ("O", note))
+
+    def test_partial_pick_kept_unless_strong_evidence(self):
+        for note in (
+            "Partial 2026-10-31: picked without removing `className`",
+            "Folded 2026-11-02: github_utils.py into the pick of bec637b61c.",
+            "Plan 2026-10-29: x; Partial 2026-11-01: picked without y",
+        ):
+            self.assertEqual(m.carry_over("?", note, ""), ("?", note))
+            self.assertEqual(m.carry_over("?", note, "?"), ("?", note))
+            self.assertEqual(m.carry_over("?", note, "O"), ("O", note))
+
+    def test_partial_note_only_keeps_a_question_mark(self):
+        note = "Partial 2026-10-31: picked without x"
+        self.assertEqual(m.carry_over("", note, ""), ("", note))
+        self.assertEqual(m.carry_over("", note, "?"), ("?", note))
+        self.assertEqual(m.carry_over("O", note, ""), ("O", note))
+
+    def test_partial_mark_needs_its_date(self):
+        for note in ("a partial pick", "Partial: no date", "Folded into 5b791b1641", "partial 2026-10-31: lowercase"):
+            self.assertEqual(m.carry_over("?", note, ""), ("", note))
 
     def test_script_omission_released_then_rechecked(self):
         self.assertEqual(m.carry_over("?", "Cancels out (script): x [was: empty]", ""), ("", ""))

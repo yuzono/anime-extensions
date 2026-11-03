@@ -157,9 +157,8 @@ files changed by every target commit that cites it.
 - A file the target branch had at the same path before the first citing commit counts as picked only when the citing
   commits changed that path.
 - A file it had only in another package (a file of the same name in the same module, like upstream's
-  `gradle/build-logic/…/io/github/keiyoushi/gradle/internal/extensions/DependencyHandlerScope.kt`, here
-  `…/keiyoushi/gradle/extensions/DependencyHandlerScope.kt`) counts as picked when they changed a file of that name in
-  that module.
+  `core/…/keiyoushi/zip/coroutines/Zip.kt`, here `core/…/keiyoushi/zip/Zip.kt`) counts as picked when they changed a
+  file of that name in that module.
 - A new file applies when its module was there, or when the citing commits change files in it.
 - Anything else doesn't apply here, and doesn't count: a changed or deleted file the target branch didn't have in any
   package, or a new file in a module that neither the target branch nor the citing commits have (a manga-only lib).
@@ -178,7 +177,7 @@ e.g. mark both `X`.
 - They are found by following `This reverts commit <hash>` links between listed commits. A yuzono commit and its
   @secozzi copies count as one.
 - A chain is only flagged when it is linear, every row in it is still empty or `?` (this repo has none of them), and no
-  row has an AI verdict.
+  row has an AI verdict or is a `?` with a `Partial <date>:` / `Folded <date>:` note (part of it is here).
 - An even-length chain cancels out completely, so every commit in it is flagged. In an odd-length chain (`C`,
   `Revert C`, `Revert "Revert C"`) the oldest commit carries the net change and is not flagged.
 - If this repo already has one side of a revert pair, the pair is not flagged, because the other side may still matter.
@@ -200,6 +199,10 @@ row that turns out to be a bulk change to yuzono's own manga sources, not a chan
   `AI checked` note, or once you change its status (e.g. to `X`). Only the stale script note is removed then.
 - Empty and `?` rows are checked again. An empty or `?` row whose Notes contain `AI checked` keeps that AI verdict
   unless new `O` evidence appears.
+- A `?` set by hand for a partial pick, with a `Partial <YYYY-MM-DD>:` or `Folded <YYYY-MM-DD>:` note (the cherry-pick
+  skill writes these), is kept the same way: unless `O` evidence appears. Detection only sees whole files and the
+  commits citing a hash, so it would reset such a row to empty, e.g. while the pick is still on a branch, or when only
+  a part was folded into another pick and nothing cites the commit. The date is required; other notes don't count.
 - Notes are always kept, and new upstream commits are added in their place in the order.
 - If a commit is no longer reachable from its upstream branch (force-push), it moves to a **Gone from upstream** section
   and keeps its status and notes. Delete it by hand once you no longer need it.
@@ -248,8 +251,8 @@ python3 -m unittest discover -s .claude/skills/cherrypick-log -p 'test_*.py'
 
 The tests in `test_update_cherrypick_log.py` cover revert-chain flags (including when a chain gets longer and the older `X` omissions), releasing
 the script's own flags (including notes with escaped characters and user text), manual `X` pins, the rerun status rules
-(`carry_over`: manual status kept, AI verdict kept unless `O` evidence appears), and the path filter (path matching,
-modules, config checks, and `Builder.build` dropping path-only commits, keeping repo-wide ones and keeping a copy of a
+(`carry_over`: manual status kept, AI verdict and a `Partial`/`Folded` `?` kept unless `O` evidence appears), and
+the path filter (path matching, modules, config checks, and `Builder.build` dropping path-only commits, keeping repo-wide ones and keeping a copy of a
 dropped one), the time order (reading committer time, interleaving upstreams, ties, copies at their own time), and
 partial picks (which files count, a package moved for this repo, a file kept at the same path, a module the picks add,
 reading the files a root commit's parent doesn't have, a partial pick staying `?` even with a matching title until a
@@ -270,7 +273,7 @@ later pick carries the rest, and rows already `O` skipping the check). They need
   the list. A reworded revert, or a revert of a commit outside the list (before `since`, excluded, or deleted by hand),
   stays an ordinary row.
 - Revert chains are only flagged when they are linear, this repo has none of their commits and no row in them has an AI
-  verdict (`AI checked`). Branching chains (two reverts of one commit) and pairs where this repo already has one side
+  verdict (`AI checked`) or a partial-pick note. Branching chains (two reverts of one commit) and pairs where this repo already has one side
   are not flagged.
 - One @secozzi commit that squashes several yuzono commits is a single row that shares its status with all of them
   (its Details name them).
