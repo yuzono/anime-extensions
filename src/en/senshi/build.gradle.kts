@@ -11,8 +11,8 @@ yuzono {
     source {
         lang = "en"
         baseUrl = "https://senshi.to"
-        }
     }
+}
 
 dependencies {
     implementation("com.github.komikku-app.nanohttpd:nanohttpd:gradle-upgrade-SNAPSHOT")
