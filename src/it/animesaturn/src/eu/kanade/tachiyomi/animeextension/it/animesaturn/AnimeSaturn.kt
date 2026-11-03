@@ -110,15 +110,7 @@ abstract class AnimeSaturn :
 
     @Serializable
     internal class TVEpisodeLD(
-        val name: String? = null,
-        val episodeNumber: Float? = null,
         val datePublished: String? = null,
-        val partOfSeries: TVSeriesLD? = null,
-    )
-
-    @Serializable
-    internal class TVSeriesLD(
-        val name: String? = null,
     )
 
     override fun hosterListRequest(episode: SEpisode): Request = GET(baseUrl + episodePageUrl(episode.url), headers)
