@@ -67,9 +67,8 @@ abstract class AnimeSaturn :
             Log.w("AnimeSaturn", "Failed to fetch the latest episode date", e)
             null
         }
-        if (latestDate != null) {
-            episodes.forEach { it.date_upload = latestDate }
-        }
+        val date = latestDate ?: Calendar.getInstance().timeInMillis
+        episodes.forEach { it.date_upload = date }
         return episodes
     }
 
