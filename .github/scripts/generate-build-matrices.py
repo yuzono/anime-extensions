@@ -10,7 +10,6 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import NoReturn
 
 EXTENSION_REGEX = re.compile(r"^src/(?P<lang>\w+)/(?P<extension>\w+)")
 MULTISRC_LIB_REGEX = re.compile(r"^lib-multisrc/(?P<multisrc>\w+)")
@@ -124,7 +123,7 @@ def resolve_ext(multisrcs: set[str], libs: set[str]) -> set[tuple[str, str]]:
 
     return extensions
 
-def get_module_list(ref: str) -> tuple[list[str], list[str]]:
+def get_module_list(ref: str) -> tuple[list[str], list[str], bool]:
     diff_output = run_command(f"git diff --name-status {ref}").splitlines()
 
     changed_files = [
@@ -167,7 +166,7 @@ def get_module_list(ref: str) -> tuple[list[str], list[str]]:
         modules.update(all_modules)
         deleted.update(all_deleted)
 
-        return list(modules), list(deleted)
+        return list(modules), list(deleted), True
 
     # Resolve libs that depend on the changed libs (recursively)
     libs.update(
@@ -184,14 +183,7 @@ def get_module_list(ref: str) -> tuple[list[str], list[str]]:
     modules.update([f":src:{lang}:{extension}" for lang, extension in extensions])
     deleted.update([f"{lang}.{extension}" for lang, extension in extensions])
 
-    if os.getenv("IS_PR_CHECK") != "true":
-        with Path(".github/always_build.json").open() as always_build_file:
-            always_build = json.load(always_build_file)
-        for extension in always_build:
-            modules.add(":src:" + extension.replace(".", ":"))
-            deleted.add(extension)
-
-    return list(modules), list(deleted)
+    return list(modules), list(deleted), False
 
 def get_all_modules() -> tuple[list[str], list[str]]:
     modules = []
@@ -204,7 +196,7 @@ def get_all_modules() -> tuple[list[str], list[str]]:
 
 def main() -> None:
     _, ref, build_type = sys.argv
-    modules, deleted = get_module_list(ref)
+    modules, deleted, is_full_rebuild = get_module_list(ref)
 
     chunked = {
         "chunk": [
@@ -223,6 +215,8 @@ def main() -> None:
         with open(os.getenv("GITHUB_OUTPUT"), 'a') as out_file:
             out_file.write(f"matrix={json.dumps(chunked)}\n")
             out_file.write(f"delete={json.dumps(deleted)}\n")
+            if is_full_rebuild:
+                out_file.write("full_rebuild=true\n")
 
 if __name__ == '__main__':
     main()
