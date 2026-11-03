@@ -75,11 +75,7 @@ abstract class AnimeSaturn :
 
     fun episodeFromElement(element: Element): SEpisode {
         val episode = SEpisode.create()
-        episode.setUrlWithoutDomain(
-            element.attr("href")
-                .replace("episode/", "anime/")
-                .replace("watch/", "stream/"),
-        )
+        episode.setUrlWithoutDomain(element.attr("href"))
         val fallbackName = element.attr("title")
         episode.episode_number = fallbackName.substringAfter("Episodio ").toFloatOrNull() ?: 0f
         episode.name = fallbackName
@@ -87,8 +83,12 @@ abstract class AnimeSaturn :
         return episode
     }
 
+    private fun episodePageUrl(url: String): String = url
+        .replace("episode/", "anime/")
+        .replace("watch/", "stream/")
+
     private suspend fun getEpisodeDate(episode: SEpisode): Long? {
-        return client.newCall(GET(baseUrl + episode.url, headers))
+        return client.newCall(GET(baseUrl + episodePageUrl(episode.url), headers))
             .awaitSuccess()
             .use { response ->
                 val tvEpisode = response.asJsoup()
@@ -117,7 +117,7 @@ abstract class AnimeSaturn :
         val name: String? = null,
     )
 
-    override fun hosterListRequest(episode: SEpisode): Request = GET(baseUrl + episode.url, headers)
+    override fun hosterListRequest(episode: SEpisode): Request = GET(baseUrl + episodePageUrl(episode.url), headers)
 
     override fun hosterListParse(response: Response): List<Hoster> {
         val episodePage = response.asJsoup()
