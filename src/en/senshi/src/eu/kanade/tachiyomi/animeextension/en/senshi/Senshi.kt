@@ -416,6 +416,8 @@ abstract class Senshi :
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
         if (hoster.hosterName == "YouTube") {
             return youtubeExtractor.videosFromUrl(hoster.hosterUrl, preferredCodecs = listOf("AV1", "VP9", "H.264"))
+                .sortedByDescending { it.videoTitle.contains(preferredQuality) }
+                .map { if (it.videoTitle.contains(preferredQuality)) it.copy(preferred = true) else it }
         }
         if (!hoster.internalData.startsWith("vidcloud::")) return emptyList()
 
