@@ -1,12 +1,12 @@
 # Contributing
 
-This guide has some instructions and tips on how to create a new Anikku extension. Please **read
-it carefully** if you're a new contributor or don't have any experience on the required languages
-and knowledges.
+This guide provides instructions and tips on creating a new Anikku extension. Please **read
+it carefully** if you are a new contributor or lack experience with the required languages
+and knowledge.
 
-This guide is not definitive and it's being updated over time. If you find any issues in it, feel
-free to report it through a [Meta Issue](https://github.com/yuzono/anime-extensions/issues/new?assignees=&labels=Meta+request&template=06_request_meta.yml)
-or fixing it directly by submitting a Pull Request.
+This guide is not definitive and is updated over time. If you find any issues, feel
+free to report them through a [Meta Issue](https://github.com/yuzono/anime-extensions/issues/new?assignees=&labels=Meta+request&template=06_request_meta.yml)
+or fix them directly by submitting a Pull Request.
 
 ## Table of Contents
 
@@ -15,6 +15,7 @@ or fixing it directly by submitting a Pull Request.
   - [Prerequisites](#prerequisites)
     - [Tools](#tools)
     - [Cloning the repository](#cloning-the-repository)
+    - [Non-cone mode (Deprecated/Discouraged)](#non-cone-mode-deprecateddiscouraged)
   - [Getting help](#getting-help)
   - [Writing an extension](#writing-an-extension)
     - [Setting up a new Gradle module](#setting-up-a-new-gradle-module)
@@ -43,9 +44,13 @@ or fixing it directly by submitting a Pull Request.
         - [HTTP requests - `OkHttpClient.get` / `post` / `put` / `head`](#http-requests---okhttpclientget--post--put--head)
         - [Custom cookies - `addCookie`](#custom-cookies---addcookie)
         - [Filter helpers - `firstInstance` / `firstInstanceOrNull`](#filter-helpers---firstinstance--firstinstanceornull)
+        - [SharedPreferences - `getPreferences` / `getPreferencesLazy`](#sharedpreferences---getpreferences--getpreferenceslazy)
         - [Next.js data extraction - `extractNextJs` / `extractNextJsRsc`](#nextjs-data-extraction---extractnextjs--extractnextjsrsc)
         - [Extracting URLs - `setUrlWithoutDomain` + `absUrl`](#extracting-urls---seturlwithoutdomain--absurl)
         - [GraphQL Requests - `graphQLPost` / `parseGraphQLAs`](#graphql-requests---graphqlpost--parsegraphqlas)
+        - [GraphQL GET requests - `graphQLGet`](#graphql-get-requests---graphqlget)
+        - [JsonElement accessor helpers](#jsonelement-accessor-helpers)
+        - [ZIP streaming - `readZipDirectory` / `readZipEntry`](#zip-streaming---readzipdirectory--readzipentry)
       - [Additional dependencies](#additional-dependencies)
     - [Extension main class](#extension-main-class)
       - [Main class key variables](#main-class-key-variables)
@@ -80,7 +85,7 @@ or fixing it directly by submitting a Pull Request.
     - [Logs](#logs)
     - [Inspecting network calls](#inspecting-network-calls)
     - [Using external network inspecting tools](#using-external-network-inspecting-tools)
-      - [Setup your proxy server](#setup-your-proxy-server)
+      - [Set up your proxy server](#set-up-your-proxy-server)
       - [OkHttp proxy setup](#okhttp-proxy-setup)
   - [Building](#building)
   - [Submitting the changes](#submitting-the-changes)
@@ -130,15 +135,12 @@ navigate and build. This will also reduce disk usage and network traffic.
    In this mode, you can only filter by file path, which is less flexible
    and might require more work when the project structure changes.
 
-   You can skip this code block to use legacy mode if you want easier filters.
-   It won't be much slower as the repo doesn't have that many files.
-
-   To enable cone mode together with sparse index, follow these steps:
+   Cone mode is the recommended standard for pattern matching and responsiveness. Using non-cone mode is deprecated and discouraged.
 
    ```bash
    git sparse-checkout set --cone --sparse-index
    # add project folders
-   git sparse-checkout add common compiler core gradle lib lib-multisrc utils
+   git sparse-checkout add common compiler core gradle lib lib-multisrc
    # add a single source
    git sparse-checkout add src/<lang>/<source>
    ```
@@ -147,7 +149,9 @@ navigate and build. This will also reduce disk usage and network traffic.
    lines you typed when adding it. Don't touch the other auto-generated lines
    unless you fully understand how cone mode works, or you might break it.
 
-   To use the legacy non-cone mode, follow these steps:
+   ### Non-cone mode (Deprecated/Discouraged)
+
+   Using non-cone mode is deprecated and not recommended. If you still need it, follow these steps:
 
    ```bash
    # enable sparse checkout
@@ -218,9 +222,9 @@ and [negative refspecs](https://github.blog/2020-10-19-git-2-29-released/#user-c
 
 ## Getting help
 
-- Join [the Discord server](https://discord.gg/85MZhUX688) for online help and to ask questions while
-  developing your extension. When doing so, please ask them in the `#dev` channel.
-- There are some features and tricks that are not explored in this document. Refer to existing
+- Join [the Discord server](https://discord.gg/85MZhUX688) for online help and to ask questions during
+  development. Please ask questions in the `#dev` channel.
+- There are features and tricks not explored in this document; refer to existing
   extension code for examples.
 
 ## Writing an extension
@@ -251,15 +255,15 @@ directory and a starter source class implementing `AnimeHttpSource`.
 
 Available options:
 
-| Flag | Description |
-| --- | --- |
-| `-n`, `--extname` | Extension name |
-| `-l`, `--lang`, `--language` | Extension language (2- or 3-letter ISO code, or `all`) |
-| `-u`, `--baseurl` | Extension base URL (must be `https://`) |
-| `--source-name` | Source name (defaults to `--extname`) |
-| `-c`, `--content-warning` | `SAFE`, `MIXED`, or `NSFW` (default: `SAFE`) |
-| `-m`, `--multisrc` | Name of an existing multisrc theme to base the source on |
-| `--path` | Path to the extension repo directory (defaults to the current directory) |
+| Flag                         | Description                                                              |
+|------------------------------|--------------------------------------------------------------------------|
+| `-n`, `--extname`            | Extension name                                                           |
+| `-l`, `--lang`, `--language` | Extension language (2- or 3-letter ISO code, or `all`)                   |
+| `-u`, `--baseurl`            | Extension base URL (must be `https://`)                                  |
+| `--source-name`              | Source name (defaults to `--extname`)                                    |
+| `-c`, `--content-warning`    | `SAFE`, `MIXED`, or `NSFW` (default: `SAFE`)                             |
+| `-m`, `--multisrc`           | Name of an existing multisrc theme to base the source on                 |
+| `--path`                     | Path to the extension repo directory (defaults to the current directory) |
 
 For example, to scaffold a source based on the `dooplay` multisrc theme:
 
@@ -321,43 +325,50 @@ Your extension code must be placed in the package `eu.kanade.tachiyomi.animeexte
 
 #### build.gradle.kts
 
-Make sure that your new extension's `build.gradle.kts` file follows the following structure:
+Extensions' `build.gradle.kts` should look like this:
 
 ```kotlin
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
-    name = "<My source name>"
+    name = "Example" // Replace with your actual source name
     versionCode = 1
     contentWarning = ContentWarning.NSFW // Options: ContentWarning.SAFE, ContentWarning.MIXED, ContentWarning.NSFW
     libVersion = "14"
 
     source {
+        name = "Example" // Optional, defaults to the top-level name
         lang = "en"
         baseUrl = "https://example.com"
     }
 }
 ```
 
-| Field            | Description                                                                                                                                                                                                          |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`           | The name of the extension. Should be romanized if site name is not in English.                                                                                                                                       |
-| `versionCode`    | The extension version code. This must be a positive integer and incremented with any change to the code. Do not bump for changes that do not affect users, such as changing a private function to a public function. |
-| `contentWarning` | Content safety classification. Must be set explicitly to one of `ContentWarning.SAFE`, `ContentWarning.MIXED`, or `ContentWarning.NSFW`.                                                                             |
-| `libVersion`     | The extension library version. Must be set explicitly: `"14"`, or `"16"` for extensions that implement the [lib 16](#extensions-lib-16) API.                                                                         |
-| `theme`          | Optional. Name of a multi-source theme from `lib-multisrc/` to inherit from. See [Using a Theme](#using-a-theme).                                                                                                    |
-| `torrent`        | Optional. Set to `true` if the extension serves torrents (magnet or `.torrent` links, or `TorrentUtils`): the app starts its torrent server for it and shows a Torrent badge.                                        |
-| `source {}`      | Declares one source, or several for multi-language or multi-site extensions. See [Source declaration](#source-declaration).                                                                                          |
-| `deeplink {}`    | Declares a URL deeplink intent filter. See [URL intent filter](#url-intent-filter).                                                                                                                                  |
+At least one `source {}` block is required for every extension.
+
+| Field            | Description                                                                                                                                                                                                           |
+|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `name`           | The name of the extension. Should be romanized if site name is not in English.                                                                                                                                        |
+| `versionCode`    | The extension version code. This must be a positive integer and incremented with any change to the code. Do not bump for changes that do not affect users, such as changing a private function to a public function.  |
+| `contentWarning` | Content safety classification. Must be set explicitly to one of `ContentWarning.SAFE`, `ContentWarning.MIXED`, or `ContentWarning.NSFW`.                                                                              |
+| `libVersion`     | The extension library version. Must be set explicitly: `"14"`, or `"16"` for extensions that implement the [lib 16](#extensions-lib-16) API.                                                                          |
+| `theme`          | Optional. Name of a multi-source theme from `lib-multisrc/` to inherit from (e.g. `"dooplay"`). When set, the extension's version code is `theme.baseVersionCode + versionCode`. See [Using a Theme](#using-a-theme). |
+| `torrent`        | Optional. Set to `true` if the extension serves torrents (magnet or `.torrent` links, or `TorrentUtils`): the app starts its torrent server for it and shows a Torrent badge.                                         |
+| `source {}`      | Declares one source, or several for multi-language or multi-site extensions. This block is mandatory. See [Source declaration](#source-declaration).                                                                  |
+| `deeplink {}`    | Declares a URL deeplink intent filter. See [URL intent filter](#url-intent-filter).                                                                                                                                   |
 
 The extension's version name is generated automatically by concatenating `libVersion` and the calculated version code.
 With the example used above, the version would be `14.1`.
 
 > [!NOTE]
-> `className` (and `baseUrl` for themed extensions) in the `yuzono {}` block is the legacy way to point at the source
-> class. Only `src/all/jellyfin` still uses it; every other extension declares its sources with `source {}`.
+> `className` in the `yuzono {}` block is the legacy way to load a hand-written source class, such as an
+> `AnimeSourceFactory`. Only `src/all/jellyfin` still uses it; every other extension declares its sources with
+> `source {}` and a `@Source` class. Nothing is generated for a `className`, but it still needs `source {}` blocks: they
+> only describe its sources (`name`, `lang`, `id`, `baseUrl`) for the repo index, so keep them in step with the class.
 
 ### Source declaration
 
@@ -409,13 +420,13 @@ class MySource(
 
 #### Declare sources in build.gradle.kts
 
-| Field         | Description                                                                                                                                                                            |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`        | The source name shown in the app. Optional; defaults to the extension `name`.                                                                                                          |
-| `lang`        | Language code, as described in [Main class key variables](#main-class-key-variables). Required.                                                                                        |
-| `baseUrl`     | The source's base URL. See [baseUrl modes](#baseurl-modes) below.                                                                                                                      |
-| `id`          | Explicit source ID, written as a `Long` (`id = 1234L`). Optional; computed from `name`, `lang` and `versionId` when omitted. Set it when renaming a source to keep users' libraries. |
-| `versionId`   | Seed used to compute `id`. Defaults to `1`. Only bump it if the source's URL structure fundamentally changes and old entries can no longer be redirected.                              |
+| Field       | Description                                                                                                                                                                          |
+|-------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `name`      | The source name shown in the app. Optional; defaults to the extension `name`.                                                                                                        |
+| `lang`      | Language code, as described in [Main class key variables](#main-class-key-variables). Required.                                                                                      |
+| `baseUrl`   | The source's base URL. See [baseUrl modes](#baseurl-modes) below.                                                                                                                    |
+| `id`        | Explicit source ID, written as a `Long` (`id = 1234L`). Optional; computed from `name`, `lang` and `versionId` when omitted. Set it when renaming a source to keep users' libraries. |
+| `versionId` | Seed used to compute `id`. Defaults to `1`. Only bump it if the source's URL structure fundamentally changes and old entries can no longer be redirected.                            |
 
 A source class may compute `name` and/or `baseUrl` itself by declaring `override val name` / `override val baseUrl`; codegen detects the override and skips generating that property (the DSL value is then used only for metadata such as the repo index and deeplink hosts). **This is discouraged** — prefer letting the DSL own `name` and `baseUrl`, and only override them in the source class when you have a very specific reason. `baseUrl` may only be overridden when the DSL declares a plain static `baseUrl` — the `mirrors`/`custom` modes generate preference infrastructure and cannot be hand-overridden. `id` and `lang` are always owned by the DSL; overriding them in the source class is an error.
 
@@ -526,7 +537,7 @@ use case. Each lib is self-documented via KDoc comments and/or a README in its o
 #### Available libs
 
 | Module                                                                                              | Description                                                                             |
-| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+|-----------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
 | [`lib-cryptoaes`](https://github.com/yuzono/anime-extensions/tree/master/lib/cryptoaes)             | AES-CBC decryption compatible with CryptoJS; JSFuck deobfuscation                       |
 | [`lib-dataimage`](https://github.com/yuzono/anime-extensions/tree/master/lib/dataimage)             | Decodes base64 `data:image` strings into mock URLs that OkHttp can handle               |
 | [`lib-i18n`](https://github.com/yuzono/anime-extensions/tree/master/lib/i18n)                       | Internationalization helper (`Intl`) for multi-language UI strings in extensions        |
@@ -553,6 +564,9 @@ dependencies {
     implementation(project(":lib:<name>"))
 }
 ```
+
+> [!TIP]
+> For multi-source themes in `lib-multisrc/`, use `api()` instead of `implementation()` so the dependency is transitively available to all extensions using the theme.
 
 For example:
 
@@ -616,7 +630,7 @@ plugins {
 }
 
 dependencies {
-    implementation(project(":lib:<other-lib>"))
+    implementation(project(":lib:other-lib")) // Replace with the actual other library name
 }
 ```
 
@@ -667,7 +681,7 @@ val jsonString = myRequestDto.toJsonString()
 
 When defining `@Serializable` classes for JSON parsing, **do not** use `data class` unless you actually need data class features (like `copy()` or destructuring). Use a regular `class` instead to reduce the generated bytecode size.
 
-Always use camelCase for Kotlin properties. Only use `@SerialName` when the JSON key does not match the property name (e.g., mapping a snake_case JSON key like `cover_img` to `coverImg`, or an invalid Kotlin identifier like `_count` to `count`). If the JSON key already matches the property name exactly, `@SerialName` is redundant and should be omitted. It is also recommended to make fields `private` if they are only used internally (for instance, when mapping directly to `SAnime` or `SEpisode` within the DTO).
+Always use camelCase for Kotlin properties, except when mapping to external model properties that use snake_case (e.g., `thumbnail_url` in `SAnime` or `date_upload` in `SEpisode`). Only use `@SerialName` when the JSON key does not match the property name (e.g., mapping a snake_case JSON key like `cover_img` to `coverImg`, or an invalid Kotlin identifier like `_count` to `count`). If the JSON key already matches the property name exactly, `@SerialName` is redundant and should be omitted. It is also recommended to make fields `private` if they are only used internally (for instance, when mapping directly to `SAnime` or `SEpisode` within the DTO).
 
 ```kotlin
 import kotlinx.serialization.SerialName
@@ -741,14 +755,14 @@ private val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale
 episode.date_upload = dateFormat.tryParse(dateStr)
 ```
 
-**Do not** write manual try/catch blocks or null-guards around `SimpleDateFormat.parse()` -
+**Do not** write manual try/catch blocks or null-guards around `SimpleDateFormat.parse()`;
 `tryParse` handles both. Also, always declare your `SimpleDateFormat` as a class-level or
 file-level `val` so it is not reconstructed for every episode.
 
 Two common mistakes to avoid:
 
-- **Always set `Locale.ROOT`**, unless the pattern contains locale-sensitive text (such as month names) - in which case use the appropriate locale.
-- **Set the timezone** if known. Either if the site's region is known, or because the pattern uses a literal `'Z'`.
+- **Always set `Locale.ROOT`**, unless the pattern contains locale-sensitive text (such as month names), in which case use the appropriate locale.
+- **Set the timezone** if known, either if the site's region is known or because the pattern uses a literal `'Z'`.
 
   ```kotlin
   // Wrong: 'Z' is treated as a literal character, timezone defaults to device local time
@@ -827,7 +841,7 @@ import keiyoushi.utils.firstInstanceOrNull
 val genreFilter = filters.firstInstanceOrNull<GenreFilter>()
 ```
 
-**SharedPreferences - `getPreferences` / `getPreferencesLazy`**
+##### SharedPreferences - `getPreferences` / `getPreferencesLazy`
 
 Use these instead of accessing `Injekt` manually.
 
@@ -835,12 +849,12 @@ Use these instead of accessing `Injekt` manually.
 import keiyoushi.utils.getPreferences
 import keiyoushi.utils.getPreferencesLazy
 
-// Eager:
-private val preferences = getPreferences()
-
-// Lazy (recommended for most cases):
+// Inside your AnimeHttpSource class:
 private val preferences by getPreferencesLazy()
 ```
+
+> [!NOTE]
+> `getPreferences()` and `getPreferencesLazy()` are extension functions on `AnimeHttpSource`. If you need to access preferences from a context without a source receiver (e.g. inside a helper class), use the top-level `getPreferences(sourceId)` function instead.
 
 ##### Next.js data extraction - `extractNextJs` / `extractNextJsRsc`
 
@@ -891,14 +905,109 @@ val variables = MyVariablesDto(page = 1)
 val request = graphQLPost(
     url = "$baseUrl/graphql",
     headers = headers,
-    operationName = "SearchManga",
-    query = $$"""query SearchManga($page: Int!) { ... }""",
+    operationName = "SearchAnime",
+    query = $$"""
+    query SearchAnime($page: Int!) {
+      animes(page: $page) {
+        id
+      }
+    }
+    """,
     variables = variables
 )
 
 // Parsing the response (automatically extracts the "data" object):
 val data = response.parseGraphQLAs<MyResponseDto>()
 ```
+
+##### GraphQL GET requests - `graphQLGet`
+
+For sources that send GraphQL over HTTP GET instead of POST, use `graphQLGet` with the same signature as `graphQLPost`:
+
+```kotlin
+import keiyoushi.utils.graphQLGet
+
+val request = graphQLGet(
+    url = "$baseUrl/graphql",
+    headers = headers,
+    query = $$"""
+    query SearchAnime($page: Int!) {
+      animes(page: $page) {
+        id
+      }
+    }
+    """,
+    variables = variables
+)
+```
+
+For sources that use [Automatic Persisted Queries (APQ)](https://www.apollographql.com/docs/kotlin/advanced/persisted-queries/), pass the result of `persistedQueryExtension(sha256Hash)` as the `extensions` parameter and omit `query`. This works for both `graphQLPost` and `graphQLGet`.
+
+```kotlin
+import keiyoushi.utils.persistedQueryExtension
+
+val request = graphQLPost(
+    url = "$baseUrl/graphql",
+    headers = headers,
+    operationName = "SearchAnime",
+    variables = variables,
+    extensions = persistedQueryExtension("abc123sha256...")
+)
+```
+
+Add `GraphQLErrorInterceptor` to the `OkHttpClient` to also convert a non-2xx response carrying a GraphQL error payload into a `GraphQLException` instead of a generic HTTP error. It only inspects non-2xx responses - a 200 OK response whose body contains a GraphQL `errors` array is not covered by the interceptor, so you still need `parseGraphQLAs`/`response.parseGraphQLAs<T>()` to catch that common case:
+
+```kotlin
+import keiyoushi.utils.GraphQLErrorInterceptor
+
+override val client = network.client.newBuilder()
+    .addInterceptor(GraphQLErrorInterceptor())
+    .build()
+```
+
+##### JsonElement accessor helpers
+
+`keiyoushi.utils` provides concise read-only accessors for traversing raw `JsonElement` trees. Import individually as needed:
+
+```kotlin
+import keiyoushi.utils.array
+import keiyoushi.utils.boolean
+import keiyoushi.utils.get
+import keiyoushi.utils.int
+import keiyoushi.utils.long
+import keiyoushi.utils.obj
+import keiyoushi.utils.string
+import keiyoushi.utils.stringOrNull
+
+val root: JsonElement = response.parseAs()
+val title = root["data"]["title"]!!.string
+val count = root["data"]["count"]!!.int
+val items = root["data"]["items"]!!.array
+val nested = root["data"]["meta"]!!.obj
+val subtitle = root["data"]["subtitle"]?.stringOrNull
+```
+
+`element[key]` and `element[index]` return `JsonElement?`, so lookups chain without null checks. The terminal accessors (`.string`, `.int`, `.long`, `.boolean`, `.obj`, `.array`) need a non-null element: add `!!` for a field that must be there, or use `?.stringOrNull`, `?.intOrNull`, `?.longOrNull` or `?.booleanOrNull` for an optional one. These also return null for a JSON `null`, where `.string` returns the text `"null"`. `JsonObject` also has `getStringOrNull`, `getIntOrNull`, `getLongOrNull`, and `getBooleanOrNull` variants for optional fields.
+
+Prefer these over writing `element.jsonObject["key"]?.jsonPrimitive?.content` manually.
+
+##### ZIP streaming - `readZipDirectory` / `readZipEntry`
+
+For sources that serve files as remote ZIP archives, the `keiyoushi.zip` package lets you read the central directory and individual entries using HTTP Range requests - no need to download the entire file. Import from `keiyoushi.zip`:
+
+```kotlin
+import keiyoushi.zip.readZipEntry
+import keiyoushi.zip.zipDirectory
+
+// 1. Fetch the ZIP central directory (automatically resolves total size).
+val directory = client.zipDirectory(zipUrl, headers)
+
+// 2. Find an entry by name and read its decompressed bytes.
+val entry = directory.entries.first { it.name == "001.jpg" }
+val imageBytes = client.readZipEntry(zipUrl, entry, headers).buffer().readByteArray()
+```
+
+`readZipDirectory` resolves every entry's offset to an absolute file position and handles ZIP64 archives. `readZipEntry` fetches only the bytes for that one entry. Use this instead of downloading the full ZIP into a `ZipInputStream`, which forces the entire archive into memory.
 
 #### Additional dependencies
 
@@ -914,6 +1023,9 @@ Notice that we're using `compileOnly` instead of `implementation` if the app alr
 You could use `implementation` instead for a new dependency, or you prefer not to rely on whatever
 the main app has at the expense of app size.
 
+> [!TIP]
+> Use `compileOnlyApi` (not `compileOnly`) when a dependency is provided by the app but also needs to be visible to consumers of your module (e.g. when building a theme or a library).
+
 > [!IMPORTANT]
 > Using `compileOnly` restricts you to versions that must be compatible with those used in
 > [the latest stable version of the app](https://github.com/komikku-app/anikku/releases/latest).
@@ -925,7 +1037,7 @@ a theme or shim based on it. Multiple sources are declared with several `source 
 `AnimeSourceFactory` yourself.
 
 | Class                   | Description                                                                                                                              |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+|-------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
 | `AnimeHttpSource`       | For online source, where requests are made using HTTP. New extensions should extend it directly and implement the lib 16 API.            |
 | `AnimeHttpLegacySource` | `keiyoushi.utils` shim that keeps the pre-lib 16 `videoListRequest(episode)` / `videoListParse(response)` flow. Do not use for new code. |
 | `ParsedAnimeHttpSource` | Deprecated, use `AnimeHttpSource` instead (`ParsedAnimeHttpLegacySource` is its legacy shim).                                            |
@@ -935,7 +1047,7 @@ a theme or shim based on it. Multiple sources are declared with several `source 
 These are generated from the `source {}` block; don't declare them in the class.
 
 | Field     | Description                                                                                                                                                     |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|-----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `name`    | Name displayed in the "Sources" tab in the app.                                                                                                                 |
 | `baseUrl` | Base URL of the source without any trailing slashes.                                                                                                            |
 | `lang`    | An ISO 639-1 compliant language code (two letters in lower case in most cases, but can also include the country/dialect part by using a simple dash character). |
@@ -973,9 +1085,9 @@ overrides only the hoster flow.
 
 ### HTML and Video Processing
 
-- **Parsing partial HTML:** If an API returns a JSON response containing an HTML string, use `Jsoup.parseBodyFragment(html, baseUrl)` instead of `Jsoup.parse(html)`. Passing the `baseUrl` ensures that `abs:href` and `absUrl()` can correctly resolve relative links.
+- **Parsing partial HTML:** If an API returns a JSON response containing an HTML string, use `Jsoup.parseBodyFragment(html, baseUrl)` instead of `Jsoup.parse(html)`. Passing the `baseUrl` ensures that `abs:href` and `absUrl()` correctly resolve relative links.
 
-- **Formatting Episode Numbers:** Do not write custom `DecimalFormat` logic just to remove trailing zeros from float episode numbers. Simply use `.toString().removeSuffix(".0")`.
+- **Formatting Episode Numbers:** Do not write custom `DecimalFormat` logic solely to remove trailing zeros from float episode numbers. Instead, use `.toString().removeSuffix(".0")`.
 
 - **Generating Video lists:** Return a `List<Video>` from `getVideoList(hoster)` / `videoListParse(response, hoster)`. Each `Video` needs a stream URL, a display title, and optionally custom headers. Example:
 
@@ -989,17 +1101,17 @@ overrides only the hoster flow.
   }
   ```
 
-- **Memory-efficient Video Interceptors:** When implementing interceptors for decrypting or transforming video streams, avoid loading the entire file into a `ByteArray` on low-end devices. Prefer stream-based processing instead:
+- **Memory-efficient Video Interceptors:** When implementing interceptors for decrypting or transforming video streams, avoid loading the entire file into a `ByteArray` on low-end devices. Prefer stream-based processing:
 
   - **Read:** Use `response.body.byteStream()` when you need to process the response body incrementally.
   - **Write:** Write processed output into an Okio `Buffer` via `output.outputStream()` and convert it using `asResponseBody(mediaType)`.
   - **Decryption:** Use Okio's `cipherSource` extension for stream-based decryption rather than decrypting a full byte array in memory.
   - Note: `readByteArray()` should generally be avoided here because it forces full in-memory buffering of the video. Streaming directly keeps memory usage lower and more stable.
-  - Always wrap network responses in `response.use { ... }` to ensure the response body is properly closed and to prevent memory leaks.
+  - Always wrap network responses in `response.use { ... }` to ensure the response body is properly closed and memory leaks are prevented.
 
 - **Do not manually check for Cloudflare:** Do not manually check for Cloudflare challenges (e.g., checking for "Just a moment..." text) in `parse` methods. The app handles this before calling the parser.
 - **Prefer stable selectors:** Avoid relying on volatile auto-generated CSS class names (e.g., `styles_Card__jN8og`) or complex regex for parsing. Prefer stable structural selectors.
-- **Use `ownText()` to avoid mutation:** To get text from an element without including text from its children, use `.ownText()`. This avoids having to select and remove child elements (`.select().remove()`) or mutate the document.
+- **Use `ownText()` to avoid mutation:** To get text from an element without including text from its children, use `.ownText()`. This avoids the need to select and remove child elements (`.select().remove()`) or mutate the document.
 - **Parse status using `.lowercase()`:** When comparing strings for status parsing (e.g., `contains("ongoing")`), prefer calling `.lowercase()` on the source string once instead of using `ignoreCase = true` on multiple `contains` checks.
 
 ### OkHttp and Network
@@ -1021,7 +1133,7 @@ overrides only the hoster flow.
 - **Never use `Thread.sleep()`:** Do not use `Thread.sleep()` for rate limiting. Use the `keiyoushi.network.rateLimit` builder extension function on your `OkHttpClient.Builder` instead.
 - **Avoid synchronous calls in `parse` methods:** Do not call `client.newCall(...).execute()` inside parsing methods like `videoListParse` or `episodeListParse`. Make the request part of the standard flow by overriding the corresponding request method (e.g., `hosterListRequest`) or the suspend function (e.g., `getVideoList(hoster)`).
 - **Pass `HttpUrl` directly:** The `GET()` and `POST()` helpers accept an `HttpUrl` object. Do not call `.toString()` on a built `HttpUrl` before passing it.
-- **Use `HttpUrl` for URL manipulation:** When parsing or extracting parts of a URL, prefer using `HttpUrl` methods (like `pathSegments()` or `queryParameter()`) over manual string splitting (e.g., `.split("/")`) or regex. This ensures proper separation of concerns and protects against unexpected inputs-such as URL fragments or query parameters-without you needing to manually account for all edge cases.
+- **Use `HttpUrl` for URL manipulation:** When parsing or extracting parts of a URL, prefer using `HttpUrl` methods (like `pathSegments` property, `encodedPathSegments`, or `queryParameter("id")`) over manual string splitting (e.g., `.split("/")`) or regex. This ensures proper separation of concerns and protects against unexpected inputs-such as URL fragments or query parameters-without you needing to manually account for all edge cases.
 - **Use `addCookie` for custom cookies:** See [Custom cookies - `addCookie`](#custom-cookies---addcookie). Do not manually add `Cookie` headers: doing so can discard unrelated cookies already attached to the request, whereas `addCookie` preserves them and replaces only cookies with matching names.
 
 ### Extension call flow
@@ -1033,8 +1145,8 @@ a.k.a. the Browse source entry point in the app (invoked by tapping on the sourc
 - The app calls `getPopularAnime` (or uses `popularAnimeRequest` / `popularAnimeParse`) which should
   return an `AnimesPage` containing the first batch of found `SAnime` entries.
   - This method supports pagination. When user scrolls the anime list and more results must be fetched,
-    the app calls it again with increasing `page` values (starting with `page=1`). This continues while
-    `AnimesPage.hasNextPage` is passed as `true` and `AnimesPage.animes` is not empty.
+      the app calls it again with increasing `page` values (starting with `page=1`). This continues while
+      `AnimesPage.hasNextPage` is passed as `true` and `AnimesPage.animes` is not empty.
 - To show the list properly, the app needs `url`, `title` and `thumbnail_url`. You **must** set them
   here. The rest of the fields could be filled later (refer to Anime Details below).
 
@@ -1065,7 +1177,7 @@ The search flow has support for filters that can be added to an `AnimeFilterList
 and in the table below.
 
 | Filter                  | State type  | Description                                                                                                                                                              |
-| ----------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+|-------------------------|-------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `AnimeFilter.Header`    | None        | A simple header. Useful for separating sections in the list or showing any note or warning to the user.                                                                  |
 | `AnimeFilter.Separator` | None        | A line separator. Useful for visual distinction between sections.                                                                                                        |
 | `AnimeFilter.Select<V>` | `Int`       | A select control, similar to HTML's `<select>`. Only one item can be selected, and the state is the index of the selected one.                                           |
@@ -1090,56 +1202,58 @@ open class UriPartFilter(displayName: String, private val vals: Array<Pair<Strin
 
 #### Anime Details
 
-- When user taps on an anime, `getAnimeDetails` and `getEpisodeList` will be called and the results
-  will be cached.
+- When a user taps on an anime, `getAnimeDetails` and `getEpisodeList` are called and the results are cached.
   - A `SAnime` entry is identified by its `url`.
 - `getAnimeDetails` is called to update an anime's details from when it was initialized earlier.
-  - `SAnime.initialized` tells the app if it should call `getAnimeDetails`. If you are overriding
-    `getAnimeDetails`, make sure to pass it as `true`.
-  - `SAnime.genre` is a string containing list of all genres separated with `", "`.
+  - `SAnime.initialized` tells the app whether to call `getAnimeDetails`. If you are overriding
+      `getAnimeDetails`, ensure you set it to `true`.
+  - `SAnime.genre` is a string containing a list of all genres separated by `", "`.
   - `SAnime.status` is an "enum" value. Refer to [the values in the `SAnime` companion object](https://github.com/komikku-app/aniyomi-extensions-lib/blob/master/library/src/main/java/eu/kanade/tachiyomi/animesource/model/SAnime.kt).
-  - During a backup, only `url` and `title` are stored. To restore the rest of the anime data, the
-    app calls `getAnimeDetails`, so all fields should be (re)filled in if possible.
-  - If a `SAnime` is cached, `getAnimeDetails` will be only called when the user does a manual
-    update (Swipe-to-Refresh).
+  - Backups store nearly all known anime fields (author, genre, description, thumbnail, episodes,
+      etc.), not just `url`/`title` - restoring a backup writes that stored data straight into the
+      local library without a fresh network fetch. Fill in every field you can in
+      `getAnimeDetails`, since there's no guarantee of another automatic re-fetch beyond
+      a manual Swipe-to-Refresh.
+  - If a `SAnime` is cached, `getAnimeDetails` is only called when the user performs a manual
+      update (Swipe-to-Refresh).
 - `getEpisodeList` is called to display the episode list, unless the anime's `fetch_type` is
   `FetchType.Seasons` (see [Seasons](#seasons)).
   - **The list should be sorted descending by the source order**.
 - `getAnimeUrl` is called when the user taps "Open in WebView".
-  - If the source uses an API to fetch the data, consider overriding this method to return the anime
-    absolute URL in the website instead.
+  - If the source uses an API to fetch the data, consider overriding this method to return the anime's
+      absolute URL on the website instead.
   - It defaults to the URL provided to the request in `animeDetailsRequest`.
 
 #### Episode
 
 - `SEpisode.date_upload` is the [UNIX Epoch time](https://en.wikipedia.org/wiki/Unix_time)
   **expressed in milliseconds**.
-  - If you don't pass `SEpisode.date_upload` and leave it zero, the app will use the default date
-    instead, but it's recommended to always fill it if it's available.
-  - To get the time in milliseconds from a date string, you can use a `SimpleDateFormat` like in
-    the example below.
+  - If you do not pass `SEpisode.date_upload` and leave it at zero, the app will use the default date
+      instead, but it is recommended to fill it if available.
+  - To get the time in milliseconds from a date string, you can use a `SimpleDateFormat` as in
+      the example below.
 
-    ```kotlin
-    import keiyoushi.utils.tryParse
+      ```kotlin
+      import keiyoushi.utils.tryParse
 
-    episode.date_upload = dateFormat.tryParse(dateStr)
+      episode.date_upload = dateFormat.tryParse(dateStr)
 
-    private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).apply {
-        timeZone = TimeZone.getTimeZone("UTC") // the site's timezone, if known
-    }
-    ```
+      private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ROOT).apply {
+          timeZone = TimeZone.getTimeZone("UTC") // the site's timezone, if known
+      }
+      ```
 
-    Make sure you make the `SimpleDateFormat` a class constant or variable so it doesn't get
-    recreated for every episode. If you need to parse or format dates in anime description, create
-    another instance since `SimpleDateFormat` is not thread-safe.
+      Ensure the `SimpleDateFormat` is a class constant or variable so it is not
+      recreated for every episode. If you need to parse or format dates in an anime description, create
+      another instance since `SimpleDateFormat` is not thread-safe.
 
-  - If the parsing has any problems, make sure to return `0L` so the app will use the default date
-    instead.
-  - The app will overwrite dates of existing old episodes **UNLESS** `0L` is returned.
-  - If the source only provides the anime's updated date, assign it to the latest episode only.
+  - If parsing fails, return `0L` so the app uses the default date
+      instead.
+  - The app will overwrite the dates of existing episodes **UNLESS** `0L` is returned.
+  - If the source only provides the anime's update date, assign it to the latest episode only.
 - `getEpisodeUrl` is called when the user taps "Open in WebView" in the player.
   - If the source uses an API to fetch the data, consider overriding this method to return the
-    episode absolute URL in the website instead.
+      episode's absolute URL on the website instead.
   - Override it when `episode.url` isn't the episode's web page (e.g. an API ID).
 
 #### Seasons
@@ -1164,7 +1278,7 @@ open class UriPartFilter(displayName: String, private val vals: Array<Pair<Strin
 - Build videos with named parameters: `Video(videoUrl = ..., videoTitle = ..., headers = ...)`, plus
   `subtitleTracks`, `audioTracks`, `resolution`, `bitrate` or `timestamps` when available. The old
   positional `Video(url, quality, videoUrl, headers)` constructor is deprecated.
-- `Video.videoUrl` **should be an absolute URL** once the video is resolved (see below).
+- `Video.videoUrl` **must be an absolute URL** once the video is resolved (see below).
 - If a stream URL expires quickly or is expensive to fetch, return the `Video` with
   `initialized = false`, an empty `videoUrl` and the data needed in `internalData`. The app calls `resolveVideo(video)` when
   it plays that video; return the resolved copy with `initialized = true`, or `null` on failure. This
@@ -1175,12 +1289,12 @@ open class UriPartFilter(displayName: String, private val vals: Array<Pair<Strin
   before returning when your own code relies on the order, such as setting `Video.preferred` on the
   first match.
 - If you need to pass additional data to a custom extractor, it is recommended to pass it as a URL
-  fragment (e.g. `url + "#data"`). OkHttp does not send fragments to the server, so there is no need
-  to strip it out afterwards.
+  fragment (e.g., `url + "#data"`). OkHttp does not send fragments to the server, so there is no need
+  to strip it afterward.
 
 ### Misc notes
 
-- **Use `asJsoup()`:** Instead of manually reading the response body and parsing it with Jsoup (`Jsoup.parse(response.body.string())`), use the app's built-in extension function: `response.asJsoup()` (requires `eu.kanade.tachiyomi.util.asJsoup`).
+- **Use `asJsoup()`:** Instead of manually reading the response body and parsing it with Jsoup (`Jsoup.parse(response.body.string())`), use the app's built-in extension function: `response.asJsoup()` (requires `import eu.kanade.tachiyomi.util.asJsoup`).
 - **Jsoup `.text()` is already trimmed:** Calling `element.text().trim()` is redundant because Jsoup automatically normalizes and trims whitespace. Just use `element.text()`.
 - **Omit default `joinToString` separator:** The default separator for `joinToString` is already `", "`. Do not pass it explicitly. Use `joinToString { it.text() }` instead of `joinToString(", ") { it.text() }`, and `joinToString()` instead of `joinToString(", ")`.
 - **Use named parameters for `Video`:** Instantiate `Video` with named parameters (`Video(videoUrl = ..., videoTitle = ..., headers = ...)`) and pass
@@ -1189,7 +1303,6 @@ open class UriPartFilter(displayName: String, private val vals: Array<Pair<Strin
   videos in a legacy method, throw `UnsupportedOperationException()` instead of returning an empty
   value. Also use this pattern for unused inherited methods.
 - **Cache Regex instances:** Define `Regex` instances at the class level or in a `companion object` so they aren't recompiled on every method call.
-- **Don't create Android classes when the source is constructed:** To publish the repo, CI instantiates every source on a plain JVM with the [extensions inspector](https://github.com/komikku-app/aniyomi-extensions-inspector). There, `android.*` classes are stubs that throw `RuntimeException: Stub!`. One extension that builds such a class (for example `android.util.LruCache`) in its constructor or in a property initializer stops the publish for every extension. Wrap those properties in `by lazy { ... }`. The PR check runs the same inspector.
 - **Do not hardcode `User-Agent`:** Unless absolutely necessary (e.g., to bypass Cloudflare/protection, or to retrieve a specific mobile layout/different selectors), do not hardcode a specific `User-Agent`. Calling `super.headersBuilder()` already provides the app's default User-Agent.
 - **Use `buildString { }`:** When building descriptions or dynamic strings, use Kotlin's `buildString { ... }` instead of manually instantiating a `StringBuilder()`.
 - **Media Types:** `application/json` is intrinsically UTF-8. Avoid using `application/json; charset=utf-8`. Prefer helper functions like `toJsonRequestBody()` instead of manually specifying media types (e.g., `"application/json".toMediaType()`).
@@ -1197,7 +1310,7 @@ open class UriPartFilter(displayName: String, private val vals: Array<Pair<Strin
 - **Anime/episode URLs:** Prefer storing just the ID or slug in `SAnime.url` and `SEpisode.url`. Storing the relative URL with `setUrlWithoutDomain()` is also acceptable. Avoid absolute URLs to make future domain migrations easier.
 - **Follow `AnimeHttpSource` workflow:** Stick to the general workflow from this base class when possible; deviating may introduce unnecessary complexity.
 - **Separate custom headers:** When adding custom headers to a request (e.g., for AJAX endpoints), avoid building them inline within the `GET()` or `POST()` call. Instead, assign the modified headers to a separate variable or define them as a class-level property. This improves readability and allows for reuse across multiple requests.
-- **Do not override default `AnimeHttpSource` methods:** Avoid overriding methods like `animeDetailsRequest` or `episodeListRequest` if they only replicate the default behavior (`GET(baseUrl + anime.url, headers)`). Only override them if the source requires a different URL structure or custom headers for those specific requests.
+- **Do not override default `AnimeHttpSource` methods:** Avoid overriding methods like `animeDetailsRequest` or `episodeListRequest` if they only replicate the default behavior `GET(baseUrl + anime.url, headers)`. Only override them if the source requires a different URL structure or custom headers for those specific requests.
 - **Configurable sources:** By implementing `ConfigurableAnimeSource`, you can add settings backed by `SharedPreferences`.
 - **Code organization:** For readability, group related methods together in your extension class (e.g., all popular anime methods, then all latest anime methods, then search methods, and so on). A logical ordering like Popular → Latest → Search → Details → Episodes → Videos → Filters → Utilities makes the class easier to navigate and maintain without needing explicit section header comments.
 - **DTO extensions:** Move mapping extensions for DTOs (like `fun MyDto.toSAnime()`) into the DTO file itself to keep the main source class clean.
@@ -1206,28 +1319,28 @@ open class UriPartFilter(displayName: String, private val vals: Array<Pair<Strin
 
 #### Extension logic and app features
 
-- **Mandatory fields:** An anime's `title` and `url` are **mandatory**. An episode's `name` is also mandatory, though generic values like `"Episode"` are acceptable for sources that only provide a single episode (e.g., movie sources). Do not provide generic fallbacks like `"Untitled"`, `"Unknown"`, or empty strings if the site fails to provide an anime's title or URL, as this breaks downloads and library management.
-  Prefer failing loudly (e.g., throwing an exception or using `!!`) so broken selectors are detected early. Silent fallbacks or empty values can hide issues and make debugging harder. If a mandatory field is missing, it is better to throw or skip the entry entirely.
-- **Optional fields:** For all other fields, prefer safe calls (`?.`) and avoid using the non-null assertion (`!!`). Missing data like thumbnails or descriptions should not crash the entire parsing process. Consider using Kotlin's `mapNotNull` when parsing lists of elements so that if a single item fails, the rest of the list can still be loaded successfully.
-- **Extension `name` field:** Do not add a language suffix or other qualifier to `name` (e.g., `"MySite EN"`). The app already groups sources by languages.
-- **`supportsLatest` convention:** If a source only has a latest listing, use the latest listing in place for the popular listing and set `supportsLatest = false`.
-- **When to bump `versionId`:** The `versionId` property dictates how the app tracks the source. **Only override and bump `versionId` if the source's URL structure fundamentally changes** (e.g., old anime URLs no longer work and there is no way to create a redirect). Bumping this forces all users to re-migrate their bookmarks.
-- **Self-hosted sources:** If you are adding a source for a self-hosted server (e.g., StashApp, Komga, Suwayomi), make your class implement the `UnmeteredSource` interface. This tells the app not to apply standard rate-limiting to the user's own local server.
+- **Mandatory fields:** An anime's `title` and `url` are **mandatory**. An episode's `name` is also mandatory, though generic values like `"Episode"` are acceptable for sources providing only a single episode (e.g., movie sources). Do not provide generic fallbacks like `"Untitled"`, `"Unknown"`, or empty strings if the site fails to provide a title or URL, as this breaks downloads and library management.
+  Prefer failing loudly (e.g., throwing an exception or using `!!`) so broken selectors are detected early. Silent fallbacks or empty values can hide issues and make debugging harder. If a mandatory field is missing, it is better to throw an exception or skip the entry entirely.
+- **Optional fields:** For all other fields, prefer safe calls (`?.`) and avoid the non-null assertion (`!!`). Missing data like thumbnails or descriptions should not crash the parsing process. Consider using Kotlin's `mapNotNull` when parsing lists of elements so that if a single item fails, the rest of the list can still load successfully.
+- **Extension `name` field:** Do not add a language suffix or other qualifier to `name` (e.g., `"MySite EN"`). The app already groups sources by language.
+- **`supportsLatest` convention:** If a source only has the latest listing, use that for the popular listing and set `supportsLatest = false`.
+- **When to bump `source { versionId = ... }`:** The `versionId` field in the `source {}` block dictates how the source's ID is auto-computed. **Only bump it if the source's URL structure fundamentally changes** (e.g., old anime URLs no longer work and there is no way to create a redirect). Bumping this forces all users to re-migrate their bookmarks.
+- **Self-hosted sources:** If you are adding a source for a self-hosted server (e.g., StashApp, Komga, Suwayomi), implement the `UnmeteredSource` interface in your class. This tells the app not to apply standard rate-limiting to the user's local server.
 - **Preference listeners:** When implementing `ConfigurableAnimeSource`, you do not need to manually save values inside `setOnPreferenceChangeListener`. The Android preference framework saves the value to `SharedPreferences` automatically.
 - **Update Strategy:** For gallery sources or sources where entries are completed upon upload, set `update_strategy = AnimeUpdateStrategy.ONLY_FETCH_ONCE` to prevent unnecessary update checks.
-- **Preserving Source ID:** If you change a source's `name` or `lang`, its auto-generated `id` will change, which disconnects existing users' libraries. To prevent this, set `id` in the `source {}` block to the old value (found in the repository's `index.json`).
-- **Avoid hardcoded host checks:** When checking URLs in deep links or search overrides, avoid hardcoding the host string (e.g., `queryUrl.host == "site.com"`). This breaks if mirrors are added. Prefer checking against the source's `baseUrl` dynamically.
-- **Empty Lists vs Exceptions:** If `videoListParse` or `episodeListParse` finds no items (e.g., a locked or empty episode), return `emptyList()` instead of throwing a hardcoded exception. The app will display a properly localized error message to the user.
-- **Avoid excessive comments:** Do not add verbose, redundant, or AI-generated comments that explain obvious code. Keep the code clean and self-documenting.
+- **Preserving Source ID:** If you change a source's `name` or `lang`, its auto-generated `id` changes, disconnecting existing users' libraries. To prevent this, set `id` in the `source {}` block to the old value (found in the repository's `index.json`). See [Renaming existing sources](#renaming-existing-sources).
+- **Avoid hardcoded host checks:** When checking URLs in deep links or search overrides, avoid hardcoding the host string (e.g., `queryUrl.host == "site.com"`). This breaks if mirrors are added. Prefer dynamically checking against the source's `baseUrl`.
+- **Empty Lists vs. Exceptions:** If `videoListParse` or `episodeListParse` finds no items (e.g., a locked or empty episode), return `emptyList()` instead of throwing a hardcoded exception. The app will display a localized error message.
+- **Keep comments concise and preferably in English:** We recommend writing code comments and KDocs in English to make them accessible to all contributors. Additionally, avoid verbose, redundant, or AI-generated comments explaining obvious code. Keep the code clean and self-documenting.
 
 #### Configurable Sources and Preferences
 
 - **Mirrors and custom URLs:** Declare a mirror list or a user-editable base URL with `mirrors(...)` or `custom(...)` in the `source {}` block (see [baseUrl modes](#baseurl-modes)) instead of writing the preference yourself. The generated preferences store the mirror index, clamp it when mirrors are removed, and reset a custom URL when the default changes.
-- **Base URL getter:** If the class still computes `baseUrl` from its own preferences (by overriding `baseUrl`, for example to follow a domain redirect), use a custom getter (e.g., `override val baseUrl: String get() = ...`) instead of `by lazy`. Using `by lazy` requires the user to restart the app for the domain change to take effect.
+- **Base URL getter:** If the class still computes `baseUrl` from its own preferences (by overriding `baseUrl`, for example to follow a domain redirect), use a custom getter (e.g., `override val baseUrl: String get() = ...`) instead of `by lazy`. Using `by lazy` requires the user to restart the app for domain changes to take effect.
 
 #### URL intent filter
 
-Extensions can handle URLs from a browser or other apps by declaring deeplinks in `build.gradle.kts`. When a matching URL is opened on the device, Anikku launches and receives the URL as a search query.
+Extensions can handle URLs from browsers or other apps by declaring deeplinks in `build.gradle.kts`. When a matching URL is opened on the device, Anikku launches and receives the URL as a search query.
 
 Add one or more `deeplink {}` blocks inside the `yuzono {}` block:
 
@@ -1244,12 +1357,12 @@ yuzono {
 }
 ```
 
-| DSL call              | Description                                                                                                                                                                                                                                                                   |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `host("example.com")` | A hostname to match. Call multiple times to register multiple hosts. If omitted, the hosts are derived from the `source {}` base URLs, mirrors included.                                                                                                                      |
-| `path("/anime/..*")`  | A path pattern in Android [`pathPattern`](https://developer.android.com/guide/topics/manifest/data-element#path) syntax. Call multiple times to match multiple paths. At least one `path()` call is required — a `deeplink {}` block with no paths produces no intent filter. |
+| DSL call              | Description                                                                                                                                                                                                                                                                  |
+|-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `host("example.com")` | A hostname to match. Call multiple times to register multiple hosts. If omitted, the hosts are derived from the `source {}` base URLs, mirrors included.                                                                                                                     |
+| `path("/anime/..*")`  | A path pattern in Android [`pathPattern`](https://developer.android.com/guide/topics/manifest/data-element#path) syntax. Call multiple times to match multiple paths. At least one `path()` call is required; a `deeplink {}` block with no paths produces no intent filter. |
 
-Multiple `deeplink {}` blocks create independent intent filters, which is useful when different hosts or path groups need to be handled separately:
+Multiple `deeplink {}` blocks create independent intent filters, which is useful when different hosts or path groups must be handled separately:
 
 ```kotlin
 deeplink {
@@ -1263,12 +1376,12 @@ deeplink {
 }
 ```
 
-No `AndroidManifest.xml` or `UrlActivity.kt` is needed — they are generated and provided automatically by the build system. The generated intent filter accepts both `http` and `https` URLs.
+No `AndroidManifest.xml` or `UrlActivity.kt` is needed; they are generated and provided automatically by the build system. The generated intent filter accepts both `http` and `https` URLs.
 
 > [!NOTE]
 > To match a literal `.` or `*`, Android expects `\\.` or `\\*` in the manifest. `path()` is written into the generated manifest as is, so in a Kotlin string that takes four backslashes: `path("/..*\\\\.html")`.
 
-If the extension uses a theme (via `theme = "<theme_name>"`), deeplinks defined in the theme's `build.gradle.kts` are automatically merged in, so individual extensions using that theme do not need to repeat shared URL patterns.
+If the extension uses a theme (via `theme = "<theme_name>"`), deeplinks defined in the theme's `build.gradle.kts` are automatically merged, so individual extensions using that theme do not need to repeat shared URL patterns.
 
 Once deeplinks are declared, implement URL handling inside `getSearchAnime`. When a deeplink is triggered, the app fires a search with the full URL as the query, so every host you declare must also be accepted by that URL check:
 
@@ -1281,7 +1394,10 @@ override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilt
         if (!slug.isNullOrEmpty()) {
             val path = "/anime/$slug"
             val anime = getAnimeDetails(SAnime.create().apply { this.url = path })
-                .apply { this.url = path }
+                .apply {
+                    this.url = path
+                    initialized = true
+                }
             return AnimesPage(listOf(anime), false)
         }
 
@@ -1293,9 +1409,9 @@ override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilt
 ```
 
 > [!NOTE]
-> Avoid checking for hardcoded host strings (e.g. `url.host == "site.com"`). Prefer comparing against the source's `baseUrl` dynamically so mirror support is not broken.
+> Avoid checking for hardcoded host strings (e.g., `url.host == "site.com"`). Prefer dynamically comparing against the source's `baseUrl` to maintain mirror support.
 
-To test if the URL intent filter is working as expected, you can use the `adb` command below:
+To test whether the URL intent filter is working as expected, use the `adb` command below:
 
 ```bash
 adb shell am start -d "<your-link>" -a android.intent.action.VIEW
@@ -1303,64 +1419,60 @@ adb shell am start -d "<your-link>" -a android.intent.action.VIEW
 
 #### Update strategy
 
-In some cases, titles in a source will always have the same episode list (i.e., they are immutable).
-These do not need to be included in global app updates. Excluding them saves a lot of network requests
-and prevents unnecessary load on the source servers. To change the update strategy of a `SAnime`,
-use the `update_strategy` field. You can find below a description of the current possible values.
+In some cases, titles in a source always have the same episode list (i.e., they are immutable).
+These do not need inclusion in global app updates. Excluding them saves network requests
+and prevents unnecessary load on source servers. To change the update strategy of a `SAnime`,
+use the `update_strategy` field. Description of the current possible values follows:
 
 - `AnimeUpdateStrategy.ALWAYS_UPDATE`: Titles marked as always update will be included in the library
-  update if they aren't excluded by additional restrictions.
-- `AnimeUpdateStrategy.ONLY_FETCH_ONCE`: Titles marked as only fetch once will be automatically skipped
-  during library updates. Useful for cases where the series is previously known to be finished and have
+  update unless excluded by additional restrictions.
+- `AnimeUpdateStrategy.ONLY_FETCH_ONCE`: Titles marked as only fetch once are automatically skipped
+  during library updates. This is useful for cases where the series is known to be finished and has
   only a single episode, for example.
 
 If not set, it defaults to `ALWAYS_UPDATE`.
 
 #### Renaming existing sources
 
-There are some cases where existing sources change their names on the website. To correctly reflect
-these changes in the extension, you need to explicitly set the `id` to the same old value, otherwise
-it will get changed by the new `name` value and users will be forced to migrate back to the source.
+If existing sources change their names on the website, you must explicitly set the `id` to the previous value to reflect these changes correctly. Otherwise, it will change based on the new `name` value, forcing users to re-migrate to the source.
 
-To get the current `id` value before the name change, you can search the source name in the [repository JSON file](https://github.com/yuzono/anime-repo/blob/repo/index.json)
-by looking at the `sources` attribute of the extension. When you have the `id` copied, you can
-set it in the `source {}` block:
+To get the current `id` value before a name change, search the source name in the [repository JSON file](https://github.com/yuzono/anime-repo/blob/repo/index.json)
+under the `sources` attribute of the extension.
+
+Set `id` directly in the `source {}` block:
 
 ```kotlin
 source {
-    name = "<New name>"
+    name = "New Name"  // or lang = "xx" if lang is what changed
     lang = "en"
-    id = <the-id>L
     baseUrl = "https://example.com"
+    id = 1234567890123456789L // Replace with the actual old source ID
 }
 ```
 
-Then the class name and the `name` value can be changed. Also don't forget to update the extension
-name in the individual Gradle file.
+The class name and the `name` value can then be changed. Also, update the extension name in the individual Gradle file.
 
 > [!IMPORTANT]
-> The package name **needs** to be the same (even if it has the old name), otherwise users will not
-> receive the extension update when it gets published in the repository.
+> The package name **must** remain the same (even if it uses the old name); otherwise, users will not
+> receive the extension update when published in the repository.
 
-The `id` also needs to be explicitly set to the old value if you're changing the `lang` attribute.
+The `id` also must be explicitly set to the old value if you change the `lang` attribute.
 
 > [!NOTE]
-> If the source has also changed their theme you can instead just change
-> the `name` in the Gradle file. By doing so a new `id` will be generated
-> and users will be forced to migrate.
+> If the source has also changed its theme, you can simply change
+> the `name` in the Gradle file. By doing so,
+> a new `id` is generated and users will be forced to migrate.
 
 ## Multi-source themes
 
-The `lib-multisrc` directory houses source code that is useful in situations where multiple source
-sites use the same site generator tool (usually a CMS) for bootstrapping their website and this makes
-them similar enough to prompt code reuse through inheritance/composition; which from now on we will
-use the general **theme** term to refer to.
+The `lib-multisrc` directory houses source code useful when multiple source
+sites use the same site generator tool (usually a CMS). Their similarity prompts code reuse through inheritance or composition, referred to here as a **theme**.
 
 Themes are provided as libraries within `lib-multisrc`. You can apply a theme to an extension by specifying the `theme` property in its `build.gradle.kts` file.
 
 ### Creating a new theme
 
-To create a new theme, you need to set up a new module inside the `lib-multisrc` directory. The structure is similar to a regular extension, but it acts as a base library that other extensions can depend on.
+To create a new theme, set up a new module inside the `lib-multisrc` directory. The structure is similar to a regular extension, but it acts as a base library that other extensions can depend on.
 
 #### Theme directory structure
 
@@ -1377,11 +1489,11 @@ lib-multisrc/<theme_name>/
                         └── <ThemeName>.kt
 ```
 
-`<theme_name>` should be adapted from the CMS/theme name, and can only contain lowercase ASCII letters and digits. Your theme code must be placed in the package `eu.kanade.tachiyomi.multisrc.<theme_name>`.
+`<theme_name>` should be adapted from the CMS or theme name and can only contain lowercase ASCII letters and digits. Your theme code must be placed in the package `eu.kanade.tachiyomi.multisrc.<theme_name>`.
 
 #### Theme build.gradle.kts
 
-Make sure that your new theme's `build.gradle.kts` file follows this structure:
+Ensure that your new theme's `build.gradle.kts` file follows this structure:
 
 ```kotlin
 plugins {
@@ -1394,7 +1506,7 @@ yuzono {
 }
 ```
 
-If the CMS generates URLs with a consistent structure shared by all sites built on it, you can declare deeplinks here too. Every extension using this theme will automatically inherit them:
+If the CMS generates URLs with a consistent structure shared by all sites built on it, you can declare deeplinks here as well. Every extension using this theme inherits them automatically:
 
 ```kotlin
 yuzono {
@@ -1411,14 +1523,14 @@ yuzono {
 When no `host()` is specified in a theme `deeplink {}` block, the host is resolved at build time from each individual extension's `source {}` base URLs, so the same path patterns apply to every site without hardcoding hostnames in the theme.
 
 | Field             | Description                                                                                                                                                                    |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `baseVersionCode` | The base version code for the theme. This must be a positive integer and **incremented** whenever a change is made to the theme's implementation that affects the extensions.  |
+|-------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `baseVersionCode` | The theme's base version code. This must be a positive integer and **incremented** whenever a change is made to the theme implementation that affects the extensions.          |
 | `libVersion`      | The extension library version the theme targets: `"14"` if it extends a legacy shim, `"16"` if it implements the lib 16 API. Extensions using the theme can't set a lower one. |
 | `deeplink {}`     | Declares URL deeplink patterns inherited by all extensions using this theme. See [URL intent filter](#url-intent-filter).                                                      |
 
 #### Theme main class
 
-The main class of the theme (e.g., `<ThemeName>.kt`) contains the default implementation for the source sites. It should be declared as an `abstract class` extending `AnimeHttpSource`, allowing individual extensions to inherit and override its properties and methods.
+The theme's main class (e.g., `<ThemeName>.kt`) contains the default implementation for the source sites. It should be declared as an `abstract class` extending `AnimeHttpSource`, allowing individual extensions to inherit and override its properties and methods.
 
 `name`, `lang`, `id` and `baseUrl` come from each extension's `source {}` block, so the theme neither takes them as
 constructor parameters nor overrides them. The theme only reads them, preferably in getters so a mirror change applies
@@ -1441,15 +1553,17 @@ abstract class <ThemeName> : AnimeHttpSource() {
 To use a theme in your extension, follow the regular extension creation steps and configure `theme` in your `build.gradle.kts`:
 
 ```kotlin
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
-    name = "<My source name>"
-    theme = "<theme_name>"
+    name = "Example" // Replace with your actual source name
+    theme = "example" // Replace with your actual theme name
     versionCode = 1
-    contentWarning = ContentWarning.NSFW // Options: ContentWarning.SAFE, ContentWarning.MIXED, ContentWarning.NSFW
+    contentWarning = ContentWarning.NSFW
     libVersion = "14"
 
     source {
@@ -1459,17 +1573,22 @@ yuzono {
 }
 ```
 
-The final extension version code is automatically calculated during the build process as `theme.baseVersionCode + versionCode`.
+The final extension version code is automatically calculated during the build as `theme.baseVersionCode + versionCode`.
 
-Because themes are provided as libraries, your extension's main class will directly inherit from the theme's base class,
+Because themes are provided as libraries, your extension's main class inherits directly from the theme's base class,
 annotated with `@Source` like any other source class:
 
 ```kotlin
+// MySourceName.kt
+package eu.kanade.tachiyomi.animeextension.en.mysourcename
+
+import keiyoushi.annotation.Source
+
 @Source
 abstract class MySourceName : ThemeName()
 ```
 
-Any site-specific overrides, custom functions, or custom icons are implemented directly in your extension's module (`src/<lang>/<mysourcename>`) by overriding the inherited theme properties and functions.
+Site-specific overrides, custom functions, or custom icons are implemented directly in your extension's module (`src/<lang>/<mysourcename>`) by overriding the inherited theme properties and functions.
 
 ## Running
 
@@ -1496,27 +1615,27 @@ For other builds, replace `app.anikku.dev` with the corresponding package IDs:
 - Release build: `app.anikku` or `xyz.jmir.tachiyomi.mi`
 - Preview build: `app.anikku.preview`
 
-If the extension builds and runs successfully, then the code changes should be ready to test in your local app.
+If the extension builds and runs successfully, the code changes should be ready to test in your local app.
 
 > [!IMPORTANT]
-> If you're deploying to Android 11 or higher, enable the `Always install with package manager` option in the run configurations. Without this option enabled, you might face issues such as Android Studio running an older version of the extension without the modifications you might have done.
+> If you are deploying to Android 11 or higher, enable the `Always install with package manager` option in the run configurations. Otherwise, you might face issues such as Android Studio running an older version of the extension without your modifications.
 
 ## Debugging
 
 ### Android Debugger
 
 > [!NOTE]
-> It is generally recommended to rely on logging instead of the Android Debugger. Using standard logs (like `Log.d` or viewing OkHttp logs) is typically much faster, easier to set up, and is more than sufficient for debugging web scraping logic.
+> It is generally recommended to rely on logging instead of the Android Debugger. Using standard logs (like `Log.d` or viewing OkHttp logs) is typically much faster, easier to set up, and sufficient for debugging web scraping logic.
 
 > [!IMPORTANT]
-> If you didn't **build the main app** from source with **debug enabled** and are using a release/beta APK, you **need a rooted device**.
-> If you are using an **emulator** instead, make sure you choose a profile **without Google Play**.
+> If you did not **build the main app** from source with **debug enabled** and are using a release or beta APK, you **need a rooted device**.
+> If you are using an **emulator**, ensure you choose a profile **without Google Play**.
 
-Follow the steps above for building and running locally if you haven't already. Debugging will not work if you did not follow the steps above.
+Follow the steps above for building and running locally if you haven't already. Debugging will not work if you did not follow those steps.
 
 You can leverage the Android Debugger to add breakpoints and step through your extension while debugging.
 
-You _cannot_ simply use Android Studio's `Debug 'module.name'` -> this will most likely result in an
+You _cannot_ simply use Android Studio's `Debug 'module.name'`; this will likely result in an
 error while launching.
 
 Instead, once you've built and installed your extension on the target device, use
@@ -1528,7 +1647,7 @@ Inside the `Attach Debugger to Android Process` window, once the app is running 
 
 ### Logs
 
-You can also elect to simply rely on logs printed from your extension, which
+You can also elect to rely on logs printed from your extension, which
 show up in the [`Logcat`](https://developer.android.com/studio/debug/am-logcat) panel of Android Studio.
 
 ### Inspecting network calls
@@ -1537,38 +1656,34 @@ One of the easiest ways to inspect network issues (such as HTTP errors 404, 429,
 is to use the [`Logcat`](https://developer.android.com/studio/debug/am-logcat) panel of Android Studio
 and filter by the `OkHttpClient` tag.
 
-To be able to check the calls made by OkHttp, you need to enable verbose logging in the app, which is
-not enabled by default. To enable it, go to
-More -> Settings -> Advanced -> Verbose logging. After enabling it, don't forget to restart the app.
+To check the calls made by OkHttp, you must enable verbose logging in the app; it is not enabled by default. To enable it, go to More → Settings → Advanced → Verbose logging. Afterward, restart the app.
 
-Inspecting the Logcat allows you to get a good look at the call flow and is more than enough in most
-cases where issues occur. However, alternatively, you can also use an external tool like `mitm-proxy`.
+Inspecting the Logcat allows you to see the call flow and is sufficient in most
+cases. Alternatively, you can use an external tool like `mitmproxy`.
 For that, refer to the subsequent sections.
 
-On newer Android Studio versions, you can use its built-in Network Inspector inside the
-App Inspection tool window. This feature provides a nice GUI to inspect the requests made in the app.
+On newer Android Studio versions, you can use the built-in Network Inspector inside the
+App Inspection tool window. This feature provides a GUI to inspect the requests made in the app.
 
 To use it, follow the [official documentation](https://developer.android.com/studio/debug/network-profiler)
 and select the app's package name in the process list.
 
 ### Using external network inspecting tools
 
-If you want a deeper look into the network flow, such as inspecting the request and response bodies
-you can use an external tool like `mitm-proxy`.
+If you want a deeper look into the network flow, such as inspecting the request and response bodies,
+you can use an external tool like `mitmproxy`.
 
-#### Setup your proxy server
+#### Set up your proxy server
 
-We are going to use [mitm-proxy](https://mitmproxy.org/) but you can replace it with any other Web
-Debugger (i.e. Charles, Burp Suite, Fiddler etc). To install and execute, follow the commands below.
+We are going to use [mitmproxy](https://mitmproxy.org/), but you can replace it with any other Web
+Debugger (e.g., Charles, Burp Suite, Fiddler). To install and execute, follow the commands below.
 
-```console
-# Install the tool.
-$ sudo pip3 install mitmproxy
-# Execute the web interface and the proxy.
-$ mitmweb
-```
+> [!WARNING]
+> Do NOT use `sudo pip` to install `mitmproxy`. Follow the [official installation methods](https://docs.mitmproxy.org/stable/overview-installation/).
 
-Alternatively, you can also use the Docker image:
+After installing it, you can run `mitmweb` to open the web interface.
+
+Alternatively, use the Docker image:
 
 ```bash
 $ docker run --rm -it -p 8080:8080 \
@@ -1581,14 +1696,19 @@ After installing and running, open your browser and navigate to <http://127.0.0.
 
 #### OkHttp proxy setup
 
-Since most of the anime sources are going to use HTTPS, we need to disable SSL verification in order
-to use the web debugger. For that, add this code to inside your source class:
+Since most anime sources use HTTPS, we must disable SSL verification to use the web debugger.
+
+> [!CAUTION]
+> The following code disables certificate and hostname verification. Use it **only** in a local debug build, **never** submit it as production source code, and **remove it** before opening a Pull Request.
+
+For that, add this code inside your source class:
 
 ```kotlin
 package eu.kanade.tachiyomi.animeextension.en.mysource
 
 import android.annotation.SuppressLint
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import keiyoushi.annotation.Source
 import okhttp3.OkHttpClient
 import java.net.InetSocketAddress
 import java.net.Proxy
@@ -1598,7 +1718,8 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
-class MySource : AnimeHttpSource() {
+@Source
+abstract class MySource : AnimeHttpSource() {
     private fun OkHttpClient.Builder.ignoreAllSSLErrors(): OkHttpClient.Builder {
         val naiveTrustManager = @SuppressLint("CustomX509TrustManager")
         object : X509TrustManager {
@@ -1624,9 +1745,9 @@ class MySource : AnimeHttpSource() {
 }
 ```
 
-Note: `10.0.2.2` is usually the address of your loopback interface in the android emulator. If
-the app tells you that it's unable to connect to 10.0.2.2:8080 you will likely need to change it
-(the same if you are using hardware device).
+Note: `10.0.2.2` is usually the address of your loopback interface in the Android emulator. If
+the app tells you that it's unable to connect to 10.0.2.2:8080, you will likely need to change it
+(the same if you are using a hardware device).
 
 If all went well, you should see all requests and responses made by the source in the web interface
 of `mitmweb`.
@@ -1636,9 +1757,8 @@ of `mitmweb`.
 APKs can be created in Android Studio via `Build > Build Bundle(s) / APK(s) > Build APK(s)` or
 `Build > Generate Signed Bundle / APK`.
 
-If for some reason you decide to build the APK from the command line, you can use the following
-command (because you're doing things differently than expected, I assume you have some
-knowledge of gradlew and your OS):
+If you decide to build the APK from the command line, use the following
+command:
 
 ```console
 // For a single apk, use this command
@@ -1647,24 +1767,18 @@ $ ./gradlew src:<lang>:<source>:assembleDebug
 
 ## Submitting the changes
 
-When you feel confident about your changes, submit a new Pull Request so your code can be reviewed
-and merged if it's approved. We encourage following a [GitHub Standard Fork & Pull Request Workflow](https://gist.github.com/Chaser324/ce0505fbed06b947d962)
-and following the good practices of the workflow, such as not committing directly to `master`: always
-create a new branch for your changes.
+When you feel confident about your changes, submit a new Pull Request for review. We encourage following a [GitHub Standard Fork & Pull Request Workflow](https://gist.github.com/Chaser324/ce0505fbed06b947d962); avoid committing directly to `master` and always create a new branch for your changes.
 
-If you are more comfortable about using Git GUI-based tools, you can refer to [this guide](https://learntodroid.com/how-to-use-git-and-github-in-android-studio/)
-about the Git integration inside Android Studio, specifically the "How to Contribute to an to Existing
-Git Repository in Android Studio" section of the guide.
+If you prefer using Git GUI-based tools, refer to [this guide](https://learntodroid.com/how-to-use-git-and-github-in-android-studio/)
+about Git integration in Android Studio. Specifically, check the "How to Contribute to an Existing
+Git Repository in Android Studio" section.
 
 > [!IMPORTANT]
-> Make sure you have generated the extension icon using the linked Icon Generator tool in the [Tools](#tools)
-> section. The icon **must follow the pattern** adopted by all other extensions: a square with rounded
-> corners. Make sure to remove the generated `web_hi_res_512.png`.
+> Ensure you have generated the extension icon using the Icon Generator tool in the [Tools](#tools)
+> section. The icon **must follow the pattern** adopted by all extensions: a square with rounded
+> corners. Remove the generated `web_hi_res_512.png`.
 
-Please **do test your changes by compiling it through Android Studio** before submitting it. Obvious
-untested PRs will not be merged, such as ones created with the GitHub web interface. Also make sure
-to follow the PR checklist available in the PR body field when creating a new PR. As a reference, you
-can find it below.
+Please **test your changes by compiling through Android Studio** before submitting. Untested PRs will not be merged. Also, ensure you follow the PR checklist in the PR body field when creating a new PR; it is provided below for reference.
 
 ### Pull Request checklist
 

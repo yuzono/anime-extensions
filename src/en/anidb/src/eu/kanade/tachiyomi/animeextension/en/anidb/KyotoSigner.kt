@@ -15,7 +15,7 @@ internal const val PLAY_URL = "https://api.kyotoplayer.com"
 
 private const val API_HOST = "api.kyotoplayer.com"
 private const val APP_ID = "com.kyotoplayer"
-private const val APP_VERSION = "129"
+private const val APP_VERSION = "132"
 
 // Android 16, which every device in DEVICE_MODELS runs
 private const val OS_VERSION = "36"
@@ -26,6 +26,8 @@ private const val OS_VERSION = "36"
  * The app derives a signing key from a constant baked into `libkyoto.so` and the SHA-256 of
  * its own APK signing certificate, then HMAC-SHA256s a canonical string made of the request
  * method, path, body hash, timestamp, nonce and app version, separated by newlines.
+ *
+ * Since 1.3.2 the client also sends the certificate hash as `X-Kyoto-Cert`.
  */
 internal class KyotoInterceptor(private val deviceModel: () -> String) : Interceptor {
     @Volatile
@@ -62,6 +64,7 @@ internal class KyotoInterceptor(private val deviceModel: () -> String) : Interce
             .header("X-Kyoto-Ts", timestamp)
             .header("X-Kyoto-Nonce", nonce)
             .header("X-Kyoto-Sig", canonical.encodeUtf8().hmacSha256(SIGNING_KEY).hex())
+            .header("X-Kyoto-Cert", CERTIFICATE_HASH)
             .build()
     }
 }
@@ -99,9 +102,12 @@ private val DEVICE_MODELS = listOf(
 
 private val secureRandom by lazy { SecureRandom() }
 
+// SHA-256 of the first certificate in the official APK's v3 signature block.
+private const val CERTIFICATE_HASH = "482a900b2906766b2e8d3cf19fcf6d06d0b6c9569cb6305c9c43200a8e20979e"
+
 // HMAC-SHA256 keyed with the constant table in libkyoto.so (key[i] = data[i] xor (i * 0x49 + 0x29)),
-// over the SHA-256 of the first certificate in the official APK's v3 signature block.
+// over the certificate hash above. The table changed in 1.3.2.
 private val SIGNING_KEY by lazy {
-    "482a900b2906766b2e8d3cf19fcf6d06d0b6c9569cb6305c9c43200a8e20979e".decodeHex()
-        .hmacSha256("c41cdebbe95894b9301a39825db7152c4b9cbabb6b8246724411fe3307a60f0f".decodeHex())
+    CERTIFICATE_HASH.decodeHex()
+        .hmacSha256("9589ba06efeb990bafe302235854766f4d5b9cabcb57ad6ad6bb41cd7b6a8408".decodeHex())
 }
