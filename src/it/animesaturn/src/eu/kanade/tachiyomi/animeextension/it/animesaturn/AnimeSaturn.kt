@@ -37,6 +37,8 @@ import kotlin.io.encoding.Base64
 private const val ANIME_SELECTOR = "a.group[href]:not(.flex)"
 private const val RANKED_ANIME_SELECTOR = "a:is([class*=\"gap-3\"], [class*=\"gap-4\"])[href]"
 private const val NEXT_PAGE_SELECTOR = "a[rel=\"next\"]"
+
+private const val MAX_REDIRECTS = 5
 private val alterTitleRegex = Regex("\\s+\\(\\w+\\)")
 private val iframeHosts = setOf("play.saturncdn.net")
 private val mediaHosts = setOf("streampeaker.org")
@@ -130,7 +132,14 @@ abstract class AnimeSaturn :
         )
     }
 
-    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+    private val redirectClient by lazy {
+        client.newBuilder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .build()
+    }
+
+    private val playlistUtils by lazy { PlaylistUtils(redirectClient, headers) }
 
     private fun decodeUrl(url: String, token: String): String {
         val base = Base64.decode(url).decodeToString()
@@ -154,6 +163,34 @@ abstract class AnimeSaturn :
 
     private fun isAllowedMediaUrl(url: String): Boolean = isAllowedUrl(url, mediaHosts)
 
+    private fun getRedirectedResponse(
+        request: Request,
+        isAllowedUrl: (String) -> Boolean,
+    ): Response? {
+        var currentRequest = request
+        repeat(MAX_REDIRECTS + 1) {
+            val response = redirectClient.newCall(currentRequest).execute()
+            if (response.code !in 300..399) {
+                return response.takeIf { it.isSuccessful } ?: run {
+                    response.close()
+                    null
+                }
+            }
+
+            val location = response.header("Location")
+            val redirectUrl = location?.let { response.request.url.resolve(it) }
+            response.close()
+            if (redirectUrl == null || !isAllowedUrl(redirectUrl.toString())) {
+                return null
+            }
+
+            currentRequest = currentRequest.newBuilder()
+                .url(redirectUrl)
+                .build()
+        }
+        return null
+    }
+
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
         if (!isAllowedIframeUrl(hoster.internalData) ||
             !isAllowedIframeUrl(hoster.hosterUrl)
@@ -164,7 +201,7 @@ abstract class AnimeSaturn :
             .url(hoster.hosterUrl)
             .header("Referer", hoster.internalData)
             .build()
-        client.newCall(request).awaitSuccess().use { response ->
+        getRedirectedResponse(request, ::isAllowedIframeUrl)?.use { response ->
             val token = response.request.url.queryParameter("token")
                 ?.takeIf { it.isNotEmpty() }
                 ?: return emptyList()
@@ -187,7 +224,7 @@ abstract class AnimeSaturn :
             }
             return playlistUtils.extractFromHls(videoUrl, referer = hoster.internalData)
                 .filter { isAllowedMediaUrl(it.videoUrl) }
-        }
+        } ?: return emptyList()
     }
 
     override fun List<Video>.sortVideos(): List<Video> {
