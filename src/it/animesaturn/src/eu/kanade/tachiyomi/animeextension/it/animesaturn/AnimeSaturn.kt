@@ -35,6 +35,7 @@ import java.util.Locale
 import kotlin.io.encoding.Base64
 
 private const val ANIME_SELECTOR = "a.group[href]:not(.flex)"
+private const val RANKED_ANIME_SELECTOR = "a:is([class*=\"gap-3\"], [class*=\"gap-4\"])[href]"
 private const val NEXT_PAGE_SELECTOR = "a[rel=\"next\"]"
 private val alterTitleRegex = Regex("\\s+\\(\\w+\\)")
 private val iframeHosts = setOf("play.saturncdn.net")
@@ -49,8 +50,9 @@ abstract class AnimeSaturn :
 
     private val preferences by getPreferencesLazy()
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/ongoing/$page", headers)
-    override fun popularAnimeParse(response: Response): AnimesPage = searchAnimeParse(response)
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/toplist/$page", headers)
+
+    override fun popularAnimeParse(response: Response): AnimesPage = parseAnimePage(response, RANKED_ANIME_SELECTOR)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
@@ -205,7 +207,10 @@ abstract class AnimeSaturn :
     fun searchAnimeFromElement(element: Element): SAnime {
         val anime = SAnime.create()
         anime.setUrlWithoutDomain(element.attr("href"))
-        anime.title = element.selectFirst("h3")!!.text()
+        anime.title = element.selectFirst("h3")?.text().orEmpty()
+        if (anime.title.isEmpty()) {
+            anime.title = element.selectFirst("p.transition-colors")?.text().orEmpty()
+        }
         anime.thumbnail_url = element.selectFirst("img")?.attr("src")
         return anime
     }
@@ -217,9 +222,11 @@ abstract class AnimeSaturn :
         return GET(url.build(), headers)
     }
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
+    override fun searchAnimeParse(response: Response): AnimesPage = parseAnimePage(response, ANIME_SELECTOR)
+
+    private fun parseAnimePage(response: Response, selector: String): AnimesPage {
         val document = response.asJsoup()
-        val anime = document.select(ANIME_SELECTOR).map(::searchAnimeFromElement)
+        val anime = document.select(selector).map(::searchAnimeFromElement)
         return AnimesPage(anime, document.selectFirst(NEXT_PAGE_SELECTOR) != null)
     }
 
@@ -277,7 +284,7 @@ abstract class AnimeSaturn :
     }
 
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/newest/$page", headers)
-    override fun latestUpdatesParse(response: Response): AnimesPage = searchAnimeParse(response)
+    override fun latestUpdatesParse(response: Response): AnimesPage = parseAnimePage(response, ANIME_SELECTOR)
 
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
