@@ -6,8 +6,8 @@ plugins {
 
 yuzono {
     name = "Senshi"
-    versionCode = 5
-    contentWarning = ContentWarning.NSFW
+    versionCode = 6
+    contentWarning = ContentWarning.MIXED
     libVersion = "16"
 
     source {
@@ -19,4 +19,5 @@ yuzono {
 dependencies {
     implementation("com.github.komikku-app.nanohttpd:nanohttpd:gradle-upgrade-SNAPSHOT")
     implementation(project(":lib:playlistutils"))
+    implementation(project(":lib:youtubeextractor"))
 }
