@@ -2,35 +2,39 @@ import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.variant.ApplicationAndroidComponentsExtension
 import com.android.build.gradle.tasks.PackageAndroidArtifact
 import com.google.devtools.ksp.gradle.KspExtension
-import keiyoushi.gradle.extensions.BaseUrlSpec
-import keiyoushi.gradle.extensions.DeeplinkFilter
-import keiyoushi.gradle.extensions.DeeplinkSpec
-import keiyoushi.gradle.extensions.KeiyoushiExtension
-import keiyoushi.gradle.extensions.KeiyoushiMultisrcExtension
-import keiyoushi.gradle.extensions.VALID_LIB_VERSIONS
-import keiyoushi.gradle.extensions.alias
-import keiyoushi.gradle.extensions.compileOnly
-import keiyoushi.gradle.extensions.implementation
-import keiyoushi.gradle.extensions.kei
-import keiyoushi.gradle.extensions.ksp
-import keiyoushi.gradle.extensions.libs
-import keiyoushi.gradle.extensions.plugins
-import keiyoushi.gradle.tasks.GenerateExtensionManifestTask
-import keiyoushi.gradle.tasks.GenerateKeepRulesTask
-import keiyoushi.gradle.utils.assertWithoutFlag
-import kotlinx.serialization.Serializable
+import io.github.keiyoushi.gradle.api.DeeplinkFilter
+import io.github.keiyoushi.gradle.api.dsl.ExtensionDeeplink
+import io.github.keiyoushi.gradle.api.dsl.KeiyoushiExtension
+import io.github.keiyoushi.gradle.api.dsl.KeiyoushiThemeExtension
+import io.github.keiyoushi.gradle.internal.ExtensionMetadata
+import io.github.keiyoushi.gradle.internal.ResolvedSource
+import io.github.keiyoushi.gradle.internal.SourceMetadata
+import io.github.keiyoushi.gradle.internal.VALID_LIB_VERSIONS
+import io.github.keiyoushi.gradle.internal.extensions.alias
+import io.github.keiyoushi.gradle.internal.extensions.compileOnly
+import io.github.keiyoushi.gradle.internal.extensions.implementation
+import io.github.keiyoushi.gradle.internal.extensions.kei
+import io.github.keiyoushi.gradle.internal.extensions.ksp
+import io.github.keiyoushi.gradle.internal.extensions.libs
+import io.github.keiyoushi.gradle.internal.extensions.plugins
+import io.github.keiyoushi.gradle.internal.toMetadata
+import io.github.keiyoushi.gradle.tasks.GenerateKeepRulesTask
+import io.github.keiyoushi.gradle.tasks.GenerateManifestTask
+import io.github.keiyoushi.gradle.tasks.GenerateSourceInfoTask
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.plugins.BasePluginExtension
 import org.gradle.kotlin.dsl.configure
+import org.gradle.kotlin.dsl.create
 import org.gradle.kotlin.dsl.dependencies
+import org.gradle.kotlin.dsl.findByType
 import org.gradle.kotlin.dsl.register
 import org.gradle.kotlin.dsl.withType
 
 @Suppress("UNUSED")
-class PluginExtension : Plugin<Project> {
+class ExtensionPlugin : Plugin<Project> {
     override fun apply(target: Project): Unit = with(target) {
         plugins {
             alias(libs.plugins.android.application)
@@ -41,7 +45,7 @@ class PluginExtension : Plugin<Project> {
             alias(kei.plugins.spotless)
         }
 
-        val keiyoushi = extensions.create("yuzono", KeiyoushiExtension::class.java)
+        val keiyoushi = extensions.create<KeiyoushiExtension>("yuzono")
         val applicationIdSuffix = "${project.parent?.name}.${project.name}"
 
         android {
@@ -117,7 +121,7 @@ class PluginExtension : Plugin<Project> {
         }
 
         val themeExtension = keiyoushi.theme.map { themeName ->
-            evaluationDependsOn(":lib-multisrc:$themeName").extensions.findByType(KeiyoushiMultisrcExtension::class.java)
+            evaluationDependsOn(":lib-multisrc:$themeName").extensions.findByType<KeiyoushiThemeExtension>()
                 ?: throw AssertionError("Theme project :lib-multisrc:$themeName must apply kei.plugins.multisrc")
         }
 
@@ -125,41 +129,32 @@ class PluginExtension : Plugin<Project> {
             val themeLib = themeKeiyoushi.libVersion.get()
             val extLib = keiyoushi.libVersion.get()
             // A lib 16 extension may implement the hoster flow on top of a theme that still uses the legacy shims
-            assertWithoutFlag(extLib.toDouble() >= themeLib.toDouble()) {
+            check(extLib.toDouble() >= themeLib.toDouble()) {
                 "Extension libVersion ($extLib) must not be lower than multisrc (${keiyoushi.theme.get()}) libVersion ($themeLib)."
             }
             themeKeiyoushi.baseVersionCode.zip(keiyoushi.versionCode) { base, ext -> base + ext }
         }.orElse(keiyoushi.versionCode)
 
         val versionNameProvider = keiyoushi.libVersion.flatMap { libVersion ->
-            assertWithoutFlag(libVersion in VALID_LIB_VERSIONS) {
+            check(libVersion in VALID_LIB_VERSIONS) {
                 "libVersion $libVersion is not supported. Supported versions: $VALID_LIB_VERSIONS"
             }
             versionCodeProvider.map { "$libVersion.$it" }
         }
 
-        val classNameProvider = keiyoushi.sources.flatMap { sources ->
-            if (sources.isNotEmpty()) {
-                providers.provider { "ExtensionGenerated" }
-            } else {
-                keiyoushi.className.map { name ->
-                    assertWithoutFlag(!name.startsWith(".")) { "className must not start with '.'" }
-                    name
-                }
-            }
-        }
+        // A legacy className loads a hand-written class, such as a factory; its source { } blocks are then metadata only
+        val classNameProvider = keiyoushi.className.map { name ->
+            check(!name.startsWith(".")) { "className must not start with '.'" }
+            name
+        }.orElse("ExtensionGenerated")
 
         val themeDeeplinks = themeExtension
             .flatMap { it.deeplinks }
             .orElse(emptyList())
 
-        val defaultHostsProvider = keiyoushi.sources.flatMap { sources ->
-            if (sources.isNotEmpty()) {
-                providers.provider { sources.flatMap { it.resolvedBaseUrl.get().allUrls() }.mapNotNull(::extractHost) }
-            } else {
-                keiyoushi.baseUrl.map { listOfNotNull(extractHost(it)) }
-            }
-        }.orElse(emptyList())
+        val defaultHostsProvider = keiyoushi.sources.map { sources ->
+            sources.flatMap { it.resolvedBaseUrl.get().allUrls() }.mapNotNull(::extractHost)
+        }
 
         val deeplinksProvider = keiyoushi.deeplinks
             .zip(themeDeeplinks) { local, theme -> local + theme }
@@ -167,11 +162,11 @@ class PluginExtension : Plugin<Project> {
                 specsToFilters(specs, defaultHosts)
             }
 
-        val manifestTask = tasks.register<GenerateExtensionManifestTask>("generateExtensionManifest") {
+        val manifestTask = tasks.register<GenerateManifestTask>("generateExtensionManifest") {
             this.filters.set(deeplinksProvider)
             this.extensionName.set(
                 keiyoushi.name.map { name ->
-                    assertWithoutFlag(name.all { it.code < 0x180 }) { "Extension name should be romanized" }
+                    check(name.all { it.code < 0x180 }) { "Extension name should be romanized" }
                     name
                 },
             )
@@ -179,6 +174,10 @@ class PluginExtension : Plugin<Project> {
             this.contentWarning.set(keiyoushi.contentWarning)
             this.extensionLib.set(keiyoushi.libVersion)
             this.torrent.set(keiyoushi.torrent.orElse(false))
+        }
+
+        val sourceInfoTask = tasks.register<GenerateSourceInfoTask>("generateSourceInfo") {
+            this.outputFile.set(layout.buildDirectory.file("keiyoushi-source-info.json"))
         }
 
         androidComponents {
@@ -218,30 +217,59 @@ class PluginExtension : Plugin<Project> {
 
         afterEvaluate {
             val specs = keiyoushi.sources.get()
-            if (specs.isNotEmpty()) {
-                val extName = keiyoushi.name.get()
-                val resolvedSources = specs.map { spec ->
-                    val name = spec.name.orElse(extName).get()
-                    val lang = spec.lang.get()
-                    val baseUrlSpec = spec.resolvedBaseUrl.get()
+            check(specs.isNotEmpty()) { "At least one source { } block is required" }
 
-                    val baseUrl = baseUrlSpec.toData()
-                    val id = spec.id.orElse(
-                        providers.provider {
-                            computeSourceId(name, lang, spec.versionId.orElse(1).get())
-                        },
-                    ).get()
-                    ResolvedSourceData(name, lang, id, baseUrl)
-                }
+            val extName = keiyoushi.name.get()
+            val resolvedSources = specs.map { spec ->
+                val name = spec.name.orElse(extName).get()
+                val lang = spec.lang.get()
+                val baseUrl = spec.resolvedBaseUrl.get().toMetadata()
+
+                val id = spec.id.orElse(
+                    providers.provider {
+                        computeSourceId(name, lang, spec.versionId.orElse(1).get())
+                    },
+                ).get()
+                ResolvedSource(name, lang, id, baseUrl)
+            }
+            // With a legacy className nothing is generated, and the source { } blocks only describe its sources
+            if (!keiyoushi.className.isPresent) {
                 val translationsFile = project(":core").projectDir.resolve("translations/strings.json")
                 extensions.configure<KspExtension> {
-                    arg("kei_sources", Json.encodeToString<List<ResolvedSourceData>>(resolvedSources))
+                    arg("kei_sources", Json.encodeToString<List<ResolvedSource>>(resolvedSources))
                     arg("kei_translations", translationsFile.absolutePath)
                 }
                 tasks.matching { it.name.startsWith("ksp") }.configureEach {
                     inputs.file(translationsFile)
                 }
             }
+
+            val packageName = "eu.kanade.tachiyomi.animeextension.$applicationIdSuffix"
+            val sourceInfos = resolvedSources.map { source ->
+                SourceMetadata(
+                    id = source.id,
+                    name = source.name,
+                    lang = source.lang,
+                    baseUrl = source.baseUrl.defaultUrl,
+                    mirrorUrls = source.baseUrl.mirrors.map { it.url },
+                )
+            }
+            val extensionInfo = ExtensionMetadata(
+                packageName = packageName,
+                name = extName,
+                versionCode = versionCodeProvider.get(),
+                versionName = versionNameProvider.get(),
+                extensionLib = keiyoushi.libVersion.get(),
+                // Proto keiyoushi.gradle.api.ContentWarning: UNSPECIFIED=0, SAFE=1, MIXED=2, NSFW=3 (enum ordinal + 1).
+                contentWarning = keiyoushi.contentWarning.get().ordinal + 1,
+                isTorrent = keiyoushi.torrent.orElse(false).get(),
+                sources = sourceInfos,
+            )
+            val sourceInfoJson = Json.encodeToString(extensionInfo)
+            sourceInfoTask.configure { content.set(sourceInfoJson) }
+            tasks.named("assembleRelease").configure { dependsOn(sourceInfoTask) }
+            // The PR check builds Debug when the signing key is missing, as for fork PRs
+            tasks.named("assembleDebug").configure { dependsOn(sourceInfoTask) }
 
             tasks.withType<PackageAndroidArtifact>().configureEach {
                 createdBy.set("")
@@ -253,28 +281,6 @@ class PluginExtension : Plugin<Project> {
     }
 }
 
-@Serializable
-private data class ResolvedSourceData(val name: String, val lang: String, val id: Long, val baseUrl: BaseUrlSpecData)
-
-@Serializable
-private data class BaseUrlSpecData(
-    val type: String,
-    val defaultUrl: String,
-    val mirrors: List<MirrorData> = emptyList(),
-)
-
-@Serializable
-private data class MirrorData(
-    val url: String,
-    val label: String = "",
-)
-
-private fun BaseUrlSpec.toData(): BaseUrlSpecData = when (this) {
-    is BaseUrlSpec.Static -> BaseUrlSpecData("static", url)
-    is BaseUrlSpec.Mirrors -> BaseUrlSpecData("mirrors", mirrors.first().url, mirrors.map { MirrorData(it.url, it.label.orEmpty()) })
-    is BaseUrlSpec.Custom -> BaseUrlSpecData("custom", defaultUrl)
-}
-
 private fun computeSourceId(name: String, lang: String, versionId: Int = 1): Long {
     val key = "${name.lowercase()}/$lang/$versionId"
     val bytes = java.security.MessageDigest.getInstance("MD5").digest(key.toByteArray())
@@ -284,7 +290,7 @@ private fun computeSourceId(name: String, lang: String, versionId: Int = 1): Lon
 
 private fun extractHost(url: String): String? = url.split("://").getOrNull(1)?.split("/")?.first()?.takeIf { it.isNotEmpty() }
 
-private fun specsToFilters(specs: List<DeeplinkSpec>, defaultHosts: List<String>): List<DeeplinkFilter> = specs.mapNotNull { spec ->
+private fun specsToFilters(specs: List<ExtensionDeeplink>, defaultHosts: List<String>): List<DeeplinkFilter> = specs.mapNotNull { spec ->
     val hosts = spec.hosts.getOrElse(emptyList()).ifEmpty { defaultHosts }
     val paths = spec.pathPatterns.getOrElse(emptyList())
     if (paths.isNotEmpty()) {

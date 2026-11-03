@@ -203,7 +203,11 @@ step 1.
   edit the table by hand, except to resolve a stash-pop conflict on the row (below). If there is no row, skip this
   and say so. If the pick leaves out a part that applies here
   (not manga-only code), use `--status '?' --note 'Partial <YYYY-MM-DD>: picked without <part> (<why>)'` instead, so
-  the row doesn't claim the whole commit.
+  the row doesn't claim the whole commit. When the pick folds in part of another upstream commit (Body, above) and
+  that commit has more to pick later, mark its row
+  `--status '?' --note 'Folded <YYYY-MM-DD>: <part> into the pick of <hash>.'`. `update` keeps a `?` with either
+  note until it finds `O` evidence; with any note other than these or `AI checked`, it re-checks the row and can
+  reset it.
 - **Commit:** stage only the pick's own files and the log row, with `git add <path>` for each one. Never use
   `git add -A`, `git add -u` or `git commit -a`.
   - After a conflict: write the message to a scratchpad file (`.git/MERGE_MSG` without its `# Conflicts:` block), then
@@ -233,12 +237,29 @@ Keep Gradle scoped (AGENTS.md: never run an unscoped task).
     writes neither.
 - **A new DSL or code-generation feature:** add throwaway test modules in the worktree only, including cases that use
   it in ways upstream's extensions might not.
-- **Anything that changes what gets published:** run the extensions inspector CI uses (latest release of
-  `komikku-app/aniyomi-extensions-inspector`) on release APKs. A crash there stops the publish for every extension.
+- **Anything that changes what gets published:** CI builds the index from `build/keiyoushi-source-info.json`, which
+  `generateSourceInfo` writes from the `source { }` blocks on `assembleRelease` (and `assembleDebug`, for PR checks
+  without the signing key); nothing runs the sources any more. Run `.github/scripts/publish-repo.py` on built release
+  artifacts:
+  - Build `assembleRelease` in the worktree for Jellyfin (legacy `className`, metadata-only blocks), a torrent
+    extension, one with `mirrors(...)` and one with several `source { }` blocks.
+  - Lay each module out as `actions/download-artifact` does, under
+    `<home>/apk-artifacts/<chunk>/src/<lang>/<name>/build/` (`keiyoushi-source-info.json` plus
+    `outputs/apk/release/*.apk`). From a copy of the live repo, run
+    `HOME=<home> ANDROID_HOME=<sdk> python publish-repo.py '<delete json>' ''`, without `-I`, so the script's
+    directory, which holds `index_pb2`, stays on the path. The second argument is `true` for a full rebuild, which
+    replaces the index with the build output; CI passes it, and it is required.
+  - Diff `index.json`, `index.min.json` and the decoded `index.pb` against the live files and against what the parent
+    commit's scripts write for the same artifacts. The live `index.json` stores `versionCode` as a string and
+    `contentWarning` as an enum name.
+  - When source metadata may change (the DSL, codegen, `ResolvedSource`), also run `generateSourceInfo` for every
+    extension with the full `settings.gradle.kts` (configuration only, about two minutes) and compare each file's
+    sources (id, name, lang, baseUrl) with the live index. Any difference the pick doesn't mean to make reaches users.
 - **`.github/scripts`:**
-  - Run the scripts against copies of the live repo data, in a scratchpad venv with Python ≥ 3.12 and
-    `pip install protobuf`. The live data is `index.json` and `index.min.json` from
-    `raw.githubusercontent.com/yuzono/anime-repo/repo/`, the public copy of the private `yuzono/aniyomi-repo`.
+  - Run the scripts against copies of the live repo data, in a scratchpad venv with Python ≥ 3.12 and the protobuf
+    version the workflows pin (`pip install "protobuf>=7.35.1,<8"`). The live data is `index.json`, `index.min.json`
+    and `index.pb` from `raw.githubusercontent.com/yuzono/anime-repo/repo/`, the public copy of the private
+    `yuzono/aniyomi-repo`.
   - Compare the output with what the previous script version writes for the same input.
 
 Check step 2's Anikku contract on the result too:
