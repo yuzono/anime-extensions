@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.hi.kartoons
+package eu.kanade.tachiyomi.animeextension.all.kartoons
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList

@@ -11,7 +11,7 @@ yuzono {
     libVersion = "16"
 
     source {
-        lang = "hi"
+        lang = "all"
         baseUrl = "https://kartoons.to"
     }
 

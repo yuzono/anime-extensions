@@ -1,4 +1,4 @@
-package eu.kanade.tachiyomi.animeextension.hi.kartoons
+package eu.kanade.tachiyomi.animeextension.all.kartoons
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
