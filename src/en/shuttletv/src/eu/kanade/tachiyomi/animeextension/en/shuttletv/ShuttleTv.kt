@@ -186,11 +186,10 @@ abstract class ShuttleTv :
             }
         }
 
-        val sortIndex = filters.firstInstanceOrNull<Filters.SortFilter>()
-            ?.state ?: Filters.SORT_POPULAR
-        var items = if (rawPages.size > 1) {
-            // Merged so interleaved pages respect the selected sort key
-            // instead of appending whole movie and TV blocks.
+        var items = if (rawPages.size > 1 && query.isBlank()) {
+            // Sort applies only to browse
+            val sortIndex = filters.firstInstanceOrNull<Filters.SortFilter>()
+                ?.state ?: Filters.SORT_POPULAR
             mergeBySort(rawPages.flatMap { it.results }, sortIndex)
         } else {
             rawPages.flatMap { it.results }
@@ -226,8 +225,13 @@ abstract class ShuttleTv :
         animesOnly: Boolean,
         textQuery: String? = null,
     ): Request? {
-        val sortIndex = filters.firstInstanceOrNull<Filters.SortFilter>()
-            ?.state ?: Filters.SORT_POPULAR
+        val isTextSearch = textQuery != null
+        val sortIndex = if (isTextSearch) {
+            Filters.SORT_POPULAR
+        } else {
+            filters.firstInstanceOrNull<Filters.SortFilter>()
+                ?.state ?: Filters.SORT_POPULAR
+        }
         val sortBy = when (sortIndex) {
             Filters.SORT_RATING -> "vote_average.desc"
             Filters.SORT_RECENT -> if (mediaType == "movie") {
@@ -243,20 +247,28 @@ abstract class ShuttleTv :
         } else {
             Filters.TV_GENRE_MAP
         }
-        val selectedGenres = filters.firstInstanceOrNull<Filters.GenreFilter>()
-            ?.state
-            ?.filter { it.state }
-            .orEmpty()
+        val selectedGenres = if (isTextSearch) {
+            emptyList()
+        } else {
+            filters.firstInstanceOrNull<Filters.GenreFilter>()
+                ?.state
+                ?.filter { it.state }
+                .orEmpty()
+        }
         val mappedGenres = selectedGenres.mapNotNull { genreMap[it.name] }
         if (selectedGenres.isNotEmpty() && mappedGenres.size < selectedGenres.size) return null
         val genreIds = if (animesOnly) (listOf("16") + mappedGenres).distinct() else mappedGenres
         val genreParam = genreIds.joinToString(",")
 
-        val providers = filters.firstInstanceOrNull<Filters.WatchProviderFilter>()
-            ?.state
-            ?.filter { it.state }
-            ?.joinToString("|") { it.id }
-            .orEmpty()
+        val providers = if (isTextSearch) {
+            ""
+        } else {
+            filters.firstInstanceOrNull<Filters.WatchProviderFilter>()
+                ?.state
+                ?.filter { it.state }
+                ?.joinToString("|") { it.id }
+                .orEmpty()
+        }
 
         return tmdbUrl {
             addPathSegment("discover")
