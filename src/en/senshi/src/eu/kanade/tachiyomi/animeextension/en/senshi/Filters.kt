@@ -10,8 +10,8 @@ object Filters {
     class SortFilter : AnimeFilter.Select<String>("Sort By", SORT_ENTRIES.toTypedArray(), 0) {
         fun getValue() = SORT_VALUES[state]
         companion object {
-            private val SORT_ENTRIES = listOf("Best Score", "Worst Score", "A-Z", "Z-A", "Latest Release")
-            private val SORT_VALUES = listOf("score_desc", "score_asc", "name_asc", "name_desc", "recent")
+            private val SORT_ENTRIES = listOf("Popularity", "Highest Rated", "Lowest Rated", "A-Z Title", "Z-A Title", "Recently Added")
+            private val SORT_VALUES = listOf("score_desc", "score_desc", "score_asc", "name_asc", "name_desc", "recent")
         }
     }
 
@@ -19,7 +19,7 @@ object Filters {
         fun getValue(): String? = if (state == 0) null else YEAR_ENTRIES[state]
         companion object {
             private val currentYear = Calendar.getInstance().get(Calendar.YEAR)
-            private val YEAR_ENTRIES = listOf("Any") + (currentYear downTo 1981).map(Int::toString)
+            private val YEAR_ENTRIES = listOf("Any") + (currentYear downTo 2000).map(Int::toString)
         }
     }
 
@@ -35,7 +35,6 @@ object Filters {
                 "ova" to "OVA",
                 "ona" to "ONA",
                 "special" to "Special",
-                "music" to "Music",
             )
         }
     }
@@ -55,8 +54,8 @@ object Filters {
         fun getSelectedValues(): List<String> = state.filter { it.state }.map { it.value }
         companion object {
             private val LANGUAGES = listOf(
-                "HardSub" to "Subbed",
-                "Dub" to "Dubbed",
+                "HardSub" to "Sub",
+                "Dub" to "Dub",
             )
         }
     }
@@ -73,22 +72,22 @@ object Filters {
         }
     }
 
-    // ================= Genres (tri-state, includes only) ==================
+    // ====================== Genres (include/exclude) ======================
     class GenreTriState(name: String) : AnimeFilter.TriState(name)
 
     class GenreFilter : AnimeFilter.Group<GenreTriState>("Genres", GENRES.map { GenreTriState(it) }) {
         fun getIncluded(): List<String> = state.filter { it.isIncluded() }.map { it.name }
 
-        // fun getExcluded(): List<String> = state.filter { it.isExcluded() }.map { it.name }
+        fun getExcluded(): List<String> = state.filter { it.isExcluded() }.map { it.name }
         companion object {
             private val GENRES = listOf(
-                "Action", "Adventure", "Avant Garde", "Boys Love", "Comedy", "Demons",
-                "Drama", "Ecchi", "Fantasy", "Girls Love", "Gourmet", "Harem", "Horror",
-                "Isekai", "Iyashikei", "Josei", "Kids", "Magic", "Mahou Shoujo",
+                "Action", "Adventure", "Avant Garde", "Award Winning", "Boys Love", "Comedy",
+                "Demons", "Drama", "Ecchi", "Fantasy", "Girls Love", "Gourmet", "Harem",
+                "Horror", "Isekai", "Iyashikei", "Josei", "Kids", "Magic", "Mahou Shoujo",
                 "Martial Arts", "Mecha", "Military", "Music", "Mystery", "Parody",
-                "Psychological", "Reverse Harem", "Romance", "School", "Sci-Fi",
-                "Seinen", "Slice of Life", "Space", "Sports", "Shounen", "Super Power",
-                "Supernatural", "Suspense", "Thriller", "Vampire",
+                "Psychological", "Racing", "Reverse Harem", "Romance", "Samurai", "School",
+                "Sci-Fi", "Seinen", "Shoujo", "Shounen", "Slice of Life", "Space", "Sports",
+                "Super Power", "Supernatural", "Suspense", "Thriller", "Vampire",
             )
         }
     }
@@ -97,10 +96,10 @@ object Filters {
         get() = AnimeFilterList(
             SortFilter(),
             FormatFilter(),
-            StatusFilter(),
-            LanguageFilter(),
-            SeasonFilter(),
-            YearFilter(),
             GenreFilter(),
+            StatusFilter(),
+            SeasonFilter(),
+            LanguageFilter(),
+            YearFilter(),
         )
 }
