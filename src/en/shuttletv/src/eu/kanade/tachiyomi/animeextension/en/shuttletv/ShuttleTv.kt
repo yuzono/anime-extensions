@@ -125,9 +125,15 @@ abstract class ShuttleTv :
             val rawId = url.pathSegments.getOrNull(1)
                 ?: throw Exception("Unsupported url")
             if (url.pathSegments.getOrNull(0) != "watch") throw Exception("Unsupported url")
-            val season = url.queryParameter("s")
-            val episode = url.queryParameter("e")
-            return getSearchAnime(page, "$PREFIX_ID$rawId:$season:$episode", filters)
+            // Movie links have no s/e
+            val season = url.queryParameter("s")?.toIntOrNull()
+            val episode = url.queryParameter("e")?.toIntOrNull()
+            val idQuery = if (season != null && episode != null) {
+                "$PREFIX_ID$rawId:$season:$episode"
+            } else {
+                "$PREFIX_ID$rawId"
+            }
+            return getSearchAnime(page, idQuery, filters)
         }
 
         // Deep link, resolved from the URL above: "id:<tmdbId>[:<season>:<episode>]".
