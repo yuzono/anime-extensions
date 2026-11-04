@@ -10,8 +10,9 @@ yuzono {
 
     source {
         lang = "ar"
-        baseUrl("https://witanime.site") {
-            mirrors = listOf(
+        baseUrl {
+            mirrors(
+                "https://witanime.site",
                 "https://witanime.cyou",
                 "https://witanime.pics",
                 "https://witanime.com",
