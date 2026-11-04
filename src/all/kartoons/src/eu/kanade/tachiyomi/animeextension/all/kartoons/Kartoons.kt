@@ -79,10 +79,11 @@ abstract class Kartoons :
         val catalog = response.parseAs<StremioCatalogResponse>()
         val animeList = catalog.metas.mapNotNull { meta ->
             val rawId = meta.id?.removePrefix("kartoons:")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val name = meta.name?.trim()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val type = if (meta.type == "movie") "movie" else "show"
             SAnime.create().apply {
                 this.url = "/$type/$rawId"
-                title = meta.name?.trim().orEmpty()
+                title = name
                 thumbnail_url = meta.poster
                 description = meta.description
             }
@@ -122,13 +123,16 @@ abstract class Kartoons :
         if (query.startsWith("http://") || query.startsWith("https://")) {
             val uri = query.toHttpUrlOrNull()
             if (uri != null) {
-                val segments = uri.pathSegments.filter { it.isNotEmpty() }
-                val type = segments.getOrNull(0)
-                val id = segments.getOrNull(1)
-                if ((type == "show" || type == "movie") && !id.isNullOrBlank()) {
-                    val fakeAnime = SAnime.create().apply { this.url = "/$type/$id" }
-                    val details = getAnimeDetails(fakeAnime)
-                    return AnimesPage(listOf(details), false)
+                val host = uri.host.lowercase()
+                if (host == "kartoons.to" || host == "kartoons.me" || host.endsWith(".kartoons.to") || host.endsWith(".kartoons.me")) {
+                    val segments = uri.pathSegments.filter { it.isNotEmpty() }
+                    val type = segments.getOrNull(0)
+                    val id = segments.getOrNull(1)
+                    if ((type == "show" || type == "movie") && !id.isNullOrBlank()) {
+                        val fakeAnime = SAnime.create().apply { this.url = "/$type/$id" }
+                        val details = getAnimeDetails(fakeAnime)
+                        return AnimesPage(listOf(details), false)
+                    }
                 }
             }
         }
@@ -209,7 +213,8 @@ abstract class Kartoons :
                 SEpisode.create().apply {
                     name = "Movie"
                     episode_number = 1F
-                    url = buildApiUrl("movie/$id/links")
+                    url = "movie/$id/links"
+                    preview_url = anime.thumbnail_url
                 },
             )
         }
@@ -240,7 +245,8 @@ abstract class Kartoons :
                                 "$seasonPrefix Episode $epNumStr"
                             }
                             episode_number = epNum
-                            url = buildApiUrl("episode/${ep.id}/links")
+                            url = "episode/${ep.id}/links"
+                            preview_url = ep.image
                         },
                     )
                     episodeCount++
@@ -275,17 +281,48 @@ abstract class Kartoons :
 
     private suspend fun extractVideos(episode: SEpisode): List<Video> {
         syncWatchHistory(episode.url)
-        val response = client.get(episode.url, headers)
+        val linkUrl = if (episode.url.startsWith("http://") || episode.url.startsWith("https://")) {
+            episode.url
+        } else {
+            buildApiUrl(episode.url)
+        }
+        val response = client.get(linkUrl, headers)
         val linksRes = response.parseAs<LinksResponse>()
         val data = linksRes.data ?: return emptyList()
 
         val subtitleTracks = data.subtitles.mapNotNull { sub ->
             if (sub.url.isBlank()) return@mapNotNull null
-            Track(sub.url, sub.lang ?: "English")
+            val lang = when (sub.lang?.lowercase()?.trim()) {
+                "eng", "en" -> "English"
+                "hin", "hi" -> "Hindi"
+                "tam", "ta" -> "Tamil"
+                "tel", "te" -> "Telugu"
+                null, "" -> "English"
+                else -> sub.lang.replaceFirstChar { it.uppercase() }
+            }
+            Track(sub.url, lang)
+        }
+
+        val preferredAudio = preferences.getString(PREF_AUDIO_LANG_KEY, PREF_AUDIO_LANG_DEFAULT)
+            ?: PREF_AUDIO_LANG_DEFAULT
+        val preferredAudioName = when (preferredAudio) {
+            "hin" -> "Hindi"
+            "tam" -> "Tamil"
+            "tel" -> "Telugu"
+            "eng" -> "English"
+            else -> "Hindi"
+        }
+
+        val sortedLinks = data.links.sortedByDescending { link ->
+            when {
+                link.name.contains(preferredAudioName, ignoreCase = true) -> 2
+                link.name.contains(preferredAudio, ignoreCase = true) -> 2
+                else -> 1
+            }
         }
 
         val videoList = mutableListOf<Video>()
-        for (link in data.links) {
+        for (link in sortedLinks) {
             if (link.url.isBlank()) continue
             try {
                 if (link.url.contains(".m3u8")) {
@@ -336,7 +373,13 @@ abstract class Kartoons :
                 // Skip failed link and continue with remaining links
             }
         }
-        return videoList.distinctBy { it.videoUrl }
+        return videoList.distinctBy { it.videoUrl }.sortedByDescending { video ->
+            when {
+                video.videoTitle.contains(preferredAudioName, ignoreCase = true) -> 2
+                video.videoTitle.contains(preferredAudio, ignoreCase = true) -> 2
+                else -> 1
+            }
+        }
     }
 
     private fun syncWatchHistory(episodeUrl: String) {
@@ -347,13 +390,13 @@ abstract class Kartoons :
         if (token.isBlank()) return
 
         val syncUrl = when {
-            episodeUrl.contains("/movie/") -> {
-                val movieId = episodeUrl.substringAfter("/movie/").substringBefore("/links").substringBefore("?")
+            episodeUrl.contains("movie/") -> {
+                val movieId = episodeUrl.substringAfter("movie/").substringBefore("/links").substringBefore("?")
                 if (movieId.isBlank()) return
                 "$API_BASE/api/stremio/stream/movie/kartoons:$movieId.json?token=$token"
             }
-            episodeUrl.contains("/episode/") -> {
-                val episodeId = episodeUrl.substringAfter("/episode/").substringBefore("/links").substringBefore("?")
+            episodeUrl.contains("episode/") -> {
+                val episodeId = episodeUrl.substringAfter("episode/").substringBefore("/links").substringBefore("?")
                 if (episodeId.isBlank()) return
                 "$API_BASE/api/stremio/stream/series/kartoons:$episodeId.json?token=$token"
             }
@@ -393,6 +436,16 @@ abstract class Kartoons :
                 preference.summary = if (str.isNotBlank()) "Token set (length: ${str.length})" else "Tap to enter token"
                 true
             }
+        }.also(screen::addPreference)
+
+        ListPreference(screen.context).apply {
+            key = PREF_AUDIO_LANG_KEY
+            title = "Preferred Audio Language"
+            entries = arrayOf("Hindi", "Tamil", "Telugu", "English")
+            entryValues = arrayOf("hin", "tam", "tel", "eng")
+            setDefaultValue(PREF_AUDIO_LANG_DEFAULT)
+            summary = "%s"
+            setOnPreferenceChangeListener { _, _ -> true }
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
@@ -452,6 +505,8 @@ abstract class Kartoons :
     companion object {
         private const val API_BASE = "https://api.kartoons.me"
         private const val TOKEN_KEY = "token"
+        private const val PREF_AUDIO_LANG_KEY = "pref_audio_lang"
+        private const val PREF_AUDIO_LANG_DEFAULT = "hin"
         private const val PREF_HOME_CATALOG_KEY = "pref_home_catalog"
         private const val PREF_HOME_CATALOG_DEFAULT = "catalog/show?catalog=popular"
         private const val PREF_SYNC_WATCH_HISTORY_KEY = "pref_sync_watch_history"
