@@ -8,24 +8,28 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
 @Serializable
-data class Flashvars(
+class Flashvars(
     val mediaDefinitions: List<MediaDefinition> = emptyList(),
     @SerialName("video_title")
     val videoTitle: String? = null,
 )
 
 @Serializable
-data class MediaDefinition(
+class MediaDefinition(
     val format: String? = null,
     val videoUrl: String? = null,
     val quality: JsonElement? = null,
 ) {
     val qualityString: String?
         get() = when (val q = quality) {
-            is JsonPrimitive -> q.contentOrNull?.filter { it.isDigit() }?.takeIf { it.isNotEmpty() }?.let { "${it}p" }
-            is JsonArray -> q.firstOrNull()?.let { elem ->
-                (elem as? JsonPrimitive)?.contentOrNull?.filter { it.isDigit() }?.takeIf { it.isNotEmpty() }?.let { "${it}p" }
-            }
+            is JsonPrimitive -> q.contentOrNull?.let { parseQuality(it) }
+            is JsonArray -> (q.firstOrNull() as? JsonPrimitive)?.contentOrNull?.let { parseQuality(it) }
             else -> null
         }
+
+    private fun parseQuality(str: String): String? = QUALITY_REGEX.find(str)?.groupValues?.getOrNull(1)?.let { "${it}p" }
+
+    companion object {
+        private val QUALITY_REGEX = Regex("""^(\d+)""")
+    }
 }

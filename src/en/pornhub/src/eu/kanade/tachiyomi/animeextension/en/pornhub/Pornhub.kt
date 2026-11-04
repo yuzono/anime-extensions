@@ -11,9 +11,9 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.HttpException
-import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
+import keiyoushi.network.rateLimit
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
@@ -42,12 +42,15 @@ abstract class Pornhub :
         .add("Referer", "$baseUrl/")
         .add("Cookie", "accessAgeDisclaimerPH=1; hasVisited=1; age_verified=1; platform=pc")
 
+    private val currentHeaders: Headers
+        get() = headersBuilder().build()
+
     private val preferences by getPreferencesLazy()
-    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+    private val playlistUtils by lazy { PlaylistUtils(client) }
 
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/video?o=ht&page=$page", headers)
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/video?o=ht&page=$page", currentHeaders)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -57,7 +60,7 @@ abstract class Pornhub :
 
     // ============================== Latest ================================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/video?o=mr&page=$page", headers)
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/video?o=mr&page=$page", currentHeaders)
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
         val document = response.asJsoup()
@@ -89,13 +92,19 @@ abstract class Pornhub :
 
         val trimmed = query.trim()
         val url = if (trimmed.isNotEmpty()) {
-            val basePath = if (orientation == "gay") "$baseUrl/gay/video/search" else "$baseUrl/video/search"
+            val basePath = when (orientation) {
+                "gay" -> "$baseUrl/gay/video/search"
+                "transgender" -> "$baseUrl/transgender/search"
+                else -> "$baseUrl/video/search"
+            }
             basePath.toHttpUrl().newBuilder().apply {
                 addQueryParameter("search", trimmed)
                 addQueryParameter("page", page.toString())
                 if (sort.isNotBlank()) addQueryParameter("o", sort)
                 if (quality.isNotBlank()) addQueryParameter("hd", "1")
                 if (production.isNotBlank()) addQueryParameter("p", production)
+                if (category.isNotBlank()) addQueryParameter("c", category)
+                if (duration.isNotBlank()) addQueryParameter("m", duration)
             }.build()
         } else {
             val basePath = when (orientation) {
@@ -113,7 +122,7 @@ abstract class Pornhub :
             }.build()
         }
 
-        return GET(url, headers)
+        return GET(url, currentHeaders)
     }
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = try {
@@ -138,8 +147,6 @@ abstract class Pornhub :
 
     // =========================== Anime Details ============================
 
-    override fun animeDetailsRequest(anime: SAnime): Request = GET(baseUrl + anime.url, headers)
-
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
         val uploader = document.selectFirst("div.userInfo a.usernameWrap, a.bolded[href*=/users/], a.bolded[href*=/model/]")?.text()
@@ -151,11 +158,12 @@ abstract class Pornhub :
             ?: "Pornhub Video"
 
         val genres = document.select("div.categoriesWrapper a[href*=/video?c=], div.tagsWrapper a.item")
-            .map { it.text().trim() }
+            .map { it.text() }
             .filter { it.isNotEmpty() }
             .distinct()
 
         return SAnime.create().apply {
+            setUrlWithoutDomain(response.request.url.toString())
             this.title = title
             author = uploader
             artist = uploader
@@ -172,8 +180,6 @@ abstract class Pornhub :
     }
 
     // ============================== Episodes ==============================
-
-    override fun episodeListRequest(anime: SAnime): Request = animeDetailsRequest(anime)
 
     override fun episodeListParse(response: Response): List<SEpisode> = listOf(
         SEpisode.create().apply {
@@ -203,6 +209,7 @@ abstract class Pornhub :
         flashvars?.mediaDefinitions
             ?.filter { it.format.equals("hls", ignoreCase = true) || it.videoUrl?.contains(".m3u8") == true }
             ?.mapNotNull { it.videoUrl }
+            ?.filter { isValidStreamUrl(it) }
             ?.distinct()
             ?.forEach { hlsUrl ->
                 runCatching {
@@ -220,26 +227,39 @@ abstract class Pornhub :
 
         for (def in mp4Definitions) {
             val url = def.videoUrl ?: continue
+            if (!isValidStreamUrl(url)) continue
             if (url.contains("/video/get_media")) {
                 runCatching {
-                    client.newCall(GET(url, headers)).execute().use { resp ->
+                    client.newCall(GET(url, currentHeaders)).execute().use { resp ->
                         if (resp.isSuccessful) {
                             val mediaList = resp.parseAs<List<MediaDefinition>>()
                             for (media in mediaList) {
-                                val directUrl = media.videoUrl?.takeIf { it.startsWith("http") } ?: continue
+                                val directUrl = media.videoUrl?.takeIf { isValidStreamUrl(it) } ?: continue
                                 val quality = media.qualityString
                                     ?: RESOLUTION_REGEX.find(directUrl)?.groupValues?.getOrNull(1)?.let { "${it}p" }
                                     ?: "MP4"
-                                videoList.add(Video(directUrl, "$quality (MP4)", directUrl, headers))
+                                videoList.add(
+                                    Video(
+                                        videoUrl = directUrl,
+                                        videoTitle = "$quality (MP4)",
+                                        headers = currentHeaders,
+                                    ),
+                                )
                             }
                         }
                     }
                 }
-            } else if (url.startsWith("http")) {
+            } else {
                 val quality = def.qualityString
                     ?: RESOLUTION_REGEX.find(url)?.groupValues?.getOrNull(1)?.let { "${it}p" }
                     ?: "MP4"
-                videoList.add(Video(url, "$quality (MP4)", url, headers))
+                videoList.add(
+                    Video(
+                        videoUrl = url,
+                        videoTitle = "$quality (MP4)",
+                        headers = currentHeaders,
+                    ),
+                )
             }
         }
 
@@ -248,8 +268,14 @@ abstract class Pornhub :
             val metaVideo = document.selectFirst(
                 "meta[property=og:video:url], meta[property=og:video], meta[name=twitter:player:stream]",
             )?.attr("content")
-            if (!metaVideo.isNullOrBlank() && metaVideo.startsWith("http")) {
-                videoList.add(Video(metaVideo, "Default (MP4)", metaVideo, headers))
+            if (!metaVideo.isNullOrBlank() && isValidStreamUrl(metaVideo)) {
+                videoList.add(
+                    Video(
+                        videoUrl = metaVideo,
+                        videoTitle = "Default (MP4)",
+                        headers = currentHeaders,
+                    ),
+                )
             }
         }
 
@@ -293,6 +319,18 @@ abstract class Pornhub :
     }.distinctBy { it.url }
 
     private fun hasNextPage(document: Document): Boolean = document.selectFirst("li.page_next a, a.page_next, a[rel=next], ul.pagination li.next a") != null
+
+    private fun isValidStreamUrl(url: String): Boolean = runCatching {
+        val httpUrl = url.toHttpUrl()
+        val host = httpUrl.host.lowercase()
+        (httpUrl.scheme == "https" || httpUrl.scheme == "http") &&
+            !host.equals("localhost") &&
+            !host.startsWith("127.") &&
+            !host.startsWith("10.") &&
+            !host.startsWith("192.168.") &&
+            !host.startsWith("172.16.") &&
+            !host.endsWith(".local")
+    }.getOrDefault(false)
 
     // ============================= Settings ===============================
 
