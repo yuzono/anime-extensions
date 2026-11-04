@@ -55,7 +55,7 @@ class AnimeIto :
     }
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int) = GET("$animeListUrl/?page=$page&order=episode")
+    override fun latestUpdatesRequest(page: Int) = GET("$animeListUrl/?page=$page&status=ongoing&order=episode")
     override fun latestUpdatesNextPageSelector() = ".catalog-page-directions [rel=next]"
     override fun latestUpdatesSelector() = popularAnimeSelector()
     override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
