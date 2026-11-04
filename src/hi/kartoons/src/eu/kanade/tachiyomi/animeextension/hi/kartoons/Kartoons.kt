@@ -18,8 +18,10 @@ import keiyoushi.network.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
+import java.net.URLEncoder
 
 @Source
 abstract class Kartoons :
@@ -69,7 +71,7 @@ abstract class Kartoons :
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val url = if (query.isNotBlank()) {
-            val encodedQuery = query.trim().replace(" ", "+")
+            val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
             buildApiUrl("search?q=$encodedQuery&limit=20")
         } else {
             val catalogPath = filters.filterIsInstance<KartoonsFilters.CatalogFilter>()
@@ -78,6 +80,23 @@ abstract class Kartoons :
             buildApiUrl("$catalogPath${sep}page=$page&limit=20")
         }
         return GET(url, headers)
+    }
+
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("http://") || query.startsWith("https://")) {
+            val uri = query.toHttpUrlOrNull()
+            if (uri != null) {
+                val segments = uri.pathSegments.filter { it.isNotEmpty() }
+                val type = segments.getOrNull(0)
+                val id = segments.getOrNull(1)
+                if ((type == "show" || type == "movie") && !id.isNullOrBlank()) {
+                    val fakeAnime = SAnime.create().apply { this.url = "/$type/$id" }
+                    val details = getAnimeDetails(fakeAnime)
+                    return AnimesPage(listOf(details), false)
+                }
+            }
+        }
+        return super.getSearchAnime(page, query, filters)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
@@ -116,21 +135,25 @@ abstract class Kartoons :
             val res = response.parseAs<MovieDetailsResponse>()
             val data = res.data
             SAnime.create().apply {
+                this.url = anime.url
                 title = data.title.trim()
                 description = data.description
                 thumbnail_url = data.image ?: data.coverImage
                 genre = data.tags.joinToString(", ")
                 status = SAnime.COMPLETED
+                initialized = true
             }
         } else {
             val res = response.parseAs<ShowDetailsResponse>()
             val data = res.data
             SAnime.create().apply {
+                this.url = anime.url
                 title = data.title.trim()
                 description = data.description
                 thumbnail_url = data.image ?: data.coverImage
                 genre = data.tags.joinToString(", ")
                 status = SAnime.UNKNOWN
+                initialized = true
             }
         }
     }
@@ -161,6 +184,7 @@ abstract class Kartoons :
 
         val episodeList = mutableListOf<SEpisode>()
         var episodeCount = 1F
+        var firstException: Exception? = null
 
         for (season in seasons) {
             val seasonSlug = season.slug ?: season.seasonNumber?.toString() ?: continue
@@ -171,12 +195,13 @@ abstract class Kartoons :
                     val epNum = ep.episodeNumber ?: episodeCount
                     val epTitle = ep.title?.trim().orEmpty()
                     val seasonPrefix = season.title?.let { "[$it] " } ?: ""
+                    val epNumStr = if (epNum % 1f == 0f) epNum.toInt().toString() else epNum.toString()
                     episodeList.add(
                         SEpisode.create().apply {
                             name = if (epTitle.isNotBlank()) {
-                                "$seasonPrefix Episode ${epNum.toInt()}: $epTitle"
+                                "$seasonPrefix Episode $epNumStr: $epTitle"
                             } else {
-                                "$seasonPrefix Episode ${epNum.toInt()}"
+                                "$seasonPrefix Episode $epNumStr"
                             }
                             episode_number = epNum
                             url = buildApiUrl("episode/${ep.id}/links")
@@ -184,9 +209,13 @@ abstract class Kartoons :
                     )
                     episodeCount++
                 }
-            } catch (_: Exception) {
-                // Continue with remaining seasons if one fails
+            } catch (e: Exception) {
+                if (firstException == null) firstException = e
             }
+        }
+
+        if (episodeList.isEmpty() && firstException != null) {
+            throw firstException
         }
 
         return episodeList.reversed()
@@ -221,25 +250,56 @@ abstract class Kartoons :
         val videoList = mutableListOf<Video>()
         for (link in data.links) {
             if (link.url.isBlank()) continue
-            if (link.url.contains(".m3u8")) {
-                val videos = playlistUtils.extractFromHls(
-                    playlistUrl = link.url,
-                    videoNameGen = { quality -> "${link.name} - $quality" },
-                    subtitleList = subtitleTracks,
-                )
-                videoList.addAll(videos)
-            } else {
-                videoList.add(
-                    Video(
-                        url = link.url,
-                        quality = link.name,
-                        videoUrl = link.url,
-                        subtitleTracks = subtitleTracks,
-                    ),
-                )
+            try {
+                if (link.url.contains(".m3u8")) {
+                    // Always add the direct proxy master playlist so ExoPlayer/MPV
+                    // plays the full stream seamlessly with native HLS buffering
+                    videoList.add(
+                        Video(
+                            videoUrl = link.url,
+                            videoTitle = link.name,
+                            headers = headers,
+                            subtitleTracks = subtitleTracks,
+                        ),
+                    )
+
+                    // Also extract variant streams if available, ensuring child URLs are tagged with .m3u8
+                    runCatching {
+                        playlistUtils.extractFromHls(
+                            playlistUrl = link.url,
+                            videoNameGen = { quality -> "${link.name} - $quality" },
+                            subtitleList = subtitleTracks,
+                        ).map { video ->
+                            val fixedUrl = if (!video.videoUrl.contains(".m3u8")) {
+                                "${video.videoUrl}#.m3u8"
+                            } else {
+                                video.videoUrl
+                            }
+                            Video(
+                                videoUrl = fixedUrl,
+                                videoTitle = video.videoTitle,
+                                headers = headers,
+                                subtitleTracks = subtitleTracks,
+                            )
+                        }
+                    }.getOrNull()?.let { subVideos ->
+                        videoList.addAll(subVideos.filterNot { it.videoUrl == link.url })
+                    }
+                } else {
+                    videoList.add(
+                        Video(
+                            videoUrl = link.url,
+                            videoTitle = link.name,
+                            headers = headers,
+                            subtitleTracks = subtitleTracks,
+                        ),
+                    )
+                }
+            } catch (_: Exception) {
+                // Skip failed link and continue with remaining links
             }
         }
-        return videoList
+        return videoList.distinctBy { it.videoUrl }
     }
 
     // ============================= Preferences ============================
