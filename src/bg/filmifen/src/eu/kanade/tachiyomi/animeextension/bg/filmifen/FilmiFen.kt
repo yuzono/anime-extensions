@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.lib.jsunpacker.JsUnpacker
 import keiyoushi.network.get
 import keiyoushi.network.post
@@ -32,10 +33,8 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.io.IOException
 
-class FilmiFen : AnimeHttpSource() {
-    override val name = "FilmiFen"
-    override val baseUrl = "https://filmifen.com"
-    override val lang = "bg"
+@Source
+abstract class FilmiFen : AnimeHttpSource() {
     override val supportsLatest = true
 
     override val client = network.client.newBuilder()

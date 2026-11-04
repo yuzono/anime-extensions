@@ -14,7 +14,6 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import keiyoushi.network.get
 import keiyoushi.network.rateLimit
-import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.Source
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addListPreference
@@ -33,23 +32,18 @@ import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration.Companion.seconds
 
-class KissKH : Source() {
-
-    override val name = "KissKH"
-
-    override val lang = "en"
+@keiyoushi.annotation.Source
+abstract class KissKH : Source() {
 
     override val supportsLatest = true
 
     override val client = network.client.newBuilder()
         .rateLimit(5)
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(30.seconds)
+        .readTimeout(30.seconds)
         .build()
-
-    override var baseUrl: String
-        by preferences.delegate(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
 
     private val hideUnaired: Boolean
         get() = preferences.getBoolean(PREF_HIDE_UNAIRED_KEY, PREF_HIDE_UNAIRED_DEFAULT)
@@ -57,7 +51,9 @@ class KissKH : Source() {
     private val preferredQuality: String
         by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
 
-    private var subDecryptor by LazyMutable { SubDecryptor(client, headers, baseUrl) }
+    // Built on each use, so a change of the mirror preference applies at once
+    private val subDecryptor: SubDecryptor
+        get() = SubDecryptor(client, headers, baseUrl)
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
@@ -362,18 +358,6 @@ class KissKH : Source() {
     // ============================= Preferences =============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        screen.addListPreference(
-            key = PREF_DOMAIN_KEY,
-            title = "Preferred domain",
-            entries = DOMAIN_ENTRIES,
-            entryValues = DOMAIN_VALUES,
-            default = PREF_DOMAIN_DEFAULT,
-            summary = "%s",
-        ) {
-            baseUrl = it
-            subDecryptor = SubDecryptor(client, headers, baseUrl)
-        }
-
         screen.addSwitchPreference(
             key = PREF_HIDE_UNAIRED_KEY,
             title = "Hide unaired episodes",
@@ -396,18 +380,6 @@ class KissKH : Source() {
     companion object {
         private const val PAGE_SIZE = 40
         private const val TYPE_COUNTDOWN = 2
-
-        private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private val DOMAIN_ENTRIES = listOf(
-            "kisskh.ovh",
-            "kisskh.do",
-            "kisskh.co",
-            "kisskh.id",
-            "kisskh.la",
-            "kisskh.is",
-        )
-        private val DOMAIN_VALUES = DOMAIN_ENTRIES.map { "https://$it" }
-        private val PREF_DOMAIN_DEFAULT = DOMAIN_VALUES[0]
 
         private const val PREF_HIDE_UNAIRED_KEY = "pref_hide_unaired_episodes"
         private const val PREF_HIDE_UNAIRED_DEFAULT = true

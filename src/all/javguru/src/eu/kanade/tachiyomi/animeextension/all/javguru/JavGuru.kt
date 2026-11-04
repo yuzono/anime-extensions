@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelMapNotNullBlocking
@@ -36,15 +37,10 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.min
 
-class JavGuru :
+@Source
+abstract class JavGuru :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "Jav Guru"
-
-    override val baseUrl = "https://jav.guru"
-
-    override val lang = "all"
 
     override val supportsLatest = true
 

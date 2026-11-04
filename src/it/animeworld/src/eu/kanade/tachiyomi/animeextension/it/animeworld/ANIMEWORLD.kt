@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
@@ -26,17 +27,13 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class ANIMEWORLD :
+@Source
+abstract class ANIMEWORLD :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "ANIMEWORLD.tv"
-
     // TODO: Check frequency of url changes to potentially
     // add back overridable baseurl preference
-    override val baseUrl = "https://www.animeworld.ac"
-
-    override val lang = "it"
 
     override val supportsLatest = true
     override val client by lazy {

@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
@@ -25,12 +26,8 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeOnlineNinja :
-    DooPlay(
-        "es",
-        "AnimeOnline.Ninja",
-        "https://ww3.animeonline.ninja",
-    ) {
+@Source
+abstract class AnimeOnlineNinja : DooPlay() {
     override val client by lazy {
         if (preferences.getBoolean(PREF_VRF_INTERCEPT_KEY, PREF_VRF_INTERCEPT_DEFAULT)) {
             network.client.newBuilder()

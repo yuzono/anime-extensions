@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -32,15 +33,10 @@ import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class AnimeLatinoHD :
+@Source
+abstract class AnimeLatinoHD :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "AnimeLatinoHD"
-
-    override val baseUrl = "https://www.animelatinohd.com"
-
-    override val lang = "es"
 
     override val supportsLatest = true
 
@@ -185,7 +181,7 @@ class AnimeLatinoHD :
                             GET(
                                 url = "https://api.animelatinohd.com/stream/${item["id"]!!.jsonPrimitive.content}",
                                 headers = headers.newBuilder()
-                                    .add("Referer", "https://www.animelatinohd.com/")
+                                    .add("Referer", "$baseUrl/")
                                     .add("authority", "api.animelatinohd.com")
                                     .add("upgrade-insecure-requests", "1")
                                     .build(),

@@ -22,26 +22,23 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonString
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.Serializable
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import java.util.Locale
 
-class AnimeAv1 :
+@Source
+abstract class AnimeAv1 :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "AnimeAv1"
-
-    override val baseUrl = "https://animeav1.com"
-
-    override val lang = "es"
 
     override val supportsLatest = true
 
@@ -244,7 +241,7 @@ class AnimeAv1 :
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
     private val megaExtractor by lazy { MegaExtractor(client, headers) }
-    private val unsExtractor by lazy { UnsExtractor(client, headers) }
+    private val unsExtractor by lazy { UnsExtractor(client, headers, baseUrl.toHttpUrl().host) }
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
 
     private suspend fun serverVideoResolver(url: String, prefix: String, serverName: String): List<Video> {

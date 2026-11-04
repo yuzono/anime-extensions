@@ -1,7 +1,0 @@
-ext {
-    extName = 'Fun Anime TV'
-    extClass = '.FunAnimeTV'
-    extVersionCode = 2
-}
-
-apply plugin: "kei.plugins.extension.legacy"

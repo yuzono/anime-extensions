@@ -3,11 +3,11 @@ package eu.kanade.tachiyomi.animeextension.en.wcoforever
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.multisrc.wcotheme.WcoTheme
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import okhttp3.Response
 
-class WcoForever : WcoTheme() {
-    override val name = "WcoForever"
-    override val baseUrl = "https://www.wcoforever.net"
+@Source
+abstract class WcoForever : WcoTheme() {
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()

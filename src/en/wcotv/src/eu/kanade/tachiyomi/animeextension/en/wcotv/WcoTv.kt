@@ -3,11 +3,11 @@ package eu.kanade.tachiyomi.animeextension.en.wcotv
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.multisrc.wcotheme.WcoTheme
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import okhttp3.Response
 
-class WcoTv : WcoTheme() {
-    override val name = "WcoTv"
-    override val baseUrl = "https://www.wco.tv"
+@Source
+abstract class WcoTv : WcoTheme() {
 
     override val useOldIframeExtractor = true
 

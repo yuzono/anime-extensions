@@ -25,16 +25,10 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.net.URLEncoder
 
-class AV1Encodes : Source() {
-
-    override val name = "AV1Encodes"
-
-    override val lang = "en"
+@keiyoushi.annotation.Source
+abstract class AV1Encodes : Source() {
 
     override val supportsLatest = true
-
-    override var baseUrl: String
-        by preferences.delegate(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
 
     private val prefQuality: String
         by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
@@ -614,6 +608,7 @@ class AV1Encodes : Source() {
         return runCatching {
             val url = value.toHttpUrl()
             val host = url.host
+            // Keep in sync with the base URL and mirrors in build.gradle.kts, which the generated class doesn't expose
             val allowed = host == baseUrl.toHttpUrl().host ||
                 host.endsWith("av1encodes.com") ||
                 host.endsWith("animealpha.cc") ||

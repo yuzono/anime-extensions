@@ -24,6 +24,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.utils.applicationContext
 import keiyoushi.utils.bodyString
@@ -35,21 +36,18 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import okhttp3.FormBody
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
-class Torrentio :
+@Source
+abstract class Torrentio :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "Torrentio Anime (Torrent / Debrid)"
-
-    override val baseUrl = "https://torrentio.strem.fun"
-
-    override val lang = "all"
 
     override val supportsLatest = true
 
@@ -204,6 +202,15 @@ class Torrentio :
     override fun getFilterList(): AnimeFilterList = AniListFilters.FILTER_LIST
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        val queryUrl = query.toHttpUrlOrNull()
+        if (queryUrl != null && queryUrl.host == baseUrl.toHttpUrl().host) {
+            val segments = queryUrl.pathSegments
+            val id = segments.getOrNull(1)
+                ?.takeIf { segments.first() == "anime" && it.isNotEmpty() }
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "$PREFIX_SEARCH$id", filters)
+        }
+
         if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH).trim()
             val meta = fetchAioMeta(id) ?: return AnimesPage(emptyList(), false)

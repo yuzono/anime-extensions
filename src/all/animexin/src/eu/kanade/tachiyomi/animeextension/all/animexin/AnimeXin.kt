@@ -10,18 +10,13 @@ import eu.kanade.tachiyomi.animeextension.all.animexin.extractors.VidstreamingEx
 import eu.kanade.tachiyomi.animeextension.all.animexin.extractors.YouTubeExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
+import keiyoushi.annotation.Source
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import org.jsoup.nodes.Document
 
-class AnimeXin :
-    AnimeStream(
-        "all",
-        "AnimeXin",
-        "https://animexin.dev",
-    ) {
-    override val id = 4620219025406449669
-
+@Source
+abstract class AnimeXin : AnimeStream() {
     // =========================== Anime Details ============================
     override fun getAnimeDescription(document: Document): String? {
         val description = super.getAnimeDescription(document) ?: return null

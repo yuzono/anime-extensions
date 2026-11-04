@@ -9,23 +9,23 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import okhttp3.FormBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class UFDub : ParsedAnimeHttpLegacySource() {
+@Source
+abstract class UFDub : ParsedAnimeHttpLegacySource() {
 
-    override val lang = "uk"
-    override val name = "UFDub"
     override val supportsLatest = true
     private val animeSelector = "div.short"
     private val nextPageSelector = "div.pagi-nav a"
 
-    override val baseUrl = "https://ufdub.com/anime"
-    private val baseUrlWithoutAnime = "https://ufdub.com"
+    private val baseUrlWithoutAnime: String get() = baseUrl.toHttpUrl().run { "$scheme://$host" }
 
     // =========================== Anime Details ============================
 

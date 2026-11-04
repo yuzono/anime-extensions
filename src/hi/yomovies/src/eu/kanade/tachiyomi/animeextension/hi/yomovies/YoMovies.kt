@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -21,17 +22,13 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class YoMovies :
+@Source
+abstract class YoMovies :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val name = "YoMovies"
-
     // TODO: Check frequency of url changes to potentially
     // add back overridable baseurl preference
-    override val baseUrl = "https://yomovies.town"
-
-    override val lang = "hi"
 
     override val supportsLatest = false
 

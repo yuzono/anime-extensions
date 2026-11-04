@@ -22,11 +22,8 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-abstract class DataLifeEngine(
-    override val name: String,
-    override val baseUrl: String,
-    override val lang: String,
-) : ParsedAnimeHttpLegacySource(),
+abstract class DataLifeEngine :
+    ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = false

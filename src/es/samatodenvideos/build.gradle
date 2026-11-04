@@ -1,8 +1,0 @@
-ext {
-    extName = "Samato's Den: Videos"
-    extClass = '.SamatoDenVideosFactory'
-    extVersionCode = 1
-    isNsfw = true
-}
-
-apply plugin: "kei.plugins.extension.legacy"

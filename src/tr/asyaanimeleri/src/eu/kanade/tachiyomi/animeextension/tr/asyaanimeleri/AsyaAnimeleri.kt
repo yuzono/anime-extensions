@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -26,12 +27,8 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class AsyaAnimeleri :
-    AnimeStream(
-        "tr",
-        "AsyaAnimeleri",
-        "https://asyaanimeleri.top",
-    ) {
+@Source
+abstract class AsyaAnimeleri : AnimeStream() {
     override val animeListUrl = "$baseUrl/series"
 
     override val dateFormatter by lazy {

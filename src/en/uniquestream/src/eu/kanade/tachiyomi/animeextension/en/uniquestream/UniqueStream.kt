@@ -22,13 +22,8 @@ import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import kotlin.math.ceil
 
-class UniqueStream : Source() {
-
-    override val name = "UniqueStream"
-
-    override val lang = "en"
-
-    override val baseUrl = "https://anime.uniquestream.net"
+@keiyoushi.annotation.Source
+abstract class UniqueStream : Source() {
 
     override val supportsLatest = true
 

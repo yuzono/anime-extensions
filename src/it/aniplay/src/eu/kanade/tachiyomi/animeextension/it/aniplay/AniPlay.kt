@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
@@ -28,23 +29,16 @@ import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class AniPlay :
+@Source
+abstract class AniPlay :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "AniPlay"
-
-    override val baseUrl = "https://aniplay.co"
-
-    override val lang = "it"
 
     override val supportsLatest = true
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
         .add("Origin", baseUrl)
-
-    override val versionId = 2 // Source was rewritten in Svelte
 
     private val preferences by getPreferencesLazy()
 

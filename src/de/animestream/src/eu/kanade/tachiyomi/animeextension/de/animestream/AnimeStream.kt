@@ -7,21 +7,15 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeStream : ParsedAnimeHttpLegacySource() {
-
-    override val name = "Anime-Stream"
-
-    override val baseUrl = "https://anime-stream.to"
-
-    override val lang = "de"
-
-    override val id: Long = 314593699490737069
+@Source
+abstract class AnimeStream : ParsedAnimeHttpLegacySource() {
 
     override val supportsLatest = false
 

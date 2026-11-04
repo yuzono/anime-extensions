@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
@@ -22,13 +23,8 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class MyRunningMan : ParsedAnimeHttpLegacySource() {
-
-    override val name = "My Running Man"
-
-    override val baseUrl = "https://www.myrunningman.com"
-
-    override val lang = "en"
+@Source
+abstract class MyRunningMan : ParsedAnimeHttpLegacySource() {
 
     override val supportsLatest = true
 

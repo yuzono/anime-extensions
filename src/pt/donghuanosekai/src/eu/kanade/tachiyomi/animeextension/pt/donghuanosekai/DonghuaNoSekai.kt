@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -29,15 +30,10 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class DonghuaNoSekai :
+@Source
+abstract class DonghuaNoSekai :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Donghua no Sekai"
-
-    override val baseUrl = "https://donghuanosekai.com"
-
-    override val lang = "pt-BR"
 
     override val supportsLatest = true
 

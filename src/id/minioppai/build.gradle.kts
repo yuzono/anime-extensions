@@ -1,0 +1,23 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
+plugins {
+    alias(kei.plugins.extension)
+}
+
+yuzono {
+    name = "MiniOppai"
+    versionCode = 11
+    contentWarning = ContentWarning.NSFW
+    libVersion = "14"
+    theme = "animestream"
+
+    source {
+        lang = "id"
+        baseUrl = "https://minioppai.org"
+    }
+}
+
+dependencies {
+    implementation(project(":lib:gdriveplayerextractor"))
+    implementation(project(":lib:unpacker"))
+}

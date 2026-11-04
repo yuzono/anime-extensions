@@ -43,7 +43,8 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.apache.commons.text.StringSubstitutor
 
-class Stremio : Source() {
+@keiyoushi.annotation.Source
+abstract class Stremio : Source() {
     override val migration: SharedPreferences.() -> Unit = {
         val addons = getString(ADDONS_KEY, ADDONS_DEFAULT)!!
             .replace(" ", "\n")
@@ -51,10 +52,6 @@ class Stremio : Source() {
     }
 
     override var baseUrl by LazyMutable { preferences.webUIUrl }
-
-    override val lang = "all"
-
-    override val name = "Stremio"
 
     override val supportsLatest = false
 

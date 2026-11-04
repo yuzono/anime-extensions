@@ -18,6 +18,7 @@ import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
 import org.nanohttpd.protocols.http.response.Status
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 class FlixProxyServer(
     private val headers: Headers,
@@ -33,8 +34,8 @@ class FlixProxyServer(
     // Dedicated client: 30s timeout, larger connection pool. DO NOT force HTTP/1.1 (causes 403s)
     private val proxyClient by lazy {
         OkHttpClient.Builder()
-            .readTimeout(30, TimeUnit.SECONDS)
-            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(30.seconds)
+            .connectTimeout(10.seconds)
             .connectionPool(ConnectionPool(30, 2, TimeUnit.MINUTES))
             .followRedirects(false)
             .followSslRedirects(false)

@@ -1,7 +1,0 @@
-ext {
-    extName = 'BeatZ Anime'
-    extClass = '.BeatZAnime'
-    extVersionCode = 3
-}
-
-apply plugin: "kei.plugins.extension.legacy"

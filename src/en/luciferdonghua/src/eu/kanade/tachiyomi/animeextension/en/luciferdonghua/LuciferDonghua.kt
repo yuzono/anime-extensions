@@ -8,17 +8,14 @@ import aniyomi.lib.rumbleextractor.RumbleExtractor
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
+import keiyoushi.annotation.Source
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.delegate
 import okhttp3.Response
 
-class LuciferDonghua :
-    AnimeStream(
-        "en",
-        "LuciferDonghua",
-        "https://luciferdonghua.in",
-    ) {
+@Source
+abstract class LuciferDonghua : AnimeStream() {
 
     // ============================== Preferences ==============================
     override val prefQualityValues = listOf("2160p", "1440p", "1080p", "720p", "480p", "360p", "240p", "144p")

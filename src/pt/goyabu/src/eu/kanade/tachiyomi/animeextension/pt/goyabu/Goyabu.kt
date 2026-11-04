@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -22,6 +23,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -33,15 +35,10 @@ private val DATE_FORMATTER by lazy {
     SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ENGLISH)
 }
 
-class Goyabu :
+@Source
+abstract class Goyabu :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Goyabu"
-
-    override val baseUrl = "https://goyabu.io"
-
-    override val lang = "pt-BR"
 
     override val supportsLatest = true
 
@@ -110,9 +107,9 @@ class Goyabu :
         query: String,
         filters: AnimeFilterList,
     ): AnimesPage {
-        if (query.startsWith("https://")) {
-            val url = query.toHttpUrl()
-            if (url.host != baseUrl.toHttpUrl().host) {
+        val url = query.toHttpUrlOrNull()
+        if (url != null) {
+            if (url.host != baseUrl.toHttpUrl().host && url.host !in LEGACY_HOSTS) {
                 throw Exception("Unsupported url")
             }
             val searchQuery = if (url.pathSegments.size > 1) {
@@ -259,6 +256,10 @@ class Goyabu :
 
     companion object {
         const val PREFIX_SEARCH = "path:"
+
+        // Old domains: keep in sync with their deeplink in build.gradle.kts
+        private val LEGACY_HOSTS = setOf("goyabu.to")
+
         private val REGEX_QUALITY by lazy { Regex("""(\d+)p""") }
 
         private const val PREF_QUALITY_KEY = "preferred_quality"

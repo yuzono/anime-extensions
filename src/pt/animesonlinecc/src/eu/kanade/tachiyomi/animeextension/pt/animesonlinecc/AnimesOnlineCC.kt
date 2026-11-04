@@ -7,18 +7,15 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimesOnlineCC :
-    DooPlay(
-        "pt-BR",
-        "Animes Online CC",
-        "https://animesonlinecc.to",
-    ) {
+@Source
+abstract class AnimesOnlineCC : DooPlay() {
 
     // ============================== Popular ===============================
     override fun popularAnimeSelector() = "article.w_item_b > a"

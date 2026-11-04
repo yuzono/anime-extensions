@@ -10,6 +10,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.bodyString
@@ -26,15 +27,13 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class UAKino : ParsedAnimeHttpLegacySource() {
+@Source
+abstract class UAKino : ParsedAnimeHttpLegacySource() {
 
-    override val lang = "uk"
-    override val name = "UAKino"
     override val supportsLatest = true
     private val animeSelector = "div.movie-item"
     private val nextPageSelector = "a:contains(Далі)"
 
-    override val baseUrl = "https://uakino.best"
     private val animeUrl = "/animeukr"
     private val popularUrl = "/f/c.year=1921,2026/sort=rating;desc"
 

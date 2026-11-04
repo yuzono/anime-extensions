@@ -10,6 +10,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
@@ -26,15 +27,10 @@ import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Subsplease :
+@Source
+abstract class Subsplease :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Subsplease"
-
-    override val baseUrl = "https://subsplease.org"
-
-    override val lang = "all"
 
     override val supportsLatest = true
 

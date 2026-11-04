@@ -1,7 +1,0 @@
-ext {
-    extName = 'VVVVID'
-    extClass = '.VVVVID'
-    extVersionCode = 1
-}
-
-apply plugin: "kei.plugins.extension.legacy"

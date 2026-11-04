@@ -10,6 +10,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
@@ -23,15 +24,10 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class OgladajAnime :
+@Source
+abstract class OgladajAnime :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "OgladajAnime"
-
-    override val baseUrl = "https://ogladajanime.pl"
-
-    override val lang = "pl"
 
     override val supportsLatest = true
 

@@ -20,6 +20,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
@@ -31,15 +32,10 @@ import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class EmpireStreaming :
+@Source
+abstract class EmpireStreaming :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "EmpireStreaming"
-
-    override val baseUrl by lazy { preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!! }
-
-    override val lang = "fr"
 
     override val supportsLatest = true
 
@@ -192,22 +188,6 @@ class EmpireStreaming :
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
-            key = PREF_DOMAIN_KEY
-            title = PREF_DOMAIN_TITLE
-            entries = PREF_DOMAIN_ENTRIES
-            entryValues = PREF_DOMAIN_VALUES
-            setDefaultValue(PREF_DOMAIN_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
-
-        ListPreference(screen.context).apply {
             key = PREF_HOSTER_KEY
             title = PREF_HOSTER_TITLE
             entries = PREF_HOSTER_ENTRIES
@@ -262,12 +242,6 @@ class EmpireStreaming :
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd", Locale.US)
         }
-
-        private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private const val PREF_DOMAIN_TITLE = "Preferred domain (requires app restart)"
-        private const val PREF_DOMAIN_DEFAULT = "https://empire-stream.net"
-        private val PREF_DOMAIN_ENTRIES = arrayOf("https://empire-stream.net", "https://empire-streaming.app")
-        private val PREF_DOMAIN_VALUES = PREF_DOMAIN_ENTRIES
 
         private const val PREF_HOSTER_KEY = "preferred_hoster_new"
         private const val PREF_HOSTER_TITLE = "Hébergeur standard"

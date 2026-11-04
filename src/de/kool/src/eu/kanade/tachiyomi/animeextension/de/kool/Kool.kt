@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.POST
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.toJsonRequestBody
@@ -31,15 +32,10 @@ import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 
-class Kool :
+@Source
+abstract class Kool :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Kool"
-
-    override val baseUrl = "https://www.kool.to"
-
-    override val lang = "de"
 
     override val supportsLatest = false
 

@@ -8,18 +8,15 @@ import aniyomi.lib.sibnetextractor.SibnetExtractor
 import eu.kanade.tachiyomi.animeextension.pl.desuonline.extractors.CDAExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
+import keiyoushi.annotation.Source
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class DesuOnline :
-    AnimeStream(
-        "pl",
-        "desu-online",
-        "https://desu-online.pl",
-    ) {
+@Source
+abstract class DesuOnline : AnimeStream() {
     override val dateFormatter by lazy {
         SimpleDateFormat("d MMMM, yyyy", Locale("pl", "PL"))
     }

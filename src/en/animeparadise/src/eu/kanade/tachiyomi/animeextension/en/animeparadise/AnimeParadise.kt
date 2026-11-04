@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
@@ -23,19 +24,14 @@ import okhttp3.Request
 import okhttp3.Response
 import java.util.concurrent.ConcurrentHashMap
 
-class AnimeParadise :
+@Source
+abstract class AnimeParadise :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "AnimeParadise"
-
-    override val baseUrl = "https://www.animeparadise.moe"
 
     private val apiUrl = "https://api.animeparadise.moe"
 
     private val streamUrl = "https://stream.animeparadise.moe"
-
-    override val lang = "en"
 
     override val supportsLatest = true
 

@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.json.Json
@@ -26,15 +27,10 @@ import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class ArabAnime :
+@Source
+abstract class ArabAnime :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "ArabAnime"
-
-    override val baseUrl = "https://www.arabanime.net"
-
-    override val lang = "ar"
 
     override val supportsLatest = true
 

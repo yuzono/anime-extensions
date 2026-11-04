@@ -1,8 +1,0 @@
-ext {
-    extName = "DattebayoBR"
-    extClass = ".DattebayoBR"
-    extVersionCode = 1
-    isNsfw = false
-}
-
-apply plugin: "kei.plugins.extension.legacy"

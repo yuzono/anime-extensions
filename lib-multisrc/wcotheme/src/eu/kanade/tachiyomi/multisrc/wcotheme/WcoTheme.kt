@@ -46,8 +46,6 @@ abstract class WcoTheme :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val lang = "en"
-
     override val supportsLatest = true
 
     override fun headersBuilder() = Headers.Builder()

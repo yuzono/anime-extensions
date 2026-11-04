@@ -6,18 +6,15 @@ import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addListQueryParameter
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addQueryParameterIfNotEmpty
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class AnimeSogo :
+@Source
+abstract class AnimeSogo :
     AnikotoTheme(
-        "en",
-        "AnimeSogo",
-        domainEntries = listOf(
-            "animesogo.to",
-        ),
         hosterNames = listOf("HD-1", "HD-2", "HD-3", "VidPlay-1", "Kiwi-Stream"),
     ) {
 

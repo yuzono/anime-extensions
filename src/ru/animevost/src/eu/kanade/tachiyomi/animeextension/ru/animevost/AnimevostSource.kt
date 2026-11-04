@@ -9,6 +9,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.POST
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addListPreference
@@ -33,7 +34,8 @@ data class AnimeDescription(
     val description: String? = null,
 )
 
-class AnimevostSource(override val name: String, override val baseUrl: String) :
+@Source
+abstract class AnimevostSource :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
     private enum class SortBy(val by: String) {
@@ -50,8 +52,6 @@ class AnimevostSource(override val name: String, override val baseUrl: String) :
     }
 
     private val preferences by getPreferencesLazy()
-
-    override val lang = "ru"
 
     override val supportsLatest = true
 

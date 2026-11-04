@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -33,15 +34,10 @@ import org.jsoup.nodes.Element
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-class AnimesDigital :
+@Source
+abstract class AnimesDigital :
     ParsedAnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "Animes Digital"
-
-    override val baseUrl = "https://animesdigital.org"
-
-    override val lang = "pt-BR"
 
     override val supportsLatest = true
 

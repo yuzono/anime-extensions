@@ -20,6 +20,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.commonEmptyRequestBody
 import keiyoushi.utils.formatBytes
@@ -39,13 +40,10 @@ import uy.kohesive.injekt.injectLazy
 import java.net.URLEncoder
 import java.security.MessageDigest
 
-class GoogleDrive :
+@Source
+abstract class GoogleDrive :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Google Drive"
-
-    override val id = 4222017068256633289
 
     override var baseUrl = "https://drive.google.com"
 
@@ -53,8 +51,6 @@ class GoogleDrive :
     private val baseUrlInternal by lazy {
         preferences.domainList.split(";").firstOrNull()
     }
-
-    override val lang = "all"
 
     override val supportsLatest = false
 

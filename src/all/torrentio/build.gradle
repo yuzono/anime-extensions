@@ -1,8 +1,0 @@
-ext {
-    extName = 'Torrentio (Torrent / Debrid)'
-    extClass = '.Torrentio'
-    libVersion = 16
-    extVersionCode = 11
-    isNsfw = false
-}
-apply plugin: "kei.plugins.extension.legacy"

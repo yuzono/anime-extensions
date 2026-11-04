@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.bodyString
@@ -36,15 +37,12 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
-class Rezka :
+@Source
+abstract class Rezka :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "HDRezka"
-
-    override val lang = "ru"
 
     override val supportsLatest = true
 
@@ -72,7 +70,7 @@ class Rezka :
     // get_cdn_series either answers within a second or hangs; cap it so a hang falls
     // through to the error path instead of holding the player for the app's 2-minute limit.
     private val ajaxClient: OkHttpClient by lazy {
-        client.newBuilder().callTimeout(AJAX_TIMEOUT_SECONDS, TimeUnit.SECONDS).build()
+        client.newBuilder().callTimeout(AJAX_TIMEOUT_SECONDS.seconds).build()
     }
 
     private fun ajaxHeaders(): Headers = headers.newBuilder()

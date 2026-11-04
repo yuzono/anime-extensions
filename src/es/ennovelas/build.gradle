@@ -1,7 +1,0 @@
-ext {
-    extName = 'EnNovelas (Dead)'
-    extClass = '.EnNovelas'
-    extVersionCode = 28
-}
-
-apply plugin: "kei.plugins.extension.legacy"

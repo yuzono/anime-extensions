@@ -44,7 +44,7 @@ class VidnestExtractor(private val client: OkHttpClient, private val headers: He
             val label = match.groupValues[2]
             Video(
                 videoUrl = if (file.startsWith("http")) file else origin + file,
-                videoTitle = "Vidnest - ${label.ifEmpty { "Video" }}",
+                videoTitle = label.ifEmpty { "Video" },
                 resolution = RESOLUTION_REGEX.find(label)?.groupValues?.get(1)?.toIntOrNull(),
                 headers = videoHeaders,
             )

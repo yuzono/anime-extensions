@@ -23,6 +23,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -30,15 +31,10 @@ import keiyoushi.utils.parseAs
 import okhttp3.Headers
 import okhttp3.Response
 
-class MoflixStream :
+@Source
+abstract class MoflixStream :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Moflix-Stream"
-
-    override val baseUrl = "https://moflix-stream.xyz"
-
-    override val lang = "de"
 
     override val supportsLatest = false
 

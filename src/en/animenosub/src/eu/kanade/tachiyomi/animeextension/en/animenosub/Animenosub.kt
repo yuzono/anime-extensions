@@ -9,16 +9,13 @@ import eu.kanade.tachiyomi.animeextension.en.animenosub.extractors.VtubeExtracto
 import eu.kanade.tachiyomi.animeextension.en.animenosub.extractors.WolfstreamExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
+import keiyoushi.annotation.Source
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
 import org.jsoup.nodes.Element
 
-class Animenosub :
-    AnimeStream(
-        "en",
-        "Animenosub",
-        "https://animenosub.to",
-    ) {
+@Source
+abstract class Animenosub : AnimeStream() {
     // ============================== Episodes ==============================
     override fun getEpisodeName(element: Element, epNum: String): String = element.selectFirst("div.epl-title")?.text()
         ?.takeIf { !it.contains("Episode $epNum", true) }

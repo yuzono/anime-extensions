@@ -10,15 +10,12 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class JetAnime :
-    DooPlay(
-        "fr",
-        "JetAnime",
-        "https://ssl.jetanimes.com",
-    ) {
+@Source
+abstract class JetAnime : DooPlay() {
 
     // ============================== Popular ===============================
 

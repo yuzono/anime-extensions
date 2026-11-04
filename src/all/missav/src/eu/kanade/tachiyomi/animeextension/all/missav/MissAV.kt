@@ -15,11 +15,10 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.lib.unpacker.Unpacker
 import keiyoushi.utils.AnimeHttpLegacySource
-import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addListPreference
-import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
@@ -32,33 +31,24 @@ import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 
-class MissAV :
+@Source
+abstract class MissAV :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val name = "MissAV"
-
-    override val lang = "all"
-
     private val preferences by getPreferencesLazy()
-
-    override var baseUrl: String
-        by preferences.delegate(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
 
     override val supportsLatest = true
 
-    private var docHeaders by LazyMutable {
-        newHeaders()
-    }
+    // Built on each use, so a change of the mirror preference applies at once
+    private val docHeaders: Headers
+        get() = headers.newBuilder().apply {
+            set("Origin", baseUrl)
+            set("Referer", "$baseUrl/")
+        }.build()
 
-    private fun newHeaders(): Headers = headers.newBuilder().apply {
-        set("Origin", baseUrl)
-        set("Referer", "$baseUrl/")
-    }.build()
-
-    private var playlistExtractor by LazyMutable {
-        PlaylistUtils(client, docHeaders)
-    }
+    private val playlistExtractor: PlaylistUtils
+        get() = PlaylistUtils(client, docHeaders)
 
     private val m3u8Integration by lazy {
         M3u8Integration(client)
@@ -254,19 +244,6 @@ class MissAV :
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
-            key = PREF_DOMAIN_KEY,
-            title = PREF_DOMAIN_TITLE,
-            entries = PREF_DOMAIN_ENTRIES,
-            entryValues = PREF_DOMAIN_ENTRIES,
-            default = PREF_DOMAIN_DEFAULT,
-            summary = "%s",
-        ) {
-            baseUrl = it
-            docHeaders = newHeaders()
-            playlistExtractor = PlaylistUtils(client, docHeaders)
-        }
-
-        screen.addListPreference(
             key = PREF_QUALITY,
             title = PREF_QUALITY_TITLE,
             entries = PREF_QUALITY_ENTRIES,
@@ -292,11 +269,6 @@ class MissAV :
     }
 
     companion object {
-        private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private const val PREF_DOMAIN_TITLE = "Preferred domain (requires app restart)"
-        private val PREF_DOMAIN_ENTRIES = listOf("https://missav.live", "https://missav.ai", "https://missav.ws")
-        private val PREF_DOMAIN_DEFAULT = PREF_DOMAIN_ENTRIES.first()
-
         private const val PREF_QUALITY = "preferred_quality"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
         private val PREF_QUALITY_ENTRIES = listOf("720p", "480p", "360p")

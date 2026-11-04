@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl
@@ -23,12 +24,8 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class TRAnimeCI :
-    AnimeStream(
-        "tr",
-        "TRAnimeCI",
-        "https://tranimaci.com",
-    ) {
+@Source
+abstract class TRAnimeCI : AnimeStream() {
     override val client by lazy {
         network.client.newBuilder()
             .addInterceptor(ShittyProtectionInterceptor(network.client))

@@ -6,13 +6,10 @@ import aniyomi.lib.voeextractor.VoeExtractor
 import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
+import keiyoushi.annotation.Source
 
-class Tiodonghua :
-    AnimeStream(
-        "es",
-        "Tiodonghua.com",
-        "https://anime.tiodonghua.com",
-    ) {
+@Source
+abstract class Tiodonghua : AnimeStream() {
 
     // ============================ Video Links =============================
     private val okruExtractor by lazy { OkruExtractor(client) }

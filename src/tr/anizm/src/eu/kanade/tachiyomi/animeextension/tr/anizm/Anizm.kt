@@ -27,6 +27,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -40,15 +41,10 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
 
-class Anizm :
+@Source
+abstract class Anizm :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Anizm"
-
-    override val baseUrl = "https://anizm.net"
-
-    override val lang = "tr"
 
     override val supportsLatest = true
 
@@ -222,7 +218,7 @@ class Anizm :
         client.newBuilder().followRedirects(false).build()
     }
 
-    private val aincradExtractor by lazy { AincradExtractor(client, headers) }
+    private val aincradExtractor by lazy { AincradExtractor(client, headers, baseUrl) }
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val filemoonExtractor by lazy { FilemoonExtractor(client) }
     private val gdrivePlayerExtractor by lazy { GdrivePlayerExtractor(client) }

@@ -6,18 +6,15 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 
-class MuitoHentai : ParsedAnimeHttpLegacySource() {
-    override val name = "Muito Hentai"
-
-    override val baseUrl = "https://www.muitohentai.com"
-
-    override val lang = "pt-BR"
+@Source
+abstract class MuitoHentai : ParsedAnimeHttpLegacySource() {
 
     override val supportsLatest = true
 

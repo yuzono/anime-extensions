@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.lib.i18n.Intl
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
@@ -32,16 +33,12 @@ import org.jsoup.nodes.Document
 import uy.kohesive.injekt.injectLazy
 import java.util.Locale
 
-class RouVideo(
-    override val lang: String = "all",
-) : AnimeHttpLegacySource() {
+@Source
+abstract class RouVideo : AnimeHttpLegacySource() {
 
-    override val name = "肉視頻"
+    private val videoUrl: String get() = baseUrl.toHttpUrl().run { "$scheme://$host" }
 
-    override val baseUrl = "https://rou.video/home"
-    private val videoUrl = "https://rou.video"
-
-    private val apiUrl = "https://rou.video/api"
+    private val apiUrl: String get() = "$videoUrl/api"
 
     override val supportsLatest = true
 

@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.toJsonRequestBody
@@ -23,21 +24,16 @@ import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class VVVVID :
+@Source
+abstract class VVVVID :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "VVVVID"
-
-    override val baseUrl = "https://www.vvvvid.it"
 
     private var connId = ""
     private var sessionId = ""
 
     private var currentPrimaryPage = "anime"
     private var currentChannelId = ""
-
-    override val lang = "it"
 
     override val supportsLatest = true
 

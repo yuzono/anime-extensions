@@ -1,7 +1,0 @@
-ext {
-    extName = 'Nivod'
-    extClass = '.Nivod'
-    extVersionCode = 1
-}
-
-apply plugin: "kei.plugins.extension.legacy"

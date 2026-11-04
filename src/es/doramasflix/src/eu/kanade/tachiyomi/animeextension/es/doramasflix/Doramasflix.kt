@@ -29,6 +29,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -49,13 +50,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class Doramasflix :
+@Source
+abstract class Doramasflix :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Doramasflix"
-
-    override val baseUrl = "https://doramasflix.in"
 
     private val apiUrl = "https://sv1.fluxcedene.net/api/gql"
 
@@ -63,8 +61,6 @@ class Doramasflix :
     // with other calculated strings, the milliseconds indicate the expiration date
     // of the token, so it was calculated to expire in 100 years.
     private val accessPlatform = "RxARncfg1S_MdpSrCvreoLu_SikCGMzE1NzQzODc3NjE2MQ=="
-
-    override val lang = "es"
 
     override val supportsLatest = true
 
@@ -99,17 +95,19 @@ class Doramasflix :
 
     private val preferences by getPreferencesLazy()
 
-    private val popularRequestHeaders = Headers.headersOf(
-        "authority", "sv1.fluxcedene.net",
-        "accept", "application/json, text/plain, */*",
-        "content-type", "application/json;charset=UTF-8",
-        "origin", "https://doramasflix.in",
-        "referer", "https://doramasflix.in/",
-        "platform", "doramasflix",
-        "authorization", "Bear",
-        "x-access-jwt-token", "",
-        "x-access-platform", accessPlatform,
-    )
+    private val popularRequestHeaders by lazy {
+        Headers.headersOf(
+            "authority", "sv1.fluxcedene.net",
+            "accept", "application/json, text/plain, */*",
+            "content-type", "application/json;charset=UTF-8",
+            "origin", baseUrl,
+            "referer", "$baseUrl/",
+            "platform", "doramasflix",
+            "authorization", "Bear",
+            "x-access-jwt-token", "",
+            "x-access-platform", accessPlatform,
+        )
+    }
 
     private fun externalOrInternalImg(url: String, isThumb: Boolean = false): String = if (url.contains("https")) {
         url

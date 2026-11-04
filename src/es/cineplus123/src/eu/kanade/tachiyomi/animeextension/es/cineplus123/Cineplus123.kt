@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.catchingFlatMapBlocking
 import okhttp3.FormBody
@@ -19,12 +20,8 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class Cineplus123 :
-    DooPlay(
-        "es",
-        "Cineplus123",
-        "https://cineplus123.org",
-    ) {
+@Source
+abstract class Cineplus123 : DooPlay() {
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int) = GET("$baseUrl/tendencias/$page")
 

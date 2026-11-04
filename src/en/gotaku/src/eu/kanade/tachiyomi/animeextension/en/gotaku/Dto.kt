@@ -46,6 +46,7 @@ class TitleDto(
     val name: String = "",
     @SerialName("poster_url") val posterUrl: String? = null,
     val format: String? = null,
+    @SerialName("is_adult") val isAdult: Boolean? = null,
     val episodes: EpisodesInfoDto? = null,
 ) {
     fun toSAnime(): SAnime = SAnime.create().apply {
@@ -67,10 +68,21 @@ class EpisodesInfoDto(
 class DetailsResponseDto(val data: DetailsDataDto = DetailsDataDto())
 
 @Serializable
+class SeasonDto(
+    val id: String,
+    val name: String? = null,
+    @SerialName("full_name") val fullName: String? = null,
+    val url: String? = null,
+    @SerialName("poster_url") val posterUrl: String? = null,
+    @SerialName("is_current") val isCurrent: Boolean? = null,
+)
+
+@Serializable
 class DetailsDataDto(
     val title: TitleDetailDto = TitleDetailDto(),
     val relations: List<RelatedTitleDto> = emptyList(),
     val recommendations: List<RelatedTitleDto> = emptyList(),
+    val seasons: List<SeasonDto> = emptyList(),
 )
 
 @Serializable
@@ -123,7 +135,7 @@ class RelatedTitleDto(
     val relation: String? = null,
 )
 
-// ======================= Decrypted (?k=1) payloads ========================
+// ======================= Decrypted (?k=N) payloads ========================
 // INFO decrypts are wrapped in a "data" envelope. The MANIFEST decrypt
 // (different KDF, no envelope) is modeled below.
 @Serializable

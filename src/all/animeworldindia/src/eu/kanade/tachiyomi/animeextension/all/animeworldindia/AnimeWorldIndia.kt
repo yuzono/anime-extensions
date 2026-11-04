@@ -9,6 +9,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.Serializable
@@ -19,15 +20,23 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 
-class AnimeWorldIndia(
-    final override val lang: String,
-    private val language: String,
-) : ParsedAnimeHttpLegacySource(),
+@Source
+abstract class AnimeWorldIndia :
+    ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val name = "AnimeWorld India"
-
-    override val baseUrl = "https://anime-world.co"
+    private val language: String
+        get() = when (lang) {
+            "bn" -> "bengali"
+            "en" -> "english"
+            "hi" -> "hindi"
+            "ja" -> "japanese"
+            "ml" -> "malayalam"
+            "mr" -> "marathi"
+            "ta" -> "tamil"
+            "te" -> "telugu"
+            else -> ""
+        }
 
     override val supportsLatest = true
 

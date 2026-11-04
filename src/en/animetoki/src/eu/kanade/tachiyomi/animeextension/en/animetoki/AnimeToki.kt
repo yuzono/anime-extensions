@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.get
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.post
@@ -28,19 +29,17 @@ import okhttp3.Response
 import org.jsoup.nodes.Element
 import java.net.URLDecoder
 import java.text.Normalizer
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
-class AnimeToki : AnimeHttpSource() {
+@Source
+abstract class AnimeToki : AnimeHttpSource() {
 
-    override val name = "AnimeToki"
-    override val baseUrl = "https://animetoki.com"
-    override val lang = "en"
     override val supportsLatest = true
 
     override val client = network.client.newBuilder()
         .addInterceptor(SessionWarmUpInterceptor())
         // Drive folder listings can take ~1min server-side to generate.
-        .readTimeout(60, TimeUnit.SECONDS)
+        .readTimeout(60.seconds)
         .build()
 
     override fun headersBuilder(): okhttp3.Headers.Builder = okhttp3.Headers.Builder()

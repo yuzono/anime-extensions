@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.anihq
 
 import android.content.SharedPreferences
+import android.util.Base64
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.pixeldrainextractor.PixelDrainExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
@@ -15,6 +16,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
@@ -36,15 +38,10 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.roundToInt
 
-class AniHQ :
+@Source
+abstract class AniHQ :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "AniHQ"
-
-    override val baseUrl = "https://anihq.cc"
-
-    override val lang = "en"
 
     override val supportsLatest = true
 
@@ -80,14 +77,35 @@ class AniHQ :
         for (page in listOf("$baseUrl/search/", "$baseUrl/")) {
             runCatching {
                 client.newCall(GET(page, headers)).execute().use { response ->
-                    nonceRegex.find(response.body.string())
-                        ?.groupValues?.get(1)
-                        ?.let { searchNonce = it }
+                    val html = response.body.string()
+                    val document = Jsoup.parse(html)
+                    val scriptSrc = document.selectFirst("script#kira-js-holder-js-before")?.attr("src")
+                        ?: document.selectFirst("script[src^='data:text/javascript;base64,']")?.attr("src")
+
+                    if (!scriptSrc.isNullOrBlank()) {
+                        val base64Data = scriptSrc.substringAfter("data:text/javascript;base64,", "")
+                        if (base64Data.isNotBlank()) {
+                            val decoded = runCatching {
+                                String(Base64.decode(base64Data, Base64.DEFAULT), Charsets.UTF_8)
+                            }.getOrNull()
+                            if (decoded != null) {
+                                nonceRegex.find(decoded)?.groupValues?.get(1)?.let {
+                                    searchNonce = it
+                                }
+                            }
+                        }
+                    }
+
+                    if (searchNonce == null) {
+                        nonceRegex.find(html)?.groupValues?.get(1)?.let {
+                            searchNonce = it
+                        }
+                    }
                 }
             }
             searchNonce?.let { return it }
         }
-        throw Exception("Unable to fetch search nonce")
+        throw Exception("Could not fetch search nonce")
     }
 
     private suspend fun <T> withNonceRetry(block: suspend () -> T): T = try {

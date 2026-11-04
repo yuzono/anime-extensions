@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.pt.anitube
 
-import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animeextension.pt.anitube.extractors.AnitubeExtractor
@@ -12,8 +11,10 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
+import keiyoushi.source.CustomUrlPreferences
 import keiyoushi.utils.AnimeHttpLegacySource
-import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferences
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.async
@@ -28,20 +29,15 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Anitube :
+@Source
+abstract class Anitube :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val name = "Anitube"
-
-    override val baseUrl: String
-        get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
-
-    override val lang = "pt-BR"
-
     override val supportsLatest = true
 
-    private val preferences by getPreferencesLazy {
+    // Not lazy, so a domain saved by the old setting moves before the generated baseUrl first reads the preferences
+    private val preferences = getPreferences {
         getString("preferred_quality", null)?.let {
             val newValue = when (it) {
                 "SD" -> "480p"
@@ -53,6 +49,7 @@ class Anitube :
                 .remove("preferred_quality")
                 .apply()
         }
+        CustomUrlPreferences.migrate(this, "preferred_domain", "https://www.anitube.vip")
     }
 
     override fun headersBuilder() = super.headersBuilder()
@@ -111,7 +108,7 @@ class Anitube :
     ): AnimesPage {
         if (query.startsWith("https://")) {
             val url = query.toHttpUrl()
-            if (url.host != baseUrl.toHttpUrl().host) {
+            if (url.host.removePrefix("www.") != baseUrl.toHttpUrl().host.removePrefix("www.")) {
                 throw Exception("Unsupported url")
             }
             if (url.pathSegments.size < 2) {
@@ -288,21 +285,6 @@ class Anitube :
             setDefaultValue(PREF_QUALITY_DEFAULT)
             summary = "%s"
         }.also(screen::addPreference)
-
-        // Auth Code
-        EditTextPreference(screen.context).apply {
-            key = PREF_DOMAIN_KEY
-            title = PREF_DOMAIN_TITLE
-            setDefaultValue(PREF_DOMAIN_DEFAULT)
-            summary = getDomainPrefSummary()
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val value = (newValue as String).trim().ifBlank { PREF_DOMAIN_DEFAULT }
-                preferences.edit().putString(key, value).apply()
-                summary = getDomainPrefSummary(value)
-                true
-            }
-        }.also(screen::addPreference)
     }
 
     // ============================= Utilities ==============================
@@ -345,22 +327,12 @@ class Anitube :
         )
     }
 
-    private fun getDomainPrefSummary(value: String? = null): String {
-        val domain = value ?: preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
-        return """$domain
- Para qualquer alteração ser aplicada, o reinício da app é necessário.
-        """.trimMargin()
-    }
-
     companion object {
         const val PREFIX_SEARCH = "id:"
         private val DATE_FORMATTER by lazy { SimpleDateFormat("dd/MM/yyyy", Locale.ROOT) }
 
         private const val ACCEPT_LANGUAGE = "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
 
-        private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private const val PREF_DOMAIN_TITLE = "Domínio preferido (requer reinicialização da app)"
-        private const val PREF_DOMAIN_DEFAULT = "https://www.anitube.vip"
         private const val PREF_QUALITY_KEY = "preferred_quality_new"
         private const val PREF_QUALITY_TITLE = "Qualidade preferida"
         private const val PREF_QUALITY_DEFAULT = "720p"

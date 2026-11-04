@@ -25,6 +25,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
@@ -39,15 +40,10 @@ import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.net.URLEncoder
 
-class AnimeMovil :
+@Source
+abstract class AnimeMovil :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "AnimeMovil"
-
-    override val baseUrl = "https://animemeow.xyz"
-
-    override val lang = "es"
 
     private val json: Json by injectLazy()
 
@@ -157,7 +153,7 @@ class AnimeMovil :
 
                 val requestBody = "{\"show\": \"$sid\",\"temporada\": \"$t\"}"
                 val request = Request.Builder()
-                    .url("https://animemeow.xyz/api/obtener_episodios_x_temporada/")
+                    .url("$baseUrl/api/obtener_episodios_x_temporada/")
                     .post(requestBody.toJsonRequestBody())
                     .header("authority", response.request.url.host)
                     .header("origin", "https://${response.request.url.host}")

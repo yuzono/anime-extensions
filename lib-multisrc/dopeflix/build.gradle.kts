@@ -1,11 +1,12 @@
-import keiyoushi.gradle.extensions.baseVersionCode
-
 plugins {
     alias(kei.plugins.multisrc)
 }
 
-baseVersionCode = 26
-
 dependencies {
     api(project(":lib:dopeflixextractor"))
+}
+
+yuzono {
+    baseVersionCode = 27
+    libVersion = "14"
 }

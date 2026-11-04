@@ -1,10 +1,6 @@
-import keiyoushi.gradle.extensions.baseVersionCode
-
 plugins {
     alias(kei.plugins.multisrc)
 }
-
-baseVersionCode = 13
 
 dependencies {
     api(project(":lib:vudeoextractor"))
@@ -27,4 +23,9 @@ dependencies {
     api(project(":lib:vidguardextractor"))
     api(project(":lib:universalextractor"))
     api(project(":lib:vidhideextractor"))
+}
+
+yuzono {
+    baseVersionCode = 13
+    libVersion = "14"
 }

@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.ar.faselhd
 
 import android.content.SharedPreferences
-import android.text.InputType
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -12,12 +11,13 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.lib.synchrony.Deobfuscator
+import keiyoushi.source.CustomUrlPreferences
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
-import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.delegate
-import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferences
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -26,18 +26,15 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class FASELHD :
+@Source
+abstract class FASELHD :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val name = "فاصل اعلاني"
-
-    private val preferences by getPreferencesLazy()
-
-    override val baseUrl
-        get() = preferences.customDomain.ifBlank { "https://www.faselhds.biz" }
-
-    override val lang = "ar"
+    // Not lazy, so a domain saved by the old setting moves before the generated baseUrl first reads the preferences
+    private val preferences = getPreferences {
+        CustomUrlPreferences.migrate(this, "custom_domain", "https://www.faselhds.biz")
+    }
 
     override val supportsLatest = true
 
@@ -270,7 +267,6 @@ class FASELHD :
     }
 
     // preferred quality settings
-    private var SharedPreferences.customDomain by preferences.delegate(PREF_DOMAIN_CUSTOM_KEY, "")
     private var SharedPreferences.quality by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -282,22 +278,9 @@ class FASELHD :
             default = PREF_QUALITY_DEFAULT,
             summary = "%s",
         )
-
-        screen.addEditTextPreference(
-            key = PREF_DOMAIN_CUSTOM_KEY,
-            default = "",
-            title = "المجال المخصص",
-            dialogMessage = "أدخل المجال المخصص (على سبيل المثال، https://example.com)",
-            summary = preferences.customDomain,
-            getSummary = { it },
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI,
-            validate = { it.isBlank() || (it.toHttpUrlOrNull() != null && !it.endsWith("/")) },
-            validationMessage = { "عنوان URL غير صالح أو مشوه أو ينتهي بشرطة مائلة" },
-        )
     }
 
     companion object {
-        private const val PREF_DOMAIN_CUSTOM_KEY = "custom_domain"
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_DEFAULT = "1080"
     }

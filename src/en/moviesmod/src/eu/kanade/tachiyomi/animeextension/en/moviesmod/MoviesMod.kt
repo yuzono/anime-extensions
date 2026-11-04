@@ -27,17 +27,10 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Response
 import java.util.concurrent.atomic.AtomicBoolean
 
-class MoviesMod : Source() {
-
-    override val id = 2828515480418041073L
-
-    override val name = "Movies Mod"
-
-    override val lang = "en"
+@keiyoushi.annotation.Source
+abstract class MoviesMod : Source() {
 
     override val supportsLatest = false
-
-    override val baseUrl = "https://moviesmod.zone"
 
     // mmodlist redirects to the current domain; check it responds, else follow wherever baseUrl redirects
     private val currentBaseUrl by lazy {

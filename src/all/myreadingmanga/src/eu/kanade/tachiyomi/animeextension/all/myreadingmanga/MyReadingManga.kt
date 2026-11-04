@@ -19,6 +19,7 @@ import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.addEditTextPreference
@@ -38,15 +39,19 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
-open class MyReadingManga(override val lang: String, private val siteLang: String, private val latestLang: String) :
+@Source
+abstract class MyReadingManga :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
     /*
      *  ========== Basic Info ==========
      */
-    override val name = "MyReadingManga"
-    final override val baseUrl = "https://myreadingmanga.info"
+    private val siteLang: String
+        get() = siteLanguages.getValue(lang).siteLang
+
+    private val latestLang: String
+        get() = siteLanguages.getValue(lang).latestLang
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .set("User-Agent", "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.7258.159 Mobile Safari/537.36")
@@ -504,3 +509,45 @@ open class MyReadingManga(override val lang: String, private val siteLang: Strin
         return List(length) { charPool.random() }.joinToString("")
     }
 }
+
+private class SiteLanguage(val siteLang: String, val latestLang: String = siteLang)
+
+// These should all be valid. Uncomment and add the language code to build.gradle.kts to enable
+private val siteLanguages = mapOf(
+    "ar" to SiteLanguage("Arabic"),
+    "id" to SiteLanguage("Bahasa Indonesia", "bahasa"),
+    "bg" to SiteLanguage("Bulgarian"),
+    "zh-hk" to SiteLanguage("Cantonese"),
+    "zh" to SiteLanguage("Chinese"),
+    "zh-tw" to SiteLanguage("Chinese (Traditional)", "traditional-chinese"),
+//    "hr" to SiteLanguage("Croatian"),
+    "cs" to SiteLanguage("Czech"),
+    "da" to SiteLanguage("Danish"),
+    "en" to SiteLanguage("English"),
+    "fil" to SiteLanguage("Filipino"),
+    "fi" to SiteLanguage("Finnish"),
+    "nl" to SiteLanguage("Flemish Dutch", "flemish-dutch"),
+    "fr" to SiteLanguage("French"),
+    "de" to SiteLanguage("German"),
+    "el" to SiteLanguage("Greek"),
+    "he" to SiteLanguage("Hebrew"),
+    "hi" to SiteLanguage("Hindi"),
+    "hu" to SiteLanguage("Hungarian"),
+    "it" to SiteLanguage("Italian"),
+    "ja" to SiteLanguage("Japanese", "jp"),
+    "ko" to SiteLanguage("Korean"),
+//    "lt" to SiteLanguage("Lithuanian"),
+    "ms" to SiteLanguage("Malay"),
+    "no" to SiteLanguage("Norwegian Bokmål", "norwegian-bokmal"),
+//    "fa" to SiteLanguage("Persian"),
+    "pl" to SiteLanguage("Polish"),
+    "pt-BR" to SiteLanguage("Portuguese"),
+    "ro" to SiteLanguage("Romanian"),
+    "ru" to SiteLanguage("Russian"),
+//    "sk" to SiteLanguage("Slovak"),
+    "es" to SiteLanguage("Spanish"),
+    "sv" to SiteLanguage("Swedish"),
+    "th" to SiteLanguage("Thai"),
+    "tr" to SiteLanguage("Turkish"),
+    "vi" to SiteLanguage("Vietnamese"),
+)

@@ -15,6 +15,7 @@ import java.net.URLEncoder
 import java.util.Collections
 import java.util.LinkedHashMap
 import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * So, we require this local proxy server because,
@@ -36,8 +37,8 @@ class SettlarProxy(
         .build()
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(10.seconds)
+        .readTimeout(30.seconds)
         .connectionPool(ConnectionPool(10, 2, TimeUnit.MINUTES))
         .build()
 

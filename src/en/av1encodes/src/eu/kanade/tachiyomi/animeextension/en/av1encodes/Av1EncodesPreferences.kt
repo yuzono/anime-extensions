@@ -6,11 +6,6 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
 
-internal const val PREF_DOMAIN_KEY = "preferred_domain"
-internal const val PREF_DOMAIN_DEFAULT = "https://av1encodes.com"
-internal val DOMAIN_ENTRIES = listOf("av1encodes.com (default)", "animealpha.cc", "av1please.com (mirror)")
-internal val DOMAIN_VALUES = listOf("https://av1encodes.com", "https://animealpha.cc", "https://av1please.com")
-
 internal const val PREF_QUALITY_KEY = "preferred_quality"
 internal val QUALITY_ENTRIES = listOf("1080p", "720p", "480p", "360p")
 internal val QUALITY_VALUES = listOf("1920 x 1080", "1280 x 720", "854 x 480", "640 x 360")
@@ -24,15 +19,6 @@ internal const val PREF_SHOW_TORRENT_KEY = "show_torrent"
 internal const val PREF_SHOW_TORRENT_DEFAULT = false
 
 internal fun buildPreferenceScreen(screen: PreferenceScreen) {
-    screen.addListPreference(
-        key = PREF_DOMAIN_KEY,
-        title = "Domain",
-        summary = "%s\n\nSwitch to the mirror if the default domain is unreachable. Restart the app after changing.",
-        entries = DOMAIN_ENTRIES,
-        entryValues = DOMAIN_VALUES,
-        default = PREF_DOMAIN_DEFAULT,
-    )
-
     screen.addListPreference(
         key = PREF_QUALITY_KEY,
         title = "Preferred Resolution",

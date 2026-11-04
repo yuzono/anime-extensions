@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.coroutines.runBlocking
@@ -24,15 +25,10 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Zeroanime :
+@Source
+abstract class Zeroanime :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "zeroanime"
-
-    override val baseUrl = "https://www4.zeroanime.xyz"
-
-    override val lang = "es"
 
     override val supportsLatest = false
 

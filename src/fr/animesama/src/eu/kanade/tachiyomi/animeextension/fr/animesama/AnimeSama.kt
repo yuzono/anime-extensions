@@ -23,6 +23,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.LazyMutable
 import keiyoushi.utils.addEditTextPreference
@@ -42,13 +43,10 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 
-class AnimeSama :
+@Source
+abstract class AnimeSama :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Anime-Sama"
-
-    override val lang = "fr"
 
     override val supportsLatest = true
 
@@ -132,7 +130,7 @@ class AnimeSama :
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.startsWith("https://")) {
             val url = query.toHttpUrl()
-            if (url.host != baseUrl.toHttpUrl().host) {
+            if (url.host != baseUrl.toHttpUrl().host && url.host !in KNOWN_HOSTS) {
                 throw Exception("Unsupported url")
             }
             val id = url.pathSegments.getOrNull(1)
@@ -140,7 +138,7 @@ class AnimeSama :
             return getSearchAnime(page, "$PREFIX_SEARCH$id", filters)
         } else if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH)
-            val animeUrl = if (id.startsWith("/")) "$baseUrl$id" else "$baseUrl/$id"
+            val animeUrl = if (id.startsWith("/")) "$baseUrl$id" else "$baseUrl/catalogue/$id/"
             val seasons = fetchAnimeSeasons(animeUrl, "")
             return AnimesPage(seasons, false)
         }
@@ -492,6 +490,10 @@ class AnimeSama :
         // Domain info at: https://anime-sama.pw
         private const val PREF_URL_DEFAULT = "https://anime-sama.to"
         private const val PREF_URL_SUMMARY = "Pour changer le domaine de l'extension. Voir https://anime-sama.pw"
+
+        // Links on the default and older domains still open once baseUrl has followed a redirect to a newer one.
+        // Keep the old domains in sync with their deeplink in build.gradle.kts.
+        private val KNOWN_HOSTS = setOf(PREF_URL_DEFAULT.toHttpUrl().host, "anime-sama.si", "anime-sama.tv")
 
         private val voicesMap = mapOf(
             "Préférer VOSTFR" to "vostfr",

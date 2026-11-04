@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.bodyString
@@ -30,15 +31,10 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
 
-class SushiAnimes :
+@Source
+abstract class SushiAnimes :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Sushi Animes"
-
-    override val baseUrl = "https://sushianimes.com.br"
-
-    override val lang = "pt-BR"
 
     override val supportsLatest = true
 

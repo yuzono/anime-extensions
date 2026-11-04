@@ -23,6 +23,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.get
@@ -53,24 +54,18 @@ import java.util.Locale
 import java.util.TimeZone.getTimeZone
 import kotlin.math.roundToInt
 
-class ReAnime :
+@Source
+abstract class ReAnime :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "Re:ANIME"
-
-    override val lang = "en"
 
     override val supportsLatest = true
 
     private val preferences: SharedPreferences by getPreferencesLazy()
-    override val baseUrl: String
-        get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT) ?: PREF_DOMAIN_DEFAULT
-
     private val apiUrl: String
         get() = "$baseUrl/api/v1"
 
-    private val flixUrl = "$baseUrl/api/flix"
+    private val flixUrl: String get() = "$baseUrl/api/flix"
 
     private val preferredLang: String
         get() = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT) ?: PREF_LANG_DEFAULT
@@ -99,12 +94,12 @@ class ReAnime :
         get() = preferences.getBoolean(PREF_DOWNLOAD_KEY, PREF_DOWNLOAD_DEFAULT)
 
     private fun apiHeaders(referer: String = "$baseUrl/home"): Headers = headers.newBuilder()
-        .add("Accept", "application/json, text/plain, */*")
-        .add("Accept-Language", "en-US,en;q=0.9")
-        .add("Referer", referer)
-        .add("Sec-Fetch-Dest", "empty")
-        .add("Sec-Fetch-Mode", "cors")
-        .add("Sec-Fetch-Site", "same-origin")
+        .set("Accept", "application/json, text/plain, */*")
+        .set("Accept-Language", "en-US,en;q=0.9")
+        .set("Referer", referer)
+        .set("Sec-Fetch-Dest", "empty")
+        .set("Sec-Fetch-Mode", "cors")
+        .set("Sec-Fetch-Site", "same-origin")
         .build()
 
     override val client = network.client.newBuilder()
@@ -113,7 +108,13 @@ class ReAnime :
 
     private val playlistUtils by lazy { PlaylistUtils(network.client, headers) }
 
-    private data class AnimeMeta(val anilistId: Int, val subbed: Int, val dubbed: Int)
+    private data class AnimeMeta(
+        val anilistId: Int,
+        val tmdbId: Int,
+        val seasonNumber: Int,
+        val subbed: Int,
+        val dubbed: Int,
+    )
 
     private val animeMetaCache by lazy { LruCache<String, AnimeMeta>(64) }
     private val animeMetaMutex = Mutex()
@@ -127,8 +128,15 @@ class ReAnime :
             try {
                 client.get("$detailsFromApiUrl/$animeSlug", apiHeaders("$detailsUrl/$animeSlug")).use { res ->
                     val dto = res.parseAs<AnimeDetailDto>()
+                    val sNum = if (dto.format?.equals("MOVIE", true) == true) {
+                        0
+                    } else {
+                        dto.externalSeasons?.tmdb?.takeIf { it > 0 } ?: 1
+                    }
                     AnimeMeta(
                         anilistId = dto.anilistId ?: 0,
+                        tmdbId = dto.tmdbId ?: 0,
+                        seasonNumber = sNum,
                         subbed = dto.subbed ?: 0,
                         dubbed = dto.dubbed ?: 0,
                     ).also { animeMetaCache.put(animeSlug, it) }
@@ -194,15 +202,14 @@ class ReAnime :
     @RequiresApi(Build.VERSION_CODES.O)
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val url = "$apiUrl/search".toHttpUrl().newBuilder().apply {
+            if (query.isNotBlank()) addQueryParameter("q", query)
             val limit = 36
             addQueryParameter("limit", limit.toString())
             addQueryParameter("offset", ((page - 1) * limit).toString())
 
-            if (query.isNotBlank()) addQueryParameter("q", query)
-
             filters.forEach { filter ->
                 when (filter) {
-                    is Filters.SortFilter -> addQueryParameter("sort", filter.getValue())
+                    is Filters.SortFilter -> filter.getValue()?.let { addQueryParameter("sort", it) }
                     is Filters.FormatFilter -> filter.getValue()?.let { addQueryParameter("format", it) }
                     is Filters.StatusFilter -> filter.getValue()?.let { addQueryParameter("status", it) }
                     is Filters.SeasonFilter -> filter.getValue()?.let { addQueryParameter("season", it) }
@@ -245,7 +252,7 @@ class ReAnime :
     }
 
     // =========================== Anime Details ============================
-    private val detailsUrl = "$baseUrl/anime"
+    private val detailsUrl: String get() = "$baseUrl/anime"
     override fun getAnimeUrl(anime: SAnime): String = "$detailsUrl/${anime.url}"
 
     override fun animeDetailsRequest(anime: SAnime): Request = GET("$detailsFromApiUrl/${anime.url}", apiHeaders(getAnimeUrl(anime)))
@@ -254,11 +261,20 @@ class ReAnime :
         val dto = response.parseAs<AnimeDetailDto>()
 
         // Cache metadata for episode/video logic
-        if (dto.anilistId != null && dto.anilistId > 0) {
+        val anilistId = dto.anilistId ?: 0
+        val tmdbId = dto.tmdbId ?: 0
+        if (anilistId > 0 || tmdbId > 0) {
+            val sNum = if (dto.format?.equals("MOVIE", true) == true) {
+                0
+            } else {
+                dto.externalSeasons?.tmdb?.takeIf { it > 0 } ?: 1
+            }
             animeMetaCache.put(
                 dto.animeId,
                 AnimeMeta(
-                    anilistId = dto.anilistId,
+                    anilistId = anilistId,
+                    tmdbId = tmdbId,
+                    seasonNumber = sNum,
                     subbed = dto.subbed ?: 0,
                     dubbed = dto.dubbed ?: 0,
                 ),
@@ -490,7 +506,7 @@ class ReAnime :
 
     override fun relatedAnimeListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
-    private val detailsFromApiUrl = "$apiUrl/anime"
+    private val detailsFromApiUrl: String get() = "$apiUrl/anime"
 
     private suspend fun fetchRecommendations(slug: String): List<RecommendationDto> {
         return try {
@@ -616,11 +632,21 @@ class ReAnime :
         val meta = animeMetaCache.get(slug) ?: fetchAnimeMeta(slug)
         val referer = "$baseUrl/watch/$slug?ep=$epNumber"
 
-        val response = if (meta != null && meta.anilistId > 0) {
-            client.get("$flixUrl/${meta.anilistId}/$epNumber", apiHeaders(referer))
-        } else {
-            // Fallback to HTML page if API completely failed to get Anilist ID
-            client.get("$detailsUrl/$slug?_ep=$epNumber")
+        val response = when {
+            meta != null && meta.anilistId > 0 -> {
+                client.get("$flixUrl/${meta.anilistId}/$epNumber", apiHeaders(referer))
+            }
+            meta != null && meta.tmdbId > 0 -> {
+                val url = "$flixUrl/0/$epNumber".toHttpUrl().newBuilder()
+                    .addQueryParameter("tmdb", meta.tmdbId.toString())
+                    .addQueryParameter("season", meta.seasonNumber.toString())
+                    .build()
+                client.get(url, apiHeaders(referer))
+            }
+            else -> {
+                // Fallback to HTML page if API completely failed
+                client.get("$detailsUrl/$slug?_ep=$epNumber")
+            }
         }
 
         return parseFlixHosters(response, slug, epNumber)
@@ -631,19 +657,50 @@ class ReAnime :
 
         if (!requestUrl.contains("/api/flix/")) {
             val html = response.body.string()
-            val anilistId = ANILIST_ID_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull()
-                ?: return emptyList()
+            val anilistId = ANILIST_ID_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val tmdbId = TMDB_ID_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val isMovie = isMovieRecord(html, slug)
+            val seasonNum = if (isMovie) {
+                0
+            } else {
+                TMDB_SEASON_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it > 0 }
+                    ?: SEASON_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it > 0 }
+                    ?: 1
+            }
 
             val subbed = SUBBED_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             val dubbed = DUBBED_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-            animeMetaCache.put(slug, AnimeMeta(anilistId, subbed, dubbed))
+            if (anilistId > 0 || tmdbId > 0) {
+                animeMetaCache.put(slug, AnimeMeta(anilistId, tmdbId, seasonNum, subbed, dubbed))
+            }
 
             val referer = "$baseUrl/watch/$slug?ep=$epNumber"
-            val flixRes = client.get("$flixUrl/$anilistId/$epNumber", apiHeaders(referer))
+            val flixRes = when {
+                anilistId > 0 -> {
+                    client.get("$flixUrl/$anilistId/$epNumber", apiHeaders(referer))
+                }
+                tmdbId > 0 -> {
+                    val url = "$flixUrl/0/$epNumber".toHttpUrl().newBuilder()
+                        .addQueryParameter("tmdb", tmdbId.toString())
+                        .addQueryParameter("season", seasonNum.toString())
+                        .build()
+                    client.get(url, apiHeaders(referer))
+                }
+                else -> return emptyList()
+            }
             return parseFlixServersResponse(flixRes)
         }
 
         return parseFlixServersResponse(response)
+    }
+
+    private fun isMovieRecord(html: String, slug: String): Boolean {
+        val index = html.indexOf(slug)
+        if (index == -1) return false
+        val start = (index - 500).coerceAtLeast(0)
+        val end = (index + 500).coerceAtMost(html.length)
+        val snippet = html.substring(start, end)
+        return FORMAT_MOVIE_REGEX.containsMatchIn(snippet) || snippet.contains("\"format\":\"MOVIE\"", true)
     }
 
     private suspend fun parseFlixServersResponse(response: Response): List<Hoster> {
@@ -696,8 +753,8 @@ class ReAnime :
                     val aid = EMBED_AID_REGEX.find(dataLink)?.groupValues?.get(1) ?: return@parallelCatchingFlatMap emptyList()
 
                     val dlHeaders = headers.newBuilder()
-                        .add("Accept", "*/*")
-                        .add("Referer", "$flixCloudUrl/")
+                        .set("Accept", "*/*")
+                        .set("Referer", "$flixCloudUrl/")
                         .build()
 
                     val ddlData = FlixCloudDdl.fetchMetadata(client, dlHeaders, aid) ?: return@parallelCatchingFlatMap emptyList()
@@ -789,13 +846,13 @@ class ReAnime :
 
     private suspend fun extractFromServer(dataLink: String, label: String): List<Video> {
         val flixHeaders = headers.newBuilder()
-            .add("Accept", "*/*")
-            .add("Origin", flixCloudUrl)
-            .add("Referer", "$flixCloudUrl/")
+            .set("Accept", "*/*")
+            .set("Origin", flixCloudUrl)
+            .set("Referer", "$flixCloudUrl/")
             .build()
 
         val decHeaders = headers.newBuilder()
-            .add("Accept", "*/*")
+            .set("Accept", "*/*")
             .build()
 
         return try {
@@ -984,8 +1041,8 @@ class ReAnime :
             )
 
             val dlHeaders = headers.newBuilder()
-                .add("Accept", "*/*")
-                .add("Referer", "$flixCloudUrl/")
+                .set("Accept", "*/*")
+                .set("Referer", "$flixCloudUrl/")
                 .build()
 
             val fileUrl = FlixCloudDdl.resolveUrl(client, dlHeaders, ddlData) ?: return null
@@ -1061,15 +1118,6 @@ class ReAnime :
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
-            key = PREF_DOMAIN_KEY,
-            title = "Preferred Domain",
-            entries = PREF_DOMAIN_ENTRIES,
-            entryValues = PREF_DOMAIN_VALUES,
-            default = PREF_DOMAIN_DEFAULT,
-            summary = "%s",
-        )
-
-        screen.addListPreference(
             key = PREF_TITLE_LANG_KEY,
             title = "Preferred Title Language",
             entries = PREF_TITLE_LANG_ENTRIES,
@@ -1144,10 +1192,6 @@ class ReAnime :
 
     // Status domain: https://restatus.me/
     companion object {
-        private const val PREF_DOMAIN_KEY = "preferred_domain"
-        private val PREF_DOMAIN_ENTRIES = listOf("reanime.to", "reanime.cz", "reanime.wtf")
-        private val PREF_DOMAIN_VALUES = listOf("https://reanime.to", "https://reanime.cz", "https://reanime.wtf")
-        private const val PREF_DOMAIN_DEFAULT = "https://reanime.to"
         private const val PREF_LANG_KEY = "preferred_lang"
         private val PREF_LANG_ENTRIES = listOf("All", "Sub", "Dub")
         private val PREF_LANG_VALUES = listOf("", "sub", "dub")
@@ -1190,7 +1234,11 @@ class ReAnime :
 
         private val BR_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
         private val HTML_TAG_REGEX = Regex("""</?(i|b|em)>""", RegexOption.IGNORE_CASE)
-        private val ANILIST_ID_REGEX = Regex("""anilist_id:\s*(\d+)""")
+        private val ANILIST_ID_REGEX = Regex("""(?<!\w)"?anilist_id"?\s*:\s*(\d+)""")
+        private val TMDB_ID_REGEX = Regex("""(?<!\w)"?themoviedb_id"?\s*:\s*(\d+)""")
+        private val TMDB_SEASON_REGEX = Regex("""(?<!\w)"?tmdb"?\s*:\s*(\d+)""")
+        private val SEASON_REGEX = Regex("""(?<!\w)"?season"?\s*:\s*(\d+)""")
+        private val FORMAT_MOVIE_REGEX = Regex("""(?<!\w)"?format"?\s*:\s*"MOVIE"""", RegexOption.IGNORE_CASE)
         private val SUBBED_REGEX = Regex(""",\s*subbed:\s*(\d+)""")
         private val DUBBED_REGEX = Regex(""",\s*dubbed:\s*(\d+)""")
         private val EMBED_DATA_REGEX = Regex("""type:\s*"data",\s*data:\s*(\{.*?\})\s*,\s*uses:""", RegexOption.DOT_MATCHES_ALL)
@@ -1217,7 +1265,6 @@ class ReAnime :
         private val XOR_MASK_REGEX = Regex("""for\(var f=\[(\d{1,3}(?:,\d{1,3}){15})]""")
 
         private val EMBED_AID_REGEX = Regex("""/e/([a-z0-9]+)""")
-        private val RESOLUTION_REGEX = Regex("""(\d{3,4}p)""")
 
         fun parseStatus(status: String?): Int = when (status) {
             "RELEASING", "Releasing" -> SAnime.ONGOING

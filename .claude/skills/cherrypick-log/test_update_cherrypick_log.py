@@ -112,6 +112,13 @@ class RevertChainTest(unittest.TestCase):
         m.flag_revert_chains(rows)
         self.assertEqual(statuses(rows), ["", ""])
 
+    def test_partial_pick_blocks_chain(self):
+        note = "Partial 2026-11-02: picked without x"
+        rows = render([self.c, self.r1], [("?", note), ("", "")])
+        m.flag_revert_chains(rows)
+        self.assertEqual(statuses(rows), ["?", ""])
+        self.assertEqual(rows[0][1][-1], note)
+
     def test_picked_side_blocks_chain(self):
         rows = render([self.c, self.r1], [("O", ""), ("", "")])
         m.flag_revert_chains(rows)
@@ -173,6 +180,26 @@ class CarryOverTest(unittest.TestCase):
         self.assertEqual(m.carry_over("?", note, ""), ("?", note))
         self.assertEqual(m.carry_over("", note, "?"), ("", note))
         self.assertEqual(m.carry_over("?", note, "O"), ("O", note))
+
+    def test_partial_pick_kept_unless_strong_evidence(self):
+        for note in (
+            "Partial 2026-10-31: picked without removing `className`",
+            "Folded 2026-11-02: github_utils.py into the pick of bec637b61c.",
+            "Plan 2026-10-29: x; Partial 2026-11-01: picked without y",
+        ):
+            self.assertEqual(m.carry_over("?", note, ""), ("?", note))
+            self.assertEqual(m.carry_over("?", note, "?"), ("?", note))
+            self.assertEqual(m.carry_over("?", note, "O"), ("O", note))
+
+    def test_partial_note_only_keeps_a_question_mark(self):
+        note = "Partial 2026-10-31: picked without x"
+        self.assertEqual(m.carry_over("", note, ""), ("", note))
+        self.assertEqual(m.carry_over("", note, "?"), ("?", note))
+        self.assertEqual(m.carry_over("O", note, ""), ("O", note))
+
+    def test_partial_mark_needs_its_date(self):
+        for note in ("a partial pick", "Partial: no date", "Folded into 5b791b1641", "partial 2026-10-31: lowercase"):
+            self.assertEqual(m.carry_over("?", note, ""), ("", note))
 
     def test_script_omission_released_then_rechecked(self):
         self.assertEqual(m.carry_over("?", "Cancels out (script): x [was: empty]", ""), ("", ""))
@@ -253,6 +280,117 @@ class ExcludeOnlyPathsTest(unittest.TestCase):
         wide = mk("2", "Refactor everything", "2026-01-03", "prim")
         changed = {wide.full: [f"src/en/s{i}/src/S.kt" for i in range(50)]}
         self.assertEqual(fake_builder(cfg, {"prim": [wide], "sec": []}, changed).build(), [])
+
+
+def fake_target_git(log, changes, files):
+    """`git` for TargetIndex: the target branch's `log`, commits' (status, path) `changes`, and `rev:path` files."""
+
+    def run(*args, cwd, check=True, stdin=None):
+        if args[0] == "rev-list":
+            return ""
+        if args[0] == "cat-file":  # a rev exists when it has some file
+            revs = [line.removesuffix("^{tree}") for line in stdin.split()]
+            return "".join("tree\n" if any(f.startswith(f"{r}:") for f in files) else f"{r}^{{tree}} missing\n" for r in revs)
+        if "ls-tree" in args:
+            rev, roots = args[args.index("--") - 1], args[args.index("--") + 1 :]
+            paths = [f.split(":", 1)[1] for f in files if f.startswith(f"{rev}:")]
+            return "".join(f"{p}\0" for p in paths if any(p == r or p.startswith(f"{r}/") for r in roots))
+        if "--name-status" in args:
+            return "".join(f"\x1e{h}\n\n" + "".join(f"{st}\t{p}\n" for st, p in changes.get(h, [])) for h in stdin.split())
+        return "".join(f"{c.full}\x1f{c.date}\x1f{c.time}\x1fa\x1fa@x\x1fa\x1fa@x\x1f{c.message}\x1e" for c in log)
+
+    return run
+
+
+class PartialPickTest(unittest.TestCase):
+    def test_parse_name_status(self):
+        text = "\x1eaaa\n\nM\tcore/A.kt\nA\tlib/x/b c.kt\n\x1ebbb\n"
+        self.assertEqual(m.parse_name_status(text), {"aaa": [("M", "core/A.kt"), ("A", "lib/x/b c.kt")], "bbb": []})
+
+    def test_checked_paths(self):
+        changes = [("M", "src/en/a/A.kt"), ("M", "core/U.kt"), ("A", "README.md")]
+        self.assertEqual(m.checked_paths(m.Upstream("u", "u", "main", "o/r", ["src"]), changes), changes[1:])
+        sec = m.Upstream("s", "s", "main", "o/s", partial_check_paths=["/src/"])
+        self.assertEqual(sec.partial_check_paths, ["src"])
+        self.assertEqual(m.checked_paths(sec, changes), changes[:1])
+        with self.assertRaises(SystemExit):
+            m.Upstream("s", "s", "main", "o/s", partial_check_paths="src/")
+
+    def test_unpicked_files(self):
+        here = {"core/Old.kt", "core/Kept.kt", "lib/x/src/main/X.kt"}
+        changes = [
+            ("A", "core/New.kt"),  # picked
+            ("M", "core/Kept.kt"),  # left out, the target has it
+            ("A", "core/Skipped.kt"),  # left out, added to a module the target has
+            ("D", "core/Old.kt"),  # left out, the target still has it
+            ("D", "core/Gone.kt"),  # n/a: the target never had it
+            ("M", "core/MangaOnly.kt"),  # n/a: changed upstream, but the target has no such file
+            ("A", "lib/manga/src/M.kt"),  # n/a: a lib the target doesn't have
+            ("A", "lib/x/src/keiyoushi/X.kt"),  # picked as lib/x/src/aniyomi/X.kt
+            ("M", "build.gradle.kts"),  # n/a: root file the target doesn't have
+        ]
+        picked = {"core/New.kt", "lib/x/src/aniyomi/X.kt"}
+        missing, applicable = m.unpicked_files(changes, picked, here)
+        self.assertEqual(missing, ["core/Kept.kt", "core/Skipped.kt", "core/Old.kt"])
+        self.assertEqual(applicable, 5)
+        self.assertEqual(m.unpicked_files(changes[:1], picked, here), ([], 1))
+
+    def test_unpicked_files_adapted_paths_and_new_modules(self):
+        here = {"lib/x/src/aniyomi/X.kt", "core/src/a/A.kt", "core/src/b/A.kt"}
+        changes = [
+            ("M", "lib/x/src/keiyoushi/X.kt"),  # the target has it at an adapted path
+            ("M", "core/src/a/A.kt"),  # the target has this path: a change to core/src/b/A.kt doesn't carry it
+            ("A", "lib/new/src/One.kt"),  # picked
+            ("A", "lib/new/src/Two.kt"),  # applies: the picks add the module
+            ("M", "lib/y/src/keiyoushi/Y.kt"),  # picked as lib/y/src/aniyomi/Y.kt, which the target didn't have yet
+        ]
+        picked = {"core/src/b/A.kt", "lib/new/src/One.kt", "lib/y/src/aniyomi/Y.kt"}
+        missing = ["lib/x/src/keiyoushi/X.kt", "core/src/a/A.kt", "lib/new/src/Two.kt"]
+        self.assertEqual(m.unpicked_files(changes, picked, here), (missing, 5))
+        self.assertEqual(m.unpicked_files(changes, picked | {"lib/x/src/aniyomi/X.kt"}, here), (missing[1:], 5))
+
+    def test_load_files_skips_a_root_commits_parent(self):
+        files = {"c^:core/A.kt", "c^:lib/y/B.kt"}
+        with mock.patch.object(m, "git", side_effect=fake_target_git([], {}, files)) as g:
+            target = m.TargetIndex(Path("."), "master", [])
+            target.load_files({"c^:core", "c^:lib/x", "root^:core"})
+            target.load_files({"c^:core"})  # already read
+        self.assertEqual(target.files["c^"], {"core/A.kt"})
+        self.assertEqual(target.files["root^"], set())
+        ls_tree = [call for call in g.call_args_list if "ls-tree" in call.args]
+        self.assertEqual([call.args[call.args.index("--") - 1] for call in ls_tree], ["c^"])
+        self.assertTrue(all(call.kwargs.get("check", True) for call in ls_tree))
+
+    def test_partial_pick_is_maybe_until_the_rest_is_picked(self):
+        prim = m.Upstream("prim", "prim", "main", "o/prim", ["src"])
+        cfg = m.Config("master", "2026-01-01", "out.md", "", prim, [m.Upstream("sec", "sec", "main", "o/sec")])
+        up = mk("1", "Add support for the new lib", "2026-01-02", "prim")
+        part = mk("a", f"Add support for the new lib\n\n(cherry picked from commit {up.full})", "2026-01-03", "t", 300)
+        rest = mk("b", f"The rest of it\n\n(cherry picked from commit {up.full[:12]})", "2026-01-04", "t", 400)
+        changes = {
+            up.full: [("A", "core/Cache.kt"), ("M", "core/Source.kt"), ("M", "src/en/a/A.kt")],
+            part.full: [("A", "core/Cache.kt")],
+            rest.full: [("M", "core/Source.kt")],
+        }
+        files = {f"{part.full}^:core/Source.kt"}
+
+        def detect(log, done=()):
+            builder = fake_builder(cfg, {"prim": [up], "sec": []})
+            entries = builder.build()
+            with mock.patch.object(m, "git", side_effect=fake_target_git(log, changes, files)):
+                builder.detect(entries, done)
+            return entries[0]
+
+        e = detect([part])
+        self.assertEqual(e.status, "?")  # the matching title doesn't make it O
+        self.assertEqual(e.details, [f"master `{part.short}` [hash of prim (partial: 1 of 2 files not picked), title+author]"])
+        e = detect([part], done={up.full})  # a row already marked O isn't checked
+        self.assertEqual(e.status, "O")
+        self.assertEqual(e.details, [f"master `{part.short}` [hash of prim, title+author]"])
+        e = detect([rest, part])
+        self.assertEqual(e.status, "O")
+        # the hash names the newest pick, even though it cites a short hash
+        self.assertEqual(e.details, [f"master `{rest.short}` [hash of prim]", f"master `{part.short}` [title+author]"])
 
 
 class OrderTest(unittest.TestCase):

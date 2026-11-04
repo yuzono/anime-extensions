@@ -16,7 +16,8 @@
       "name": "@secozzi",
       "remote": "@secozzi",
       "branch": "master",
-      "github": "Secozzi/aniyomi-extensions"
+      "github": "Secozzi/aniyomi-extensions",
+      "partial_check_paths": ["src/"]
     }
   ]
 }

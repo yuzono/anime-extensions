@@ -14,6 +14,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.network.post
 import keiyoushi.utils.addEditTextPreference
@@ -49,23 +50,17 @@ import java.util.Locale
 import kotlin.comparisons.thenByDescending
 import kotlin.coroutines.cancellation.CancellationException
 
-class Mapple :
+@Source
+abstract class Mapple :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "Mapple"
 
     private val preferences: SharedPreferences by getPreferencesLazy {
         clearOldPrefs()
     }
 
-    override val baseUrl
-        get() = preferences.domainPref
-
     private val apiUrl = "https://api.themoviedb.org/3"
     private val subtitleApi = "https://sub.wyzie.io"
-
-    override val lang = "en"
 
     override val supportsLatest = true
 
@@ -610,7 +605,6 @@ class Mapple :
     }
 
     // ============================== Settings ==============================
-    private val SharedPreferences.domainPref by preferences.delegate(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
     private val SharedPreferences.latestPref by preferences.delegate(PREF_LATEST_KEY, PREF_LATEST_DEFAULT)
     private val SharedPreferences.qualityPref by preferences.delegate(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)
     private val SharedPreferences.subLangPref by preferences.delegate(PREF_SUB_KEY, PREF_SUB_DEFAULT)
@@ -621,37 +615,20 @@ class Mapple :
     private val SharedPreferences.wyzieKeyPref by preferences.delegate(PREF_WYZIE_KEY_KEY, PREF_WYZIE_KEY_DEFAULT)
 
     private fun SharedPreferences.clearOldPrefs(): SharedPreferences {
-        val domain = getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!.removePrefix("https://")
-        val invalidDomain = domain !in DOMAIN_ENTRIES
-
         val hosterNames = HOSTERS.map { it.name }
         val hostToggle = getStringSet(PREF_HOSTERS_KEY, DEFAULT_ENABLED_HOSTERS)!!
         val invalidHosters = hostToggle.any { it !in hosterNames }
 
-        if (invalidDomain || invalidHosters) {
-            edit().also { editor ->
-                if (invalidDomain) {
-                    editor.putString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
-                }
-                if (invalidHosters) {
-                    editor.putStringSet(PREF_HOSTERS_KEY, DEFAULT_ENABLED_HOSTERS)
-                    editor.putString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)
-                }
-            }.apply()
+        if (invalidHosters) {
+            edit()
+                .putStringSet(PREF_HOSTERS_KEY, DEFAULT_ENABLED_HOSTERS)
+                .putString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)
+                .apply()
         }
         return this
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        screen.addListPreference(
-            key = PREF_DOMAIN_KEY,
-            title = "Preferred Domain",
-            entries = DOMAIN_ENTRIES.toList(),
-            entryValues = DOMAIN_VALUES.toList(),
-            default = PREF_DOMAIN_DEFAULT,
-            summary = "%s",
-        )
-
         screen.addListPreference(
             key = PREF_LATEST_KEY,
             title = "Preferred 'Latest' Page",
@@ -769,10 +746,6 @@ class Mapple :
 
         private const val WYZIE_API_KEY = BuildConfig.WYZIE_API
 
-        private const val PREF_DOMAIN_KEY = "pref_domain"
-        private const val PREF_DOMAIN_DEFAULT = "https://mapple.fun"
-        private val DOMAIN_ENTRIES = arrayOf("mapple.fun")
-        private val DOMAIN_VALUES = arrayOf("https://mapple.fun")
         private const val PREF_LATEST_KEY = "pref_latest"
         private const val PREF_LATEST_DEFAULT = "movie"
 

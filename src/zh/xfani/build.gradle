@@ -1,7 +1,0 @@
-ext {
-    extName = 'Xfani'
-    extClass = '.Xfani'
-    extVersionCode = 8
-}
-
-apply plugin: "kei.plugins.extension.legacy"

@@ -130,6 +130,12 @@ class NextAiringEpisodeDto(
 )
 
 @Serializable
+class ExternalSeasonsDto(
+    val tmdb: Int? = null,
+    val tvdb: Int? = null,
+)
+
+@Serializable
 class TagDto(
     val name: String? = null,
     val rank: Int? = null,
@@ -149,6 +155,7 @@ class AnimeDetailDto(
     @SerialName("themoviedb_id") val tmdbId: Int? = null,
     @SerialName("tvdb_id") val tvdbId: Int? = null,
     @SerialName("imdb_id") val imdbId: String? = null,
+    @SerialName("external_seasons") val externalSeasons: ExternalSeasonsDto? = null,
     val title: TitleDto? = null,
     @SerialName("cover_image") private val coverImage: CoverDto? = null,
     @SerialName("banner_image") val bannerImage: String? = null,

@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -19,10 +20,8 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class DattebayoBR : AnimeHttpLegacySource() {
-    override val name = "Dattebayo BR"
-    override val baseUrl = "https://www.dattebayo-br.com"
-    override val lang = "pt-BR"
+@Source
+abstract class DattebayoBR : AnimeHttpLegacySource() {
     override val supportsLatest = true
 
     override fun headersBuilder(): okhttp3.Headers.Builder = okhttp3.Headers.Builder()
@@ -247,7 +246,7 @@ class DattebayoBR : AnimeHttpLegacySource() {
 
             val adHeaders = headersBuilder()
                 .add("Referer", episodeUrl)
-                .add("Origin", "https://www.dattebayo-br.com")
+                .add("Origin", baseUrl)
                 .build()
 
             val adRequest = Request.Builder().url(adUrl).headers(adHeaders).build()

@@ -1,12 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.all.streamingcommunity
 
-import android.content.SharedPreferences
 import android.util.Log
-import android.webkit.URLUtil
-import android.widget.Toast
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.playlistutils.PlaylistUtils
-import eu.kanade.tachiyomi.animeextension.BuildConfig
 import eu.kanade.tachiyomi.animeextension.all.streamingcommunity.Filters.AgeFilter
 import eu.kanade.tachiyomi.animeextension.all.streamingcommunity.Filters.FeaturedFilter
 import eu.kanade.tachiyomi.animeextension.all.streamingcommunity.Filters.GenresFilter
@@ -26,12 +22,11 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.lib.i18n.Intl
+import keiyoushi.source.CustomUrlPreferences
 import keiyoushi.utils.AnimeHttpLegacySource
-import keiyoushi.utils.LazyMutable
-import keiyoushi.utils.addEditTextPreference
 import keiyoushi.utils.addListPreference
-import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import kotlinx.coroutines.async
@@ -47,19 +42,20 @@ import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
-import java.util.concurrent.atomic.AtomicReference
 
-class StreamingCommunity(override val lang: String, private val showType: String) :
+@Source
+abstract class StreamingCommunity :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val name = "StreamingUnity (${showType.replaceFirstChar { it.uppercaseChar() }})"
+    private val showType
+        get() = when {
+            name.endsWith("(Movie)") -> "movie"
+            name.endsWith("(Tv)") -> "tv"
+            else -> error("No show type in source name: $name")
+        }
 
     private val preferences by getPreferencesLazy()
-
-    private var SharedPreferences.customDomain by preferences.delegate(PREF_CUSTOM_DOMAIN_KEY, DOMAIN_DEFAULT)
-
-    private var homepage by LazyMutable { preferences.customDomain.ifBlank { DOMAIN_DEFAULT }.sanitizeDomain() }
 
     override val client: OkHttpClient = super.client.newBuilder()
         .followRedirects(false)
@@ -72,9 +68,11 @@ class StreamingCommunity(override val lang: String, private val showType: String
             while (response.isRedirect && redirectCount < maxRedirects) {
                 val newUrl = response.header("Location") ?: break
                 val newUrlHttp = request.url.resolve(newUrl) ?: break
-                val redirectedDomain = newUrlHttp.run { "$scheme://$host" }
-                if (redirectedDomain != homepage) {
-                    updateDomain(redirectedDomain)
+                // Only the site's own redirects move it, not those of the video and image hosts; a new
+                // scheme or port counts too, so an http-to-https redirect is followed only once
+                val newOrigin = newUrlHttp.resolve("/")?.toString()?.trimEnd('/')
+                if (request.url.host == baseUrl.toHttpUrl().host && newOrigin != null && newOrigin != baseUrl) {
+                    updateDomain(newOrigin)
                 }
                 response.close()
                 request = request.newBuilder()
@@ -94,8 +92,8 @@ class StreamingCommunity(override val lang: String, private val showType: String
             response
         }.build()
 
-    override val baseUrl: String
-        get() = "$homepage/$lang"
+    // The custom URL setting holds the site's origin; its pages live under the language
+    private val siteUrl get() = "$baseUrl/$lang"
 
     override val supportsLatest = true
 
@@ -106,15 +104,11 @@ class StreamingCommunity(override val lang: String, private val showType: String
         classLoader = this::class.java.classLoader!!,
     )
 
-    private val apiHeadersRef by lazy { AtomicReference(newApiHeader()) }
-    private fun newApiHeader() = headers.newBuilder()
-        .add("Origin", homepage)
-        .add("Referer", "$homepage/")
-        .build()
-
-    private var apiHeaders: Headers
-        get() = apiHeadersRef.get()
-        set(value) = apiHeadersRef.set(value)
+    private val apiHeaders: Headers
+        get() = headers.newBuilder()
+            .add("Origin", baseUrl)
+            .add("Referer", "$baseUrl/")
+            .build()
 
     private val json: Json by injectLazy()
 
@@ -123,15 +117,20 @@ class StreamingCommunity(override val lang: String, private val showType: String
     // ============================== Popular ===============================
 
     override fun popularAnimeRequest(page: Int): Request = when (page) {
-        1 -> GET("$baseUrl/browse/top10?type=$showType", apiHeaders)
+        1 -> GET("$siteUrl/browse/top10?type=$showType", apiHeaders)
 
-        2 -> GET("$baseUrl/browse/trending?type=$showType", apiHeaders)
+        2 -> GET("$siteUrl/browse/trending?type=$showType", apiHeaders)
 
         else ->
-            GET("$baseUrl/archive?type=$showType&sort=views&page=${page - 2}", apiHeaders)
+            GET("$siteUrl/archive?type=$showType&sort=views&page=${page - 2}", apiHeaders)
     }
 
-    private var imageCdn = "https://cdn.${baseUrl.toHttpUrl().host}/images/"
+    // The CDN the latest listing named, with the domain it came from, so a domain change drops it
+    private var listingCdn: Pair<String, String>? = null
+
+    private val imageCdn: String
+        get() = listingCdn?.takeIf { it.first == baseUrl }?.second
+            ?: "https://cdn.${baseUrl.toHttpUrl().host}/images/"
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val animeList = parseBrowse(response)
@@ -140,7 +139,7 @@ class StreamingCommunity(override val lang: String, private val showType: String
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/browse/latest?type=$showType&page=$page", apiHeaders)
+    override fun latestUpdatesRequest(page: Int): Request = GET("$siteUrl/browse/latest?type=$showType&page=$page", apiHeaders)
 
     override fun latestUpdatesParse(response: Response) = popularAnimeParse(response)
 
@@ -156,7 +155,7 @@ class StreamingCommunity(override val lang: String, private val showType: String
         val qualityFilter = filters.filterIsInstance<QualityFilter>().firstOrNull()
         val ageFilter = filters.filterIsInstance<AgeFilter>().firstOrNull()
 
-        val httpUrlBuilder = baseUrl.toHttpUrl().newBuilder()
+        val httpUrlBuilder = siteUrl.toHttpUrl().newBuilder()
         httpUrlBuilder.apply {
             addPathSegment("archive")
             addQueryParameter("search", query)
@@ -201,7 +200,7 @@ class StreamingCommunity(override val lang: String, private val showType: String
 
     // =========================== Anime Details ============================
 
-    override fun animeDetailsRequest(anime: SAnime): Request = GET("$baseUrl/titles/${anime.url}", headers)
+    override fun animeDetailsRequest(anime: SAnime): Request = GET("$siteUrl/titles/${anime.url}", headers)
 
     override fun animeDetailsParse(response: Response): SAnime {
         val title = json.decodeFromString<SingleShowResponse>(
@@ -315,7 +314,7 @@ class StreamingCommunity(override val lang: String, private val showType: String
 
             else -> {
                 val iframeUrl = client.newCall(
-                    GET("$baseUrl/iframe/$url", headers),
+                    GET("$siteUrl/iframe/$url", headers),
                 ).awaitSuccess().use {
                     it.asJsoup()
                         .selectFirst("iframe[src]")?.attr("abs:src")
@@ -331,7 +330,7 @@ class StreamingCommunity(override val lang: String, private val showType: String
         val iframeHeaders = headers.newBuilder()
             .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
             .add("Host", iframeUrl.toHttpUrl().host)
-            .add("Referer", "$baseUrl/")
+            .add("Referer", "$siteUrl/")
             .build()
 
         val iframe = client.newCall(GET(iframeUrl, iframeHeaders)).awaitSuccess().asJsoup()
@@ -411,7 +410,7 @@ class StreamingCommunity(override val lang: String, private val showType: String
     // ============================= Utilities ==============================
 
     private fun parseBrowse(response: Response): List<SAnime> = json.decodeFromString<BrowseResponse>(response.getData()).props.also { props ->
-        props.cdn_url?.takeIf { it.isNotBlank() }?.let { imageCdn = "$it/images/" }
+        props.cdn_url?.takeIf { it.isNotBlank() }?.let { listingCdn = baseUrl to "$it/images/" }
     }.titles.map { it.toSAnime(imageCdn) }
 
     private fun browseHasNextPage(response: Response, size: Int): Boolean {
@@ -450,8 +449,6 @@ class StreamingCommunity(override val lang: String, private val showType: String
     }
 
     companion object {
-        private const val DOMAIN_DEFAULT = "https://streamingunity.vip"
-        private const val PREF_CUSTOM_DOMAIN_KEY = "custom_domain_v${BuildConfig.VERSION_NAME}"
         private const val TAG = "StreamingCommunity"
         private const val PAGE_SIZE = 60
         private const val MAX_ARCHIVE_PAGES = 20
@@ -497,21 +494,9 @@ class StreamingCommunity(override val lang: String, private val showType: String
 
     // ============================== Settings ==============================
 
-    private fun String.sanitizeDomain() = trim().removeSuffix("/").ifBlank { DOMAIN_DEFAULT }
-
     private fun updateDomain(domain: String) {
-        val newDomain = domain.sanitizeDomain()
-        if (URLUtil.isValidUrl(newDomain)) {
-            Log.i(TAG, "Updating domain to: $newDomain")
-            preferences.customDomain = newDomain
-            homepage = newDomain
-            apiHeaders = newApiHeader()
-        }
-    }
-
-    val addressUrlSummary: (String) -> String = {
-        it.ifBlank { DOMAIN_DEFAULT }
-            .let { domain -> "Current domain: \"${domain}\"\nLeave blank to reset to default domain." }
+        Log.i(TAG, "Updating domain to: $domain")
+        preferences.edit().putString(CustomUrlPreferences.PREF_BASE_URL_KEY, domain).apply()
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -522,27 +507,6 @@ class StreamingCommunity(override val lang: String, private val showType: String
             entryValues = PREF_QUALITY_VALUES,
             default = PREF_QUALITY_DEFAULT,
             summary = "%s",
-        )
-
-        screen.addEditTextPreference(
-            key = PREF_CUSTOM_DOMAIN_KEY,
-            title = "Custom domain",
-            default = DOMAIN_DEFAULT,
-            summary = addressUrlSummary(homepage),
-            getSummary = addressUrlSummary,
-            onChange = { _, newValue ->
-                val newDomain = newValue.trim().removeSuffix("/")
-                if (newDomain.isBlank() || URLUtil.isValidUrl(newDomain)) {
-                    updateDomain(newDomain)
-                    // this `true` will update the preference to empty string if the new value is blank &
-                    // override domain set in `updateDomain`, so make sure to guard `homepage` against blank values.
-                    // But it's needed to update the preference summary.
-                    true
-                } else {
-                    Toast.makeText(screen.context, "Invalid URL. Example: $DOMAIN_DEFAULT", Toast.LENGTH_LONG).show()
-                    false
-                }
-            },
         )
     }
 

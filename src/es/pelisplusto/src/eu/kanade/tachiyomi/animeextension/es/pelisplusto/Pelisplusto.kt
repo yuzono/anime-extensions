@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.multisrc.pelisplus.PelisPlus
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
 import kotlinx.serialization.json.JsonObject
@@ -22,13 +23,8 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-class Pelisplusto : PelisPlus() {
-
-    override val name = "PelisPlusTo"
-
-    override val baseUrl = "https://tioplus.app"
-
-    override val id: Long = 1705636111422561130L
+@Source
+abstract class Pelisplusto : PelisPlus() {
 
     override fun popularAnimeSelector(): String = "article.item"
 

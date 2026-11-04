@@ -8,13 +8,13 @@ import keiyoushi.utils.get
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 
-class TurboVidExtractor(private val client: OkHttpClient, private val headers: Headers) {
+class TurboVidExtractor(private val client: OkHttpClient, private val headers: Headers, private val referer: String) {
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     suspend fun videosFromUrl(url: String, prefix: String = ""): List<Video> {
         val pageHeaders = headers.newBuilder()
-            .set("Referer", "https://animekhor.org/")
+            .set("Referer", referer)
             .build()
         val html = client.get(url, pageHeaders).bodyString()
 

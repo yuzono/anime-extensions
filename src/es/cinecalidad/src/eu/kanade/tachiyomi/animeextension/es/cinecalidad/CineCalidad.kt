@@ -27,6 +27,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
@@ -38,15 +39,10 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.util.Calendar
 
-class CineCalidad :
+@Source
+abstract class CineCalidad :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "CineCalidad"
-
-    override val baseUrl = "https://www.cinecalidad.ec"
-
-    override val lang = "es"
 
     override val supportsLatest = true
 

@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
@@ -26,12 +27,10 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.util.Locale
 
-class Kuronime :
+@Source
+abstract class Kuronime :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-    override val baseUrl: String = "https://tv1.kuronime.vip"
-    override val lang: String = "id"
-    override val name: String = "Kuronime"
     override val supportsLatest: Boolean = true
 
     private val preferences by getPreferencesLazy()

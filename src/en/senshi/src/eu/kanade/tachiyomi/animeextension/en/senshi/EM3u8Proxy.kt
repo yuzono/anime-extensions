@@ -10,8 +10,9 @@ import org.nanohttpd.protocols.http.NanoHTTPD
 import org.nanohttpd.protocols.http.response.Response
 import org.nanohttpd.protocols.http.response.Response.newFixedLengthResponse
 import org.nanohttpd.protocols.http.response.Status
+import java.net.SocketTimeoutException
 import java.net.URLEncoder
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 class EM3u8Proxy(
     private val baseHeaders: Headers,
@@ -19,12 +20,12 @@ class EM3u8Proxy(
 ) : NanoHTTPD("127.0.0.1", 0) {
 
     private val proxyClient = client.newBuilder()
-        .readTimeout(30, TimeUnit.SECONDS)
-        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(30.seconds)
+        .connectTimeout(10.seconds)
         .followRedirects(true)
         .build()
 
-    fun proxyUrl(original: String): String = "http://127.0.0.1:$listeningPort/proxy?url=${URLEncoder.encode(original, "UTF-8")}"
+    fun proxyUrl(original: String): String = "http://$hostname:$listeningPort/proxy?url=${URLEncoder.encode(original, "UTF-8")}"
 
     override fun handle(session: IHTTPSession): Response {
         val url = session.parameters["url"]?.firstOrNull()
@@ -51,24 +52,17 @@ class EM3u8Proxy(
                     bytes.startsWithAscii("#EXTM3U") || isPlaylist(finalUrl) ->
                         serveManifest(bytes.toString(Charsets.UTF_8), finalUrl, audio)
 
-                    // Episode images and subtitles; both need the referer (subtitles also
-                    // sit behind Cloudflare), which the player does not send.
-                    else -> {
-                        val path = res.request.url.encodedPath
-                        val mime = when {
-                            path.endsWith(".ass") -> "text/x-ssa"
-                            path.endsWith(".vtt") -> "text/vtt"
-                            path.endsWith(".jpg") || path.endsWith(".jpeg") -> "image/jpeg"
-                            path.endsWith(".webp") -> "image/webp"
-                            path.endsWith(".png") -> "image/png"
-                            else -> "application/octet-stream"
-                        }
-                        newFixedLengthResponse(Status.OK, mime, bytes.inputStream(), bytes.size.toLong())
-                    }
+                    else ->
+                        newFixedLengthResponse(
+                            Status.OK,
+                            "application/octet-stream",
+                            bytes.inputStream(),
+                            bytes.size.toLong(),
+                        )
                 }
             }
         } catch (e: Exception) {
-            val status = if (e is java.net.SocketTimeoutException) Status.SERVICE_UNAVAILABLE else Status.INTERNAL_ERROR
+            val status = if (e is SocketTimeoutException) Status.SERVICE_UNAVAILABLE else Status.INTERNAL_ERROR
             newFixedLengthResponse(status, "text/plain", e.toString())
         }
     }

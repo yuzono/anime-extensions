@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -22,15 +23,10 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 
-class Javgg :
+@Source
+abstract class Javgg :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "JavGG"
-
-    override val baseUrl = "https://javgg.net"
-
-    override val lang = "all"
 
     override val supportsLatest = true
 

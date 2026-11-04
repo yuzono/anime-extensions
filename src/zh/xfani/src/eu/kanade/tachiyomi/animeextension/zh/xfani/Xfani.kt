@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -50,15 +51,10 @@ enum class FilterUpdateState {
     FAILED,
 }
 
-class Xfani :
+@Source
+abstract class Xfani :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-    override val baseUrl: String
-        get() = "https://anime.xifanacg.com"
-    override val lang: String
-        get() = "zh"
-    override val name: String
-        get() = "稀饭动漫"
     override val supportsLatest: Boolean
         get() = true
 

@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * STATELESS local proxy — every request carries its own crypto params in the
@@ -48,8 +49,8 @@ class ProxyServer(
         .build()
     private val proxyClient by lazy {
         OkHttpClient.Builder()
-            .readTimeout(30, TimeUnit.SECONDS)
-            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(30.seconds)
+            .connectTimeout(10.seconds)
             .connectionPool(ConnectionPool(30, 2, TimeUnit.MINUTES))
             .retryOnConnectionFailure(true)
             .followRedirects(false)
@@ -63,6 +64,7 @@ class ProxyServer(
         keySeed: String,
         segmentBytes: Int,
         isManifest: Boolean = false,
+        referer: String? = null,
     ): String {
         val params = buildString {
             append("url=").append(URLEncoder.encode(originalUrl, "UTF-8"))
@@ -71,6 +73,7 @@ class ProxyServer(
                 append("&sb=").append(segmentBytes)
             }
             if (isManifest) append("&m3u8=1")
+            if (referer != null) append("&ref=").append(URLEncoder.encode(referer, "UTF-8"))
         }
         val path = if (isManifest) "/proxy/playlist.m3u8" else "/proxy/segment.ts"
         return "http://$hostname:$listeningPort$path?$params"
@@ -87,6 +90,21 @@ class ProxyServer(
             ?: return newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "Missing url")
         if (!url.startsWith("https://")) {
             return newFixedLengthResponse(Status.BAD_REQUEST, "text/plain", "https only")
+        }
+
+        // Per-request Referer/Origin override for download-path requests
+        val customReferer = params["ref"]?.firstOrNull()
+        val upstreamHeaders = if (customReferer != null) {
+            val origin = customReferer.trimEnd('/')
+            cdnHeaders.newBuilder()
+                .set("Referer", customReferer)
+                .set("Origin", origin)
+                .set("Sec-Fetch-Dest", "empty")
+                .set("Sec-Fetch-Mode", "cors")
+                .set("Sec-Fetch-Site", "cross-site")
+                .build()
+        } else {
+            cdnHeaders
         }
 
         return try {

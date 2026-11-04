@@ -8,6 +8,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
@@ -19,21 +20,10 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Element
 
-class OneThreeTwoAnime :
+@Source
+abstract class OneThreeTwoAnime :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "123Anime"
-
-    // baseUrl is a property getter (not lazy) so switching mirrors is instant.
-    // Values removed from DOMAIN_VALUES (e.g. mirrors that now 301 elsewhere)
-    // fall back to the default instead of sticking around from old installs.
-    override val baseUrl: String
-        get() = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)
-            ?.takeIf { it in DOMAIN_VALUES }
-            ?: PREF_DOMAIN_DEFAULT
-
-    override val lang = "en"
 
     override val supportsLatest = true
 
@@ -227,14 +217,6 @@ class OneThreeTwoAnime :
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
-            key = PREF_DOMAIN_KEY,
-            title = "Preferred Mirror",
-            entries = DOMAIN_ENTRIES.toList(),
-            entryValues = DOMAIN_VALUES.toList(),
-            default = PREF_DOMAIN_DEFAULT,
-            summary = "%s",
-        )
-        screen.addListPreference(
             key = PREF_SUB_DUB_KEY,
             title = "Sub / Dub",
             entries = SUB_DUB_ENTRIES.toList(),
@@ -302,18 +284,6 @@ class OneThreeTwoAnime :
     // ==================================================================
 
     companion object {
-        // Mirror preference — mirrors verified live; others 301 to the hub
-        private const val PREF_DOMAIN_KEY = "pref_domain"
-        private val DOMAIN_ENTRIES = arrayOf(
-            "123animehub.cc (Primary)",
-            "123anime.la",
-        )
-        private val DOMAIN_VALUES = arrayOf(
-            "https://123animehub.cc",
-            "https://123anime.la",
-        )
-        private val PREF_DOMAIN_DEFAULT = DOMAIN_VALUES[0]
-
         // Sub/Dub preference
         private const val PREF_SUB_DUB_KEY = "pref_sub_dub"
         private const val SUB_DUB_BOTH = "both"

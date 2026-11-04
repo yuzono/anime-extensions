@@ -17,6 +17,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.decodeHexToString
@@ -27,15 +28,10 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 
-class VerAnimes :
+@Source
+abstract class VerAnimes :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "VerAnimes"
-
-    override val baseUrl = "https://wwv.veranimes.net"
-
-    override val lang = "es"
 
     override val supportsLatest = true
 
@@ -133,7 +129,7 @@ class VerAnimes :
         val mediaType = "application/x-www-form-urlencoded; charset=UTF-8".toMediaType()
         val body = "acc=opt&i=$opt".toRequestBody(mediaType)
         val request = Request.Builder()
-            .url("https://wwv.veranimes.net/process")
+            .url("$baseUrl/process")
             .post(body)
             .addHeader("content-type", "application/x-www-form-urlencoded; charset=UTF-8")
             .addHeader("referer", document.location())

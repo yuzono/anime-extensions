@@ -1,7 +1,0 @@
-ext {
-    extName = 'iyf'
-    extClass = '.Iyf'
-    extVersionCode = 1
-}
-
-apply plugin: "kei.plugins.extension.legacy"

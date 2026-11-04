@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
@@ -28,15 +29,10 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
-class AnimeTake :
+@Source
+abstract class AnimeTake :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
-
-    override val name = "AnimeTake"
-
-    override val baseUrl = "https://animetake.tv"
-
-    override val lang = "en"
 
     override val supportsLatest = true
 

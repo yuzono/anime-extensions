@@ -3,13 +3,11 @@ package eu.kanade.tachiyomi.animeextension.en.wcostream
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.multisrc.wcotheme.WcoTheme
+import keiyoushi.annotation.Source
 import org.jsoup.nodes.Document
 
-class WCOStream : WcoTheme() {
-
-    override val name = "WCOStream"
-
-    override val baseUrl = "https://www.wcostream.tv"
+@Source
+abstract class WCOStream : WcoTheme() {
 
     override val supportsLatest = false
 

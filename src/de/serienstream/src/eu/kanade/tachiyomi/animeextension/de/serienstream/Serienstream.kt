@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.UrlUtils
 import keiyoushi.utils.addListPreference
@@ -39,15 +40,10 @@ import uy.kohesive.injekt.injectLazy
 import java.net.URLEncoder
 import java.security.MessageDigest
 
-class Serienstream :
+@Source
+abstract class Serienstream :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Serienstream"
-
-    override val baseUrl = "https://serienstream.to"
-
-    override val lang = "de"
 
     override val supportsLatest = true
 

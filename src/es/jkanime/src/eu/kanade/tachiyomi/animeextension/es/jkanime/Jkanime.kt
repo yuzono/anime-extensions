@@ -23,6 +23,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.bodyString
@@ -41,15 +42,10 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Jkanime :
+@Source
+abstract class Jkanime :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Jkanime"
-
-    override val baseUrl = "https://jkanime.net"
-
-    override val lang = "es"
 
     override val supportsLatest = true
 
@@ -406,7 +402,7 @@ class Jkanime :
 
     private val doodExtractor by lazy { DoodExtractor(client) }
     private val vidHideExtractor by lazy { VidHideExtractor(client, headers) }
-    private val jkanimeExtractor by lazy { JkanimeExtractor(client) }
+    private val jkanimeExtractor by lazy { JkanimeExtractor(client, baseUrl) }
     private val universalExtractor by lazy { UniversalExtractor(client) }
 
     override fun videoListParse(response: Response): List<Video> {

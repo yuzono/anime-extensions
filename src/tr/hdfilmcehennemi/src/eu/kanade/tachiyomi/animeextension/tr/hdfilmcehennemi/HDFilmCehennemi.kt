@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
@@ -32,14 +33,10 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class HDFilmCehennemi :
+@Source
+abstract class HDFilmCehennemi :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-    override val name = "HDFilmCehennemi"
-
-    override val baseUrl = "https://www.hdfilmcehennemi.nl"
-
-    override val lang = "tr"
 
     override val supportsLatest = true
 
@@ -95,10 +92,10 @@ class HDFilmCehennemi :
     ): AnimesPage {
         if (query.startsWith("https://")) {
             val url = query.toHttpUrl()
-            if (url.host != baseUrl.toHttpUrl().host) {
+            if (url.host != baseUrl.toHttpUrl().host && url.host !in LEGACY_HOSTS) {
                 throw Exception("Unsupported url")
             }
-            val id = url.pathSegments.firstOrNull()?.takeIf(String::isNotBlank)
+            val id = url.encodedPath.removePrefix("/").takeIf(String::isNotEmpty)
                 ?: throw Exception("Unsupported url")
             return getSearchAnime(page, "${PREFIX_SEARCH}$id", filters)
         }
@@ -322,6 +319,16 @@ class HDFilmCehennemi :
 
     companion object {
         const val PREFIX_SEARCH = "id:"
+
+        // Old domains: keep in sync with their deeplink in build.gradle.kts
+        private val LEGACY_HOSTS = setOf(
+            "www.hdfilmcehennemi.ws",
+            "www.hdfilmcehennemi.la",
+            "www.hdfilmcehennemi.us",
+            "www.hdfilmcehennemi.fun",
+            "www.hdfilmcehennemi.de",
+            "www.hdfilmcehennemi.life",
+        )
 
         private val DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)

@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.await
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.parallelCatchingFlatMap
 import kotlinx.serialization.json.Json
@@ -20,18 +21,11 @@ import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
-class FrAnime : AnimeHttpLegacySource() {
+@Source
+abstract class FrAnime : AnimeHttpLegacySource() {
 
-    override val name = "FRAnime"
-
-    private val domain = "franime.fr"
-
-    override val baseUrl = "https://$domain"
-
-    private val baseApiUrl = "https://api.$domain/api"
-    private val baseApiAnimeUrl = "$baseApiUrl/anime"
-
-    override val lang = "fr"
+    private val baseApiUrl: String get() = "https://api.${baseUrl.toHttpUrl().host}/api"
+    private val baseApiAnimeUrl: String get() = "$baseApiUrl/anime"
 
     override val supportsLatest = true
 

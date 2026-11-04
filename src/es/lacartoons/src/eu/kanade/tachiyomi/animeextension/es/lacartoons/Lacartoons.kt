@@ -18,21 +18,17 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.catchingFlatMapBlocking
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Request
 import okhttp3.Response
 
-class Lacartoons :
+@Source
+abstract class Lacartoons :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "LACartoons"
-
-    override val baseUrl = "https://www.lacartoons.com"
-
-    override val lang = "es"
 
     override val supportsLatest = false
 

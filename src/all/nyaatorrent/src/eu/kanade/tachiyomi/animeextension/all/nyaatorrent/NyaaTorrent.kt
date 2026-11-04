@@ -1,7 +1,5 @@
 package eu.kanade.tachiyomi.animeextension.all.nyaatorrent
 
-import android.widget.Toast
-import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -15,8 +13,10 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.torrentutils.TorrentUtils
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
+import keiyoushi.source.CustomUrlPreferences
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
-import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferences
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
@@ -28,24 +28,23 @@ import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class NyaaTorrent(extName: String, private val extURL: String, private val extId: Int) :
+@Source
+abstract class NyaaTorrent :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val name = extName
+    private val extId: Int
+        get() = if (name == "Nyaa Sukebein (Torrent)") 2 else 1
 
-    override val baseUrl by lazy {
-        preferences.getString(PREF_DOMAIN_KEY, extURL)?.trim().takeIf { it?.isNotEmpty() ?: false } ?: extURL
+    // Not lazy, so a domain saved by the old setting moves before the generated baseUrl first reads the preferences
+    private val preferences = getPreferences {
+        CustomUrlPreferences.migrate(this, "domain", if (extId == 2) "https://sukebei.nyaa.si" else "https://nyaa.si")
     }
-
-    override val lang = "all"
-
-    private val preferences by getPreferencesLazy()
 
     override val supportsLatest = true
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
-        .add("Referer", baseUrl)
+        .add("Referer", "$baseUrl/")
 
     // ============================== Shared ===============================
     private val animeSelector = "table.torrent-list tbody tr"
@@ -162,7 +161,7 @@ class NyaaTorrent(extName: String, private val extURL: String, private val extId
     override fun episodeListParse(response: Response): List<SEpisode> {
         val document = response.asJsoup()
         // val torrentMagnet = document.select("a.card-footer-item:contains(Magnet)").attr("href")
-        val torrentFile = "$baseUrl${document.selectFirst("div.panel-footer a")?.attr("href").orEmpty()}"
+        val torrentFile = document.selectFirst("div.panel-footer a")?.absUrl("href").orEmpty()
         val torrentDate = parseDate(document.select("div.panel-body > div:nth-child(1) > div:nth-child(4)").text())
         try {
             val torrent = TorrentUtils.getTorrentInfo(torrentFile, "torrent")
@@ -223,24 +222,6 @@ class NyaaTorrent(extName: String, private val extURL: String, private val extId
     override fun videoFromElement(element: Element) = throw Exception("Not used")
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        EditTextPreference(screen.context).apply {
-            key = PREF_DOMAIN_KEY
-            title = "Custom Domain Link"
-            dialogTitle = "Custom Domain Link"
-            dialogMessage = "eg. https://nyaa.si/"
-            setOnPreferenceChangeListener { _, newValue ->
-                val trimmedValue = (newValue as String).trim()
-                if (trimmedValue.isBlank()) {
-                    preferences.edit().putString(key, extURL).apply()
-                    Toast.makeText(screen.context, "Default URL restored. Restart App to apply new setting.", Toast.LENGTH_LONG).show()
-                } else {
-                    preferences.edit().putString(key, trimmedValue).apply()
-                    Toast.makeText(screen.context, "Restart App to apply new setting.", Toast.LENGTH_LONG).show()
-                }
-                true
-            }
-        }.also(screen::addPreference)
-
         SwitchPreferenceCompat(screen.context).apply {
             key = IS_FILENAME_KEY
             title = "Only display filename"
@@ -299,9 +280,6 @@ class NyaaTorrent(extName: String, private val extURL: String, private val extId
 
     companion object {
         const val PREFIX_SEARCH = "id:"
-
-        // Domain
-        private const val PREF_DOMAIN_KEY = "domain"
 
         private const val IS_FILENAME_KEY = "filename"
         private const val IS_FILENAME_DEFAULT = false

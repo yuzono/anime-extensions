@@ -20,17 +20,14 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStreamFilters
 import eu.kanade.tachiyomi.network.GET
+import keiyoushi.annotation.Source
 import keiyoushi.utils.tryParse
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import org.jsoup.nodes.Element
 
-class AnimeIndo :
-    AnimeStream(
-        "id",
-        "AnimeIndo",
-        "https://animeindo.skin",
-    ) {
+@Source
+abstract class AnimeIndo : AnimeStream() {
 
     // ============================== Filters ============================== (fetch URL)
     override val animeListUrl = "$baseUrl/browse"

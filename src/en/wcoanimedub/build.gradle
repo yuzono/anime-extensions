@@ -1,9 +1,0 @@
-ext {
-    extName = 'WcoAnimeDub'
-    extClass = '.WcoAnimeDub'
-    themePkg = 'wcotheme'
-    baseUrl = 'https://www.wcoanimedub.tv'
-    overrideVersionCode = 2
-}
-
-apply plugin: "kei.plugins.extension.legacy"

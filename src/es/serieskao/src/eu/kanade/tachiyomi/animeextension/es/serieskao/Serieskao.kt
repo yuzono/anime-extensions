@@ -28,6 +28,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import keiyoushi.annotation.Source
 import keiyoushi.lib.cryptoaes.CryptoAES
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
 import keiyoushi.utils.bodyString
@@ -48,15 +49,10 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.net.URLDecoder
 
-open class Serieskao :
+@Source
+abstract class Serieskao :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "SeriesKao"
-
-    override val baseUrl = "https://serieskao.top"
-
-    override val lang = "es"
 
     override val supportsLatest = false
 

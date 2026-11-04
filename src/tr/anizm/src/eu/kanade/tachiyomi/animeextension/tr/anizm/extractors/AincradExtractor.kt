@@ -13,6 +13,7 @@ import okhttp3.OkHttpClient
 class AincradExtractor(
     private val client: OkHttpClient,
     private val headers: Headers,
+    private val baseUrl: String,
 ) {
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
@@ -20,7 +21,7 @@ class AincradExtractor(
         val hash = url.substringAfterLast("video/").substringBefore("/")
         val body = FormBody.Builder()
             .add("hash", hash)
-            .add("r", "https://anizm.net/")
+            .add("r", "$baseUrl/")
             .build()
 
         val headers = headers.newBuilder()

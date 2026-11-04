@@ -12,21 +12,17 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 
-open class VeoHentai :
+@Source
+abstract class VeoHentai :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "VeoHentai"
-
-    override val baseUrl = "https://veohentai.com"
-
-    override val lang = "es"
 
     override val supportsLatest = true
 

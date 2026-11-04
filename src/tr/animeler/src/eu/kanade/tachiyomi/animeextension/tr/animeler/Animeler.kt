@@ -30,6 +30,7 @@ import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -46,15 +47,10 @@ import uy.kohesive.injekt.injectLazy
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class Animeler :
+@Source
+abstract class Animeler :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    override val name = "Animeler"
-
-    override val baseUrl = "https://animeler.pw"
-
-    override val lang = "tr"
 
     override val supportsLatest = true
 
@@ -92,7 +88,7 @@ class Animeler :
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.startsWith("https://")) {
             val url = query.toHttpUrl()
-            if (url.host != baseUrl.toHttpUrl().host) {
+            if (url.host != baseUrl.toHttpUrl().host && url.host !in LEGACY_HOSTS) {
                 throw Exception("Unsupported url")
             }
             val id = url.pathSegments.getOrNull(1)
@@ -361,6 +357,9 @@ class Animeler :
         }
 
         const val PREFIX_SEARCH = "id:"
+
+        // Old domains: keep in sync with their deeplink in build.gradle.kts
+        private val LEGACY_HOSTS = setOf("animeler.me")
 
         private val SUPPORTED_PLAYERS = setOf(
             "doodstream.com",

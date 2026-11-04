@@ -16,7 +16,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import org.jsoup.Jsoup
 import java.io.IOException
-import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 class OneThreeTwoAnimeExtractor(
     private val client: OkHttpClient,
@@ -455,7 +455,7 @@ class OneThreeTwoAnimeExtractor(
         private fun playlistServer(client: OkHttpClient): PlaylistServer = sharedServer ?: synchronized(this) {
             sharedServer ?: PlaylistServer(
                 client.newBuilder()
-                    .readTimeout(30, TimeUnit.SECONDS)
+                    .readTimeout(30.seconds)
                     .protocols(listOf(Protocol.HTTP_1_1))
                     .build(),
             ).also { sharedServer = it }
