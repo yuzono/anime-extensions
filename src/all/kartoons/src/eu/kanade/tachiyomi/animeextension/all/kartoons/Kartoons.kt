@@ -1,7 +1,9 @@
 package eu.kanade.tachiyomi.animeextension.all.kartoons
 
 import androidx.preference.EditTextPreference
+import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import androidx.preference.SwitchPreferenceCompat
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -17,10 +19,13 @@ import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
+import java.io.IOException
 import java.net.URLEncoder
 
 @Source
@@ -41,11 +46,23 @@ abstract class Kartoons :
     // ============================== Popular ===============================
 
     override fun popularAnimeRequest(page: Int): Request {
-        val url = buildApiUrl("catalog/show?catalog=popular&page=$page&limit=20")
+        val defaultCatalog = preferences.getString(PREF_HOME_CATALOG_KEY, PREF_HOME_CATALOG_DEFAULT)
+            ?.takeIf { it.isNotBlank() } ?: PREF_HOME_CATALOG_DEFAULT
+
+        val url = if (defaultCatalog.startsWith("stremio:")) {
+            buildStremioCatalogUrl(defaultCatalog.removePrefix("stremio:"), page)
+        } else {
+            val sep = if (defaultCatalog.contains("?")) "&" else "?"
+            buildApiUrl("$defaultCatalog${sep}page=$page&limit=20")
+        }
         return GET(url, headers)
     }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
+        val requestUrl = response.request.url.toString()
+        if (requestUrl.contains("/api/stremio/")) {
+            return parseStremioCatalog(response)
+        }
         val catalog = response.parseAs<CatalogResponse>()
         val animeList = catalog.data.map { item ->
             SAnime.create().apply {
@@ -58,10 +75,25 @@ abstract class Kartoons :
         return AnimesPage(animeList, catalog.data.size >= 20)
     }
 
+    private fun parseStremioCatalog(response: Response): AnimesPage {
+        val catalog = response.parseAs<StremioCatalogResponse>()
+        val animeList = catalog.metas.mapNotNull { meta ->
+            val rawId = meta.id?.removePrefix("kartoons:")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val type = if (meta.type == "movie") "movie" else "show"
+            SAnime.create().apply {
+                this.url = "/$type/$rawId"
+                title = meta.name?.trim().orEmpty()
+                thumbnail_url = meta.poster
+                description = meta.description
+            }
+        }
+        return AnimesPage(animeList, catalog.metas.size >= 20)
+    }
+
     // =============================== Latest ===============================
 
     override fun latestUpdatesRequest(page: Int): Request {
-        val url = buildApiUrl("catalog/movie?catalog=popular&page=$page&limit=20")
+        val url = buildApiUrl("catalog/show?catalog=latest&page=$page&limit=20")
         return GET(url, headers)
     }
 
@@ -75,9 +107,13 @@ abstract class Kartoons :
             buildApiUrl("search?q=$encodedQuery&limit=20")
         } else {
             val catalogPath = filters.filterIsInstance<KartoonsFilters.CatalogFilter>()
-                .firstOrNull()?.selected ?: "catalog/show?catalog=popular"
-            val sep = if (catalogPath.contains("?")) "&" else "?"
-            buildApiUrl("$catalogPath${sep}page=$page&limit=20")
+                .firstOrNull()?.selected ?: PREF_HOME_CATALOG_DEFAULT
+            if (catalogPath.startsWith("stremio:")) {
+                buildStremioCatalogUrl(catalogPath.removePrefix("stremio:"), page)
+            } else {
+                val sep = if (catalogPath.contains("?")) "&" else "?"
+                buildApiUrl("$catalogPath${sep}page=$page&limit=20")
+            }
         }
         return GET(url, headers)
     }
@@ -238,6 +274,7 @@ abstract class Kartoons :
     override suspend fun getVideoList(hoster: Hoster): List<Video> = hoster.videoList.orEmpty()
 
     private suspend fun extractVideos(episode: SEpisode): List<Video> {
+        syncWatchHistory(episode.url)
         val response = client.get(episode.url, headers)
         val linksRes = response.parseAs<LinksResponse>()
         val data = linksRes.data ?: return emptyList()
@@ -302,6 +339,40 @@ abstract class Kartoons :
         return videoList.distinctBy { it.videoUrl }
     }
 
+    private fun syncWatchHistory(episodeUrl: String) {
+        val syncEnabled = preferences.getBoolean(PREF_SYNC_WATCH_HISTORY_KEY, true)
+        if (!syncEnabled) return
+
+        val token = preferences.getString(TOKEN_KEY, "")?.trim().orEmpty()
+        if (token.isBlank()) return
+
+        val syncUrl = when {
+            episodeUrl.contains("/movie/") -> {
+                val movieId = episodeUrl.substringAfter("/movie/").substringBefore("/links").substringBefore("?")
+                if (movieId.isBlank()) return
+                "$API_BASE/api/stremio/stream/movie/kartoons:$movieId.json?token=$token"
+            }
+            episodeUrl.contains("/episode/") -> {
+                val episodeId = episodeUrl.substringAfter("/episode/").substringBefore("/links").substringBefore("?")
+                if (episodeId.isBlank()) return
+                "$API_BASE/api/stremio/stream/series/kartoons:$episodeId.json?token=$token"
+            }
+            else -> null
+        } ?: return
+
+        client.newCall(GET(syncUrl, headers)).enqueue(
+            object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    // Non-critical background sync
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.close()
+                }
+            },
+        )
+    }
+
     // ============================= Preferences ============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -323,6 +394,24 @@ abstract class Kartoons :
                 true
             }
         }.also(screen::addPreference)
+
+        ListPreference(screen.context).apply {
+            key = PREF_HOME_CATALOG_KEY
+            title = "Default Browse Catalog"
+            entries = KartoonsFilters.CATALOG_OPTIONS.map { it.first }.toTypedArray()
+            entryValues = KartoonsFilters.CATALOG_OPTIONS.map { it.second }.toTypedArray()
+            setDefaultValue(PREF_HOME_CATALOG_DEFAULT)
+            summary = "%s"
+            setOnPreferenceChangeListener { _, _ -> true }
+        }.also(screen::addPreference)
+
+        SwitchPreferenceCompat(screen.context).apply {
+            key = PREF_SYNC_WATCH_HISTORY_KEY
+            title = "Sync Watch Activity to Website"
+            summary = "Updates Continue Watching on kartoons.to when you play a title"
+            setDefaultValue(true)
+            setOnPreferenceChangeListener { _, _ -> true }
+        }.also(screen::addPreference)
     }
 
     // ============================== Helpers ===============================
@@ -338,6 +427,22 @@ abstract class Kartoons :
         return "$API_BASE/api/cloudstream/$pathWithQuery${sep}token=$token"
     }
 
+    private fun buildStremioCatalogUrl(path: String, page: Int): String {
+        val token = preferences.getString(TOKEN_KEY, "")?.trim().orEmpty()
+        if (token.isBlank()) {
+            throw Exception(
+                "Kartoons token is required to view your watchlist and continue-watching. Set your token in the extension settings (Kartoons -> Settings).",
+            )
+        }
+        val cleanPath = path.removePrefix("/")
+        return if (page <= 1) {
+            "$API_BASE/api/stremio/$cleanPath.json?token=$token"
+        } else {
+            val skip = (page - 1) * 20
+            "$API_BASE/api/stremio/$cleanPath/skip=$skip.json?token=$token"
+        }
+    }
+
     override fun getFilterList(): AnimeFilterList = KartoonsFilters.getFilterList()
 
     override fun getAnimeUrl(anime: SAnime): String = "$baseUrl${anime.url}"
@@ -347,5 +452,8 @@ abstract class Kartoons :
     companion object {
         private const val API_BASE = "https://api.kartoons.me"
         private const val TOKEN_KEY = "token"
+        private const val PREF_HOME_CATALOG_KEY = "pref_home_catalog"
+        private const val PREF_HOME_CATALOG_DEFAULT = "catalog/show?catalog=popular"
+        private const val PREF_SYNC_WATCH_HISTORY_KEY = "pref_sync_watch_history"
     }
 }

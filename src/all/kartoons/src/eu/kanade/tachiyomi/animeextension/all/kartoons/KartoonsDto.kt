@@ -126,3 +126,17 @@ data class SubtitleItem(
     val url: String,
     val lang: String? = null,
 )
+
+@Serializable
+class StremioCatalogResponse(
+    val metas: List<StremioMeta> = emptyList(),
+)
+
+@Serializable
+class StremioMeta(
+    val id: String? = null,
+    val type: String? = null,
+    val name: String? = null,
+    val poster: String? = null,
+    val description: String? = null,
+)

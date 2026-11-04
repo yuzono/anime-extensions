@@ -5,6 +5,21 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 
 object KartoonsFilters {
 
+    val CATALOG_OPTIONS = arrayOf(
+        Pair("Popular Shows", "catalog/show?catalog=popular"),
+        Pair("Latest Shows", "catalog/show?catalog=latest"),
+        Pair("Trending Shows", "catalog/show?catalog=trending"),
+        Pair("Popular Movies", "catalog/movie?catalog=popular"),
+        Pair("Latest Movies", "catalog/movie?catalog=latest"),
+        Pair("Trending Movies", "catalog/movie?catalog=trending"),
+        Pair("⏱️ Continue Watching (Shows)", "stremio:catalog/series/kartoons_continue_shows"),
+        Pair("⏱️ Continue Watching (Movies)", "stremio:catalog/movie/kartoons_continue_movies"),
+        Pair("🌟 My Watchlist (Shows)", "stremio:catalog/series/kartoons_watchlist_shows"),
+        Pair("🌟 My Watchlist (Movies)", "stremio:catalog/movie/kartoons_watchlist_movies"),
+        Pair("All Shows", "catalog/show"),
+        Pair("All Movies", "catalog/movie"),
+    )
+
     open class SelectFilter(
         displayName: String,
         val options: Array<Pair<String, String>>,
@@ -21,12 +36,7 @@ object KartoonsFilters {
     class CatalogFilter :
         SelectFilter(
             "Catalog",
-            arrayOf(
-                Pair("Popular Shows", "catalog/show?catalog=popular"),
-                Pair("Popular Movies", "catalog/movie?catalog=popular"),
-                Pair("All Shows", "catalog/show"),
-                Pair("All Movies", "catalog/movie"),
-            ),
+            CATALOG_OPTIONS,
         )
 
     fun getFilterList(): AnimeFilterList = AnimeFilterList(
