@@ -5,24 +5,28 @@ import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
-import keiyoushi.utils.ParsedAnimeHttpLegacySource
+import keiyoushi.network.get
+import keiyoushi.network.post
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
+import keiyoushi.utils.tryParse
+import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
-import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.net.URLDecoder
 import java.text.SimpleDateFormat
@@ -30,22 +34,19 @@ import java.util.Locale
 
 @Source
 abstract class Hstream :
-    ParsedAnimeHttpLegacySource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = true
 
-    // URLs from the old extension are invalid now, so we're bumping this to
-    // make aniyomi interpret it as a new source, forcing old users to migrate.
-
     private val preferences by getPreferencesLazy()
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/search?order=view-count&page=$page")
+    override fun popularAnimeRequest(page: Int) = GET("$baseUrl/search?order=view-count&page=$page", headers)
 
-    override fun popularAnimeSelector() = "div.items-center div.w-full > a"
+    private fun popularAnimeSelector() = "div.items-center div.w-full > a"
 
-    override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
+    private fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
         val href = element.attr("href")
         val showUrl = href.trimEnd('/').substringBeforeLast("-") + "/"
         val epNum = href.trimEnd('/').substringAfterLast("-")
@@ -61,30 +62,36 @@ abstract class Hstream :
     }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
-        val page = super.popularAnimeParse(response)
-        return AnimesPage(page.animes.distinctBy { it.url }, page.hasNextPage)
+        val document = response.asJsoup()
+        val animes = document.select(popularAnimeSelector())
+            .map(::popularAnimeFromElement)
+            .distinctBy { it.url }
+        val hasNextPage = document.selectFirst(popularAnimeNextPageSelector()) != null
+        return AnimesPage(animes, hasNextPage)
     }
 
     override fun latestUpdatesParse(response: Response): AnimesPage {
-        val page = super.latestUpdatesParse(response)
-        return AnimesPage(page.animes.distinctBy { it.url }, page.hasNextPage)
+        val document = response.asJsoup()
+        val animes = document.select(popularAnimeSelector())
+            .map(::popularAnimeFromElement)
+            .distinctBy { it.url }
+        val hasNextPage = document.selectFirst(popularAnimeNextPageSelector()) != null
+        return AnimesPage(animes, hasNextPage)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage {
-        val page = super.searchAnimeParse(response)
-        return AnimesPage(page.animes.distinctBy { it.url }, page.hasNextPage)
+        val document = response.asJsoup()
+        val animes = document.select(popularAnimeSelector())
+            .map(::popularAnimeFromElement)
+            .distinctBy { it.url }
+        val hasNextPage = document.selectFirst(popularAnimeNextPageSelector()) != null
+        return AnimesPage(animes, hasNextPage)
     }
 
-    override fun popularAnimeNextPageSelector() = "span[aria-current] + a"
+    private fun popularAnimeNextPageSelector() = "span[aria-current] + a"
 
     // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/search?order=recently-uploaded&page=$page")
-
-    override fun latestUpdatesSelector() = popularAnimeSelector()
-
-    override fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
-
-    override fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
+    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/search?order=recently-uploaded&page=$page", headers)
 
     // =============================== Search ===============================
     override fun getFilterList() = HstreamFilters.FILTER_LIST
@@ -97,21 +104,20 @@ abstract class Hstream :
             }
             val id = url.pathSegments.getOrNull(1)
                 ?: throw Exception("Unsupported url")
-            return getSearchAnime(page, "${PREFIX_SEARCH}$id", filters)
+            return getSearchAnime(page, "$PREFIX_SEARCH$id", filters)
         }
 
         if (query.startsWith(PREFIX_SEARCH)) {
             val id = query.removePrefix(PREFIX_SEARCH)
-            return client.newCall(GET("$baseUrl/hentai/$id"))
-                .awaitSuccess()
-                .use(::searchAnimeByIdParse)
+            val response = client.get("$baseUrl/hentai/$id", headers)
+            return searchAnimeByIdParse(response)
         }
 
         return super.getSearchAnime(page, query, filters)
     }
 
     private fun searchAnimeByIdParse(response: Response): AnimesPage {
-        val details = animeDetailsParse(response.asJsoup()).apply {
+        val details = animeDetailsParse(response).apply {
             setUrlWithoutDomain(response.request.url.toString())
             initialized = true
         }
@@ -130,28 +136,25 @@ abstract class Hstream :
             params.studios.forEach { addQueryParameter("studios[]", it) }
         }.build()
 
-        return GET(url.toString())
+        return GET(url, headers)
     }
 
-    override fun searchAnimeSelector() = popularAnimeSelector()
-
-    override fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
-
-    override fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
-
     // =========================== Anime Details ============================
-    override fun animeDetailsParse(document: Document) = SAnime.create().apply {
-        status = SAnime.COMPLETED
+    override fun animeDetailsParse(response: Response): SAnime {
+        val document = response.asJsoup()
+        return SAnime.create().apply {
+            status = SAnime.COMPLETED
 
-        val mainContent = document.selectFirst("div.flex-1")!!
-        title = mainContent.selectFirst("h1 span")?.text() ?: mainContent.selectFirst("h1")!!.text()
-        author = mainContent.selectFirst("div.mt-4.flex.flex-wrap a")?.text()
+            val mainContent = document.selectFirst("div.flex-1")!!
+            title = mainContent.selectFirst("h1 span")?.text() ?: mainContent.selectFirst("h1")!!.text()
+            author = mainContent.selectFirst("div.mt-4.flex.flex-wrap a")?.text()
 
-        thumbnail_url = document.selectFirst("div.hidden.shrink-0.md\\:block img")?.absUrl("src")
-        genre = document.select("h2:contains(Genres) + div a").eachText().joinToString()
+            thumbnail_url = document.selectFirst("div.hidden.shrink-0.md\\:block img")?.absUrl("src")
+            genre = document.select("h2:contains(Genres) + div a").eachText().joinToString()
 
-        description = document.selectFirst("h2:contains(Description) + p")?.text()
-            ?: document.selectFirst("div.border-t p.leading-relaxed")?.text()
+            description = document.selectFirst("h2:contains(Description) + p")?.text()
+                ?: document.selectFirst("div.border-t p.leading-relaxed")?.text()
+        }
     }
 
     // ============================== Episodes ==============================
@@ -159,11 +162,9 @@ abstract class Hstream :
         val doc = response.asJsoup()
         val showPath = response.request.url.encodedPath.trimEnd('/')
 
-        val uploadDate = runCatching {
-            val dateText = doc.selectFirst("div.mt-4.flex.flex-wrap.items-center.gap-2.text-sm > div:has(i.fa-upload)")
-                ?.text()
-            DATE_FORMATTER.parse(dateText.orEmpty())?.time
-        }.getOrNull() ?: 0L
+        val uploadDate = DATE_FORMATTER.tryParse(
+            doc.selectFirst("div.mt-4.flex.flex-wrap.items-center.gap-2.text-sm > div:has(i.fa-upload)")?.text(),
+        )
 
         return doc.select("a[href*='$showPath-']")
             .mapNotNull { element ->
@@ -184,19 +185,20 @@ abstract class Hstream :
             .sortedByDescending { it.episode_number }
     }
 
-    override fun episodeListSelector(): String = throw UnsupportedOperationException()
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
-    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
 
     // ============================ Video Links =============================
-    override fun videoListParse(response: Response): List<Video> {
-        val doc = response.asJsoup()
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
+        val epResponse = client.get(baseUrl + episode.url, headers)
+        val doc = epResponse.asJsoup()
 
-        val token = client.cookieJar.loadForRequest(response.request.url)
-            .first { it.name.equals("XSRF-TOKEN") }
-            .value
+        val token = client.cookieJar.loadForRequest(epResponse.request.url)
+            .firstOrNull { it.name == "XSRF-TOKEN" }
+            ?.value ?: return emptyList()
 
-        val episodeId = doc.selectFirst("input#e_id")!!.attr("value")
+        val episodeId = doc.selectFirst("input#e_id")?.attr("value") ?: return emptyList()
 
         val newHeaders = headersBuilder().apply {
             set("Referer", doc.location())
@@ -206,35 +208,79 @@ abstract class Hstream :
         }.build()
 
         val body = mapOf("episode_id" to episodeId).toJsonRequestBody()
-        val data = client.newCall(POST("$baseUrl/player/api", newHeaders, body)).execute()
-            .parseAs<PlayerApiResponse>()
+        val data = client.post("$baseUrl/player/api", newHeaders, body).parseAs<PlayerApiResponse>()
 
-        val urlBase = data.stream_domains.random() + "/" + data.stream_url
-        val subtitleList = listOf(Track("$urlBase/eng.ass", "English"))
+        val streamDomains = data.streamDomains.filter { domain ->
+            val parsed = domain.toHttpUrlOrNull()
+            parsed != null && parsed.isHttps && isValidPublicHost(parsed.host)
+        }
+        if (streamDomains.isEmpty()) return emptyList()
 
-        val resolutions = listOfNotNull("720", "1080", if (data.resolution == "4k") "2160" else null)
+        val testBase = "${streamDomains.first()}/${data.streamUrl}"
 
-        // Determine if we need to force legacy mode based on manifest inspection to handle html video chunks
         var forceLegacy = data.legacy != 0
         if (!forceLegacy) {
             try {
-                val testUrl = urlBase + "/720/manifest.mpd"
-                val manifestString = client.newCall(GET(testUrl, headers)).execute().body.string()
-                if (manifestString.contains(".html")) {
+                val testUrl = "$testBase/720/manifest.mpd"
+                val manifestString = client.get(testUrl, headers, ensureSuccess = false).body.string()
+                if (manifestString.contains(".html") || manifestString.contains("\\")) {
                     forceLegacy = true
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+            }
         }
 
-        return resolutions.map { resolution ->
-            val path = getVideoUrlPath(forceLegacy, resolution)
-            val url = urlBase + path
-            Video(url, "${resolution}p" + if (forceLegacy) " (Legacy)" else "", url, subtitleTracks = subtitleList)
+        val resolutions = if (forceLegacy) {
+            listOfNotNull(
+                "720",
+                "1080",
+                if (data.resolution == "4k") "2160" else null,
+            )
+        } else {
+            listOfNotNull(
+                "720",
+                "1080",
+                "1080i",
+                if (data.resolution == "4k") "2160" else null,
+            )
+        }
+
+        val videoHeaders = headersBuilder().set("Referer", "$baseUrl/").build()
+
+        return streamDomains.mapIndexed { index, domain ->
+            val urlBase = "$domain/${data.streamUrl}"
+            val subtitleList = listOf(Track("$urlBase/eng.ass", "English"))
+
+            val videos = resolutions.map { resolution ->
+                val path = getVideoUrlPath(forceLegacy, resolution)
+                val url = urlBase + path
+
+                val qualityLabel = when (resolution) {
+                    "1080i" -> "1080@48"
+                    else -> "${resolution}p"
+                }
+
+                Video(
+                    videoUrl = url,
+                    videoTitle = qualityLabel + if (forceLegacy) " (Legacy)" else "",
+                    headers = videoHeaders,
+                    subtitleTracks = subtitleList,
+                )
+            }
+
+            Hoster(
+                hosterUrl = domain,
+                hosterName = "Server ${index + 1}",
+                videoList = videos,
+            )
         }
     }
 
+    override suspend fun getVideoList(hoster: Hoster): List<Video> = hoster.videoList.orEmpty()
+
     private fun getVideoUrlPath(isLegacy: Boolean, resolution: String): String = if (isLegacy) {
-        if (resolution.equals("720")) {
+        if (resolution == "720") {
             "/x264.720p.mp4"
         } else {
             "/av1.$resolution.webm"
@@ -244,16 +290,12 @@ abstract class Hstream :
     }
 
     @Serializable
-    data class PlayerApiResponse(
+    class PlayerApiResponse(
         val legacy: Int = 0,
-        val resolution: String = "4k",
-        val stream_url: String,
-        val stream_domains: List<String>,
+        val resolution: String? = null,
+        @SerialName("stream_url") val streamUrl: String,
+        @SerialName("stream_domains") val streamDomains: List<String> = emptyList(),
     )
-
-    override fun videoListSelector(): String = throw UnsupportedOperationException()
-
-    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -285,7 +327,7 @@ abstract class Hstream :
 
     companion object {
         private val DATE_FORMATTER by lazy {
-            SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)
+            SimpleDateFormat("yyyy-MM-dd", Locale.ROOT)
         }
 
         private val EPISODE_PARSER = Regex("""\s*(?:[-–—]\s*|\bEpisode\s*)\d+(?:\.\d+)?\s*$""", RegexOption.IGNORE_CASE)
@@ -294,7 +336,18 @@ abstract class Hstream :
         private const val PREF_QUALITY_KEY = "pref_quality_key"
         private const val PREF_QUALITY_TITLE = "Preferred quality"
         private const val PREF_QUALITY_DEFAULT = "720p"
-        private val PREF_QUALITY_ENTRIES = arrayOf("720p (HD)", "1080p (FULLHD)", "2160p (4K)")
-        private val PREF_QUALITY_VALUES = arrayOf("720p", "1080p", "2160p")
+        private val PREF_QUALITY_ENTRIES = arrayOf("720p (HD)", "1080p (FULLHD)", "1080@48 (1080i)", "2160p (4K)")
+        private val PREF_QUALITY_VALUES = arrayOf("720p", "1080p", "1080@48", "2160p")
+
+        private fun isValidPublicHost(host: String): Boolean {
+            if (host.equals("localhost", ignoreCase = true) || host.endsWith(".local") || host.endsWith(".internal")) {
+                return false
+            }
+            return !PRIVATE_IP_REGEX.matches(host)
+        }
+
+        private val PRIVATE_IP_REGEX = Regex(
+            """^(127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|0\.|169\.254\.|::1|[fF][cCdD]).*""",
+        )
     }
 }
