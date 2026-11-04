@@ -19,6 +19,10 @@ import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Headers
@@ -79,7 +83,7 @@ abstract class Kartoons :
         val catalog = response.parseAs<StremioCatalogResponse>()
         val animeList = catalog.metas.mapNotNull { meta ->
             val rawId = meta.id?.removePrefix("kartoons:")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val name = meta.name?.trim()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val name = (meta.name ?: meta.title)?.trim()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val type = if (meta.type == "movie") "movie" else "show"
             SAnime.create().apply {
                 this.url = "/$type/$rawId"
@@ -215,6 +219,7 @@ abstract class Kartoons :
                     episode_number = 1F
                     url = "movie/$id/links"
                     preview_url = anime.thumbnail_url
+                    scanlator = "Movie"
                 },
             )
         }
@@ -223,41 +228,47 @@ abstract class Kartoons :
         val showRes = client.get(showUrl, headers).parseAs<ShowDetailsResponse>()
         val seasons = showRes.data.seasons
 
-        val episodeList = mutableListOf<SEpisode>()
-        var episodeCount = 1F
-        var firstException: Exception? = null
-
-        for (season in seasons) {
-            val seasonSlug = season.slug ?: season.seasonNumber?.toString() ?: continue
-            val episodesUrl = buildApiUrl("show/$id/season/$seasonSlug/episodes")
-            try {
-                val epRes = client.get(episodesUrl, headers).parseAs<EpisodesResponse>()
-                for (ep in epRes.data) {
-                    val epNum = ep.episodeNumber ?: episodeCount
-                    val epTitle = ep.title?.trim().orEmpty()
-                    val seasonPrefix = season.title?.let { "[$it] " } ?: ""
-                    val epNumStr = if (epNum % 1f == 0f) epNum.toInt().toString() else epNum.toString()
-                    episodeList.add(
-                        SEpisode.create().apply {
-                            name = if (epTitle.isNotBlank()) {
-                                "$seasonPrefix Episode $epNumStr: $epTitle"
-                            } else {
-                                "$seasonPrefix Episode $epNumStr"
-                            }
-                            episode_number = epNum
-                            url = "episode/${ep.id}/links"
-                            preview_url = ep.image
-                        },
-                    )
-                    episodeCount++
+        val seasonResults = coroutineScope {
+            seasons.map { season ->
+                async(Dispatchers.IO) {
+                    val seasonSlug = season.slug ?: season.seasonNumber?.toString() ?: return@async null
+                    val episodesUrl = buildApiUrl("show/$id/season/$seasonSlug/episodes")
+                    try {
+                        val epRes = client.get(episodesUrl, headers).parseAs<EpisodesResponse>()
+                        Pair(season, epRes.data)
+                    } catch (_: Exception) {
+                        null
+                    }
                 }
-            } catch (e: Exception) {
-                if (firstException == null) firstException = e
-            }
+            }.awaitAll().filterNotNull()
         }
 
-        if (episodeList.isEmpty() && firstException != null) {
-            throw firstException
+        val episodeList = mutableListOf<SEpisode>()
+        var episodeCount = 1F
+
+        for ((season, episodes) in seasonResults) {
+            val seasonName = season.title?.trim()?.takeIf { it.isNotBlank() }
+                ?: "Season ${season.seasonNumber ?: 1}"
+            for (ep in episodes) {
+                val epNum = ep.episodeNumber ?: episodeCount
+                val epTitle = ep.title?.trim().orEmpty()
+                val seasonPrefix = season.title?.let { "[$it] " } ?: ""
+                val epNumStr = if (epNum % 1f == 0f) epNum.toInt().toString() else epNum.toString()
+                episodeList.add(
+                    SEpisode.create().apply {
+                        name = if (epTitle.isNotBlank()) {
+                            "$seasonPrefix Episode $epNumStr: $epTitle"
+                        } else {
+                            "$seasonPrefix Episode $epNumStr"
+                        }
+                        episode_number = epNum
+                        url = "episode/${ep.id}/links"
+                        preview_url = ep.image
+                        scanlator = seasonName
+                    },
+                )
+                episodeCount++
+            }
         }
 
         return episodeList.reversed()
@@ -312,11 +323,12 @@ abstract class Kartoons :
             "eng" -> "English"
             else -> "Hindi"
         }
+        val audioLangRegex = Regex("\\b${Regex.escape(preferredAudio)}\\b", RegexOption.IGNORE_CASE)
 
         val sortedLinks = data.links.sortedByDescending { link ->
             when {
                 link.name.contains(preferredAudioName, ignoreCase = true) -> 2
-                link.name.contains(preferredAudio, ignoreCase = true) -> 2
+                audioLangRegex.containsMatchIn(link.name) -> 2
                 else -> 1
             }
         }
@@ -376,7 +388,7 @@ abstract class Kartoons :
         return videoList.distinctBy { it.videoUrl }.sortedByDescending { video ->
             when {
                 video.videoTitle.contains(preferredAudioName, ignoreCase = true) -> 2
-                video.videoTitle.contains(preferredAudio, ignoreCase = true) -> 2
+                audioLangRegex.containsMatchIn(video.videoTitle) -> 2
                 else -> 1
             }
         }
@@ -386,7 +398,7 @@ abstract class Kartoons :
         val syncEnabled = preferences.getBoolean(PREF_SYNC_WATCH_HISTORY_KEY, true)
         if (!syncEnabled) return
 
-        val token = preferences.getString(TOKEN_KEY, "")?.trim().orEmpty()
+        val token = getCleanToken()
         if (token.isBlank()) return
 
         val syncUrl = when {
@@ -469,8 +481,18 @@ abstract class Kartoons :
 
     // ============================== Helpers ===============================
 
+    private fun getCleanToken(): String {
+        val raw = preferences.getString(TOKEN_KEY, "")?.trim().orEmpty()
+        if (raw.isBlank()) return ""
+        return if (raw.contains("token=")) {
+            raw.substringAfter("token=").substringBefore("&").trim()
+        } else {
+            raw
+        }
+    }
+
     private fun buildApiUrl(pathWithQuery: String): String {
-        val token = preferences.getString(TOKEN_KEY, "")?.trim().orEmpty()
+        val token = getCleanToken()
         if (token.isBlank()) {
             throw Exception(
                 "Kartoons token is required. Sign in at https://kartoons.to, copy your token from Profile -> Stremio tab (Manifest URL ?token=...), and paste it in extension settings.",
@@ -481,7 +503,7 @@ abstract class Kartoons :
     }
 
     private fun buildStremioCatalogUrl(path: String, page: Int): String {
-        val token = preferences.getString(TOKEN_KEY, "")?.trim().orEmpty()
+        val token = getCleanToken()
         if (token.isBlank()) {
             throw Exception(
                 "Kartoons token is required to view your watchlist and continue-watching. Set your token in the extension settings (Kartoons -> Settings).",

@@ -128,15 +128,16 @@ data class SubtitleItem(
 )
 
 @Serializable
-class StremioCatalogResponse(
+data class StremioCatalogResponse(
     val metas: List<StremioMeta> = emptyList(),
 )
 
 @Serializable
-class StremioMeta(
+data class StremioMeta(
     val id: String? = null,
     val type: String? = null,
     val name: String? = null,
+    val title: String? = null,
     val poster: String? = null,
     val description: String? = null,
 )
