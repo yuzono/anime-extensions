@@ -42,13 +42,25 @@ abstract class HentaiTorrent :
         .add("Referer", "$baseUrl/")
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/page/$page", headers)
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/catalog/Main%20Subsection%20Hentai/page/$page", headers)
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-        val animeList = document.select("div.image-container div.image-wrapper").map { animeFromElement(it) }
+        val animeList = document.select("div.image-container div.image-wrapper")
+            .map { animeFromElement(it) }
+            .filterNot { isNonVideoTitle(it.title) }
         val hasNext = document.selectFirst("div.pagination a:contains(Next)") != null
         return AnimesPage(animeList, hasNext)
+    }
+
+    private fun isNonVideoTitle(title: String): Boolean {
+        val lower = title.lowercase(Locale.ROOT)
+        return lower.startsWith("[art]") ||
+            lower.startsWith("[comic]") ||
+            lower.startsWith("[manga]") ||
+            lower.startsWith("[hcg]") ||
+            lower.contains("[jpg]") ||
+            lower.contains("[png]")
     }
 
     private fun animeFromElement(element: Element): SAnime {
@@ -99,13 +111,17 @@ abstract class HentaiTorrent :
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val encodedQuery = query.replace(" ", "+")
         val cat = filters.firstNotNullOfOrNull { filter ->
-            if (filter is CategoriesList) getCategory()[filter.state].id else 0
-        }.toString()
+            if (filter is CategoriesList) getCategory()[filter.state].id else null
+        } ?: "Main%20Subsection%20Hentai"
 
         return if (query.isNotEmpty()) {
             GET("$baseUrl/s.php?search=$encodedQuery&page=$page", headers)
         } else {
-            GET("$baseUrl/catalog/$cat/page/$page", headers)
+            if (cat == "0") {
+                GET("$baseUrl/page/$page", headers)
+            } else {
+                GET("$baseUrl/catalog/$cat/page/$page", headers)
+            }
         }
     }
 
@@ -149,27 +165,38 @@ abstract class HentaiTorrent :
             val torrentMagnetLink = "magnet:?xt=urn:btih:${torrent.hash}&dn=${torrent.hash}"
             var torrentTrackers = fetchTrackers().split("\n").filter { it.isNotBlank() }.joinToString("&tr=", "&tr=")
             torrentTrackers += torrent.trackers.filter { it.isNotBlank() }.joinToString("&tr=", "&tr=")
+
+            val validFiles = torrent.files
+                .filter { file ->
+                    val ext = file.path.substringAfterLast('.').lowercase(Locale.ROOT)
+                    ext in validVideoExtensions && ext !in invalidExtensions
+                }
+
+            if (validFiles.isEmpty()) throw Exception("No playable video found in this torrent")
+
             var episodeNumber = 1F
-            torrent.files
-                .filter { it.path.substringAfterLast('.').lowercase(Locale.ROOT) in validVideoExtensions }
-                .map { file ->
-                    SEpisode.create().apply {
-                        name = if (preferences.getBoolean(IS_FILENAME_KEY, IS_FILENAME_DEFAULT)) {
-                            file.path.split('/').last().trim()
-                        } else {
-                            file.path.trim().replace("[", "(").replace("]", ")").replace("/", "\uD83D\uDCC2 ")
-                        }
-                        url = "$torrentMagnetLink$torrentTrackers&index=${file.indexFile}"
-                        episode_number = episodeNumber++
-                        scanlator = convertBytesToReadable(file.size)
+            validFiles.map { file ->
+                SEpisode.create().apply {
+                    name = if (preferences.getBoolean(IS_FILENAME_KEY, IS_FILENAME_DEFAULT)) {
+                        file.path.split('/').last().trim()
+                    } else {
+                        file.path.trim().replace("[", "(").replace("]", ")").replace("/", "\uD83D\uDCC2 ")
                     }
-                }.reversed()
-        } catch (_: SocketTimeoutException) {
-            throw Exception("Dead Torrent \uD83D\uDE35")
+                    url = "$torrentMagnetLink$torrentTrackers&index=${file.indexFile}"
+                    episode_number = episodeNumber++
+                    scanlator = convertBytesToReadable(file.size)
+                }
+            }.reversed()
+        } catch (e: Exception) {
+            if (e is SocketTimeoutException) {
+                throw Exception("Dead Torrent \uD83D\uDE35")
+            }
+            throw e
         }
     }
 
-    private val validVideoExtensions = setOf("mp4", "mov", "avi", "wmv", "mkv", "flv", "webm", "mpeg", "mpg", "mts", "vob", "ts")
+    private val validVideoExtensions = setOf("mp4", "mov", "avi", "wmv", "mkv", "flv", "mpeg", "mpg", "mts", "vob", "ts", "m2ts")
+    private val invalidExtensions = setOf("png", "jpg", "jpeg", "webp", "jxl", "avif", "gif", "bmp", "svg", "webm", "ico", "exe", "apk", "zip", "rar", "7z", "txt", "nfo", "url")
 
     @SuppressLint("DefaultLocale")
     private fun convertBytesToReadable(bytes: Long): String {
@@ -223,26 +250,6 @@ abstract class HentaiTorrent :
             }
             summary = "Will note display full path of episode."
         }.also(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = IS_IMG_KEY
-            title = "Display Images in episode list."
-            setDefaultValue(IS_IMG_DEFAULT)
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putBoolean(key, newValue as Boolean).commit()
-            }
-            summary = "Its an experimental option."
-        }.also(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = IS_AUDIO_KEY
-            title = "Display Audio in episode list."
-            setDefaultValue(IS_AUDIO_DEFAULT)
-            setOnPreferenceChangeListener { _, newValue ->
-                preferences.edit().putBoolean(key, newValue as Boolean).commit()
-            }
-            summary = "Its an experimental option."
-        }.also(screen::addPreference)
     }
 
     override fun getFilterList(): AnimeFilterList = AnimeFilterList(
@@ -255,23 +262,17 @@ abstract class HentaiTorrent :
         it.name
     }.toTypedArray()
     private fun getCategory(): List<Category> = listOf(
-        Category("Home", "0"),
-        Category("Cartoons", "Cartoons"),
+        Category("Main Subsection Hentai", "Main%20Subsection%20Hentai"),
         Category("2D video Hentai", "2D%20video%20Hentai"),
         Category("3D video Hentai", "3D%20video%20Hentai"),
         Category("Hentai DVD HD", "Hentai%20DVD%20HD"),
-        Category("Main Subsection Hentai", "Main%20Subsection%20Hentai"),
+        Category("Cartoons", "Cartoons"),
+        Category("Home (All)", "0"),
     )
 
     companion object {
         private const val IS_FILENAME_KEY = "filename"
         private const val IS_FILENAME_DEFAULT = false
-
-        private const val IS_IMG_KEY = "img"
-        private const val IS_IMG_DEFAULT = false
-
-        private const val IS_AUDIO_KEY = "audio"
-        private const val IS_AUDIO_DEFAULT = false
 
         private const val FALLBACK_TRACKERS = "udp://tracker.opentrackr.org:1337/announce\nudp://open.stealth.si:80/announce\nudp://tracker.torrent.eu.org:451/announce\nudp://explodie.org:6969/announce"
     }
