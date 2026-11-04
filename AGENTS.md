@@ -26,7 +26,7 @@ Module paths are colon-separated and mirror the directory layout: `:src:en:mirur
 
 The repo's only unit tests are in `core/src/test/kotlin/keiyoushi/utils/`, `lib/unpacker/test/kotlin/`
 and `lib/megaextractor/test/`. Extensions have none – they are verified by compiling and running
-against the live site (`CONTRIBUTING.md#submitting-the-changes` ~ `1435`).
+against the live site (`CONTRIBUTING.md#submitting-the-changes` ~ `1768`).
 
 ```bash
 ./gradlew --continue :core:testDebugUnitTest :lib:unpacker:testDebugUnitTest :lib:megaextractor:testDebugUnitTest
@@ -47,7 +47,7 @@ loadIndividualExtension("en", "miruro")
 
 ## Structure
 
-- `src/<lang>/<source>/build.gradle.kts` – extension metadata in the `yuzono { }` block (`name`, `versionCode`, `contentWarning`, `libVersion`, optional `theme`, `torrent`, `deeplink { }`) and one `source { }` block per source (`lang`, `baseUrl` – static `baseUrl = "…"`, `baseUrl { mirrors("…", …) }` (or `mirrors("label" to "…", …)` for labeled entries) or `baseUrl { custom("…") }` – and optional `name`, `id`, `versionId`). The source class is `@Source abstract class` with no `lang`/`id`/`versionId` overrides, which KSP rejects; it may override `name`, or `baseUrl` over a static `baseUrl`, and codegen then skips that property, but this is discouraged. KSP generates `ExtensionGenerated` from the blocks (`CONTRIBUTING.md#source-declaration`). Only `src/all/jellyfin` still uses the legacy `className`
+- `src/<lang>/<source>/build.gradle.kts` – extension metadata in the `yuzono { }` block (`name`, `versionCode`, `contentWarning`, `libVersion`, optional `theme`, `torrent`, `deeplink { }`) and one `source { }` block per source (`lang`, `baseUrl` – static `baseUrl = "…"`, `baseUrl { mirrors("…", …) }` (or `mirrors("label" to "…", …)` for labeled entries) or `baseUrl { custom("…") }` – and optional `name`, `id`, `versionId`). The source class is `@Source abstract class` with no `lang`/`id`/`versionId` overrides, which KSP rejects; it may override `name`, or `baseUrl` over a static `baseUrl`, and codegen then skips that property, but this is discouraged. KSP generates `ExtensionGenerated` from the blocks (`CONTRIBUTING.md#source-declaration`). Every extension needs at least one `source { }` block. Only `src/all/jellyfin` still sets the legacy `className`, which loads a hand-written class (its factory) instead: nothing is generated, and its `source { }` blocks only describe the sources for the repo index, so keep them in step with the class
 - `src/<lang>/<source>/src/eu/kanade/tachiyomi/animeextension/<lang>/<source>/` – source code (package must match)
 - `lib-multisrc/<theme>/build.gradle.kts` – theme base (`alias(kei.plugins.multisrc)`, `yuzono { baseVersionCode; libVersion; deeplink { } }`)
 - `lib-multisrc/<theme>/src/.../multisrc/<theme>/` – abstract theme class `extends AnimeHttpSource`
@@ -90,9 +90,6 @@ See `CONTRIBUTING.md` for full rules. Critical for agents:
   `by lazy` keeps serving the stale value. See `src/fr/animesama`.
 - Do not eagerly initialize `client` in a theme base class: the initializer runs before subclass
   constructors, so an overridden `open val rateLimit` reads `0`.
-- Do not create `android.*` objects (e.g. `LruCache`) in a source's constructor or property
-  initializers – use `by lazy`. The repo publisher instantiates sources on a plain JVM where they
-  throw `Stub!`, which blocks the publish for every extension. See `CONTRIBUTING.md#misc-notes`.
 
 ## Referring to commits
 
@@ -122,14 +119,14 @@ PR. Keep upstream's code and layout so later picks still apply, and change only 
 - **Index schema:** `.github/scripts/index_pb2.py` follows the Aniyomi spec (`aniyomiorg/extensions-lib`
   `index/index.proto`), not Mihon's – `Extension.isTorrent = 8`, `sources = 9`, `Source.message = 6`. Keep these
   numbers when a pick regenerates the bindings.
-- **CI:** `build_pull_request.yml` has an anime-only `publish` job ("Check extension repo") that runs `create-repo.py`
-  and `merge-repo.py` the same way `build_push.yml` does. Upstream has no such job, so mirror into it any dependency or
-  argument change a pick makes to `build_push.yml`.
+- **CI:** `build_pull_request.yml` has an anime-only `publish` job ("Check extension repo") that runs `publish-repo.py`
+  the same way `build_push.yml` does. Upstream has no such job, so mirror into it any dependency or argument change a
+  pick makes to `build_push.yml`.
 
 **Torrent is the exception:** it is anime-only and has no manga counterpart, so no upstream change carries it – keep it
 when resolving conflicts and add it to any rewritten script. `torrent = true` in `yuzono { }` → the
-`tachiyomi.animeextension.torrent` meta-data (Anikku's `ExtensionLoader`) → `torrent` in `index.min.json` (Anikku's
-`ExtensionApi`) and `isTorrent` in `index.json`/`index.pb`.
+`tachiyomi.animeextension.torrent` meta-data (Anikku's `ExtensionLoader`), and `isTorrent` in `keiyoushi-source-info.json`
+→ `torrent` in `index.min.json` (Anikku's `ExtensionApi`) and `isTorrent` in `index.json`/`index.pb`.
 
 **A pick commit holds only that upstream change**, plus its `O` row in `cherrypick_log.md`. Uncommitted changes that
 are already in the tree when you pick, such as notes added to `cherrypick_log.md` or work on another file, stay out of
@@ -148,7 +145,7 @@ Untracked files can stay where they are, unless the pick adds a file at the same
 
 ## Versioning – bump once per PR, theme bump propagates
 
-Source of truth: `CONTRIBUTING.md:281-310` (individual) + `CONTRIBUTING.md:1179-1255` (themes) + `gradle/build-logic/src/main/kotlin/PluginExtension.kt:124-132`:
+Source of truth: `CONTRIBUTING.md:326-365` (individual) + `CONTRIBUTING.md:1466-1591` (themes) + `gradle/build-logic/src/main/kotlin/ExtensionPlugin.kt:128-136`:
 
 ```kotlin
 val versionCodeProvider = themeExtension.flatMap { themeKeiyoushi ->
@@ -162,7 +159,7 @@ Rules:
 - Individual extension (no theme): increment `versionCode` by **1** if code affecting users changed. Bump **once per PR** – do not increment multiple times across commits.
 - Theme (`lib-multisrc/<theme>/build.gradle.kts`): increment `baseVersionCode` by **1** when theme logic changes.
 - When `baseVersionCode` is bumped, **do not** bump `versionCode` for extensions using that theme in the same PR – the addition already bumps every extension's effective version code. Only bump the extension's `versionCode` when the extension itself changed independently of the theme.
-- Checklist mirrors this: `CONTRIBUTING.md#pull-request-checklist` ~ `1458-1459` and `.github/pull_request_template.md:3-4`.
+- Checklist mirrors this: `CONTRIBUTING.md#pull-request-checklist` ~ `1785-1786` and `.github/pull_request_template.md:3-4`.
 
 ## CI – what it bumps and builds for you
 
@@ -170,20 +167,24 @@ From `.github/workflows/build_pull_request.yml` + `.github/scripts/`:
 
 - Changing anything under `lib/` makes CI run `bump-versions.py`, which **auto-bumps every dependent
   extension**. Do not bump those by hand – only bump the module you actually edited.
-- CI builds only the changed modules (`generate-build-matrices.py` → `<module>:assembleDebug`), never
-  the whole tree.
+- CI builds only the changed modules (`generate-build-matrices.py` → `<module>:assembleRelease`, or
+  `assembleDebug` in a PR check without the signing key), except in a full rebuild, which builds every extension
+  and replaces the whole published index with the build output: extensions removed from `src/` drop out, with
+  their APKs and icons. A full rebuild happens when a core file changes (`CORE_FILES_REGEX`: `common/`,
+  `compiler/`, `core/`, `gradle/`, the root build files, `.github/scripts`), on a manual run of `build_push.yml`
+  with `full_rebuild`, and when no earlier successful run is found.
 - Head-commit message prefixes: `[skip bumping version]` skips the auto-bump; `[skip yuzono ci]` skips
-  the bump *and* the build.
+  the bump *and* the build, except in a manual `full_rebuild` run, which still builds.
 
 ## Boundaries
 
 - Do not change `versionName` manually (generated `<libVersion>.<versionCode>`; set `libVersion = "14"` unless the extension uses the lib 16 API, and never lower than its theme's `libVersion`).
 - Do not commit `web_hi_res_512.png` (delete after Icon Generator).
-- Do not push to `upstream` (`no_pushing` – fork workflow `CONTRIBUTING.md:171-203`). Use `origin` (your fork) for PRs.
+- Do not push to `upstream` (`no_pushing` – fork workflow `CONTRIBUTING.md:182-211`). Use `origin` (your fork) for PRs.
 - Never commit secrets, keystore, or `local.properties`.
 
 ## PR Instructions
 
-- Follow `CONTRIBUTING.md#submitting-the-changes` ~ `1435-1466` checklist; test build in Android Studio.
+- Follow `CONTRIBUTING.md#submitting-the-changes` ~ `1768-1793` checklist; test build in Android Studio.
 - Title: keep concise; reference issues (`Closes #xyz`).
 - One version bump per module per PR as above.
