@@ -1,12 +1,14 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "Oppai Stream"
-    versionCode = 6
+    versionCode = 7
     contentWarning = ContentWarning.NSFW
-    libVersion = "14"
+    libVersion = "16"
 
     source {
         lang = "en"
