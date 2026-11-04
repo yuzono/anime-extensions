@@ -1,8 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.shuttletv
 
-import android.os.Build
 import android.util.Log
-import androidx.annotation.RequiresApi
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -24,7 +22,6 @@ import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.util.Base64
 import keiyoushi.network.post as networkPost
 
 /**
@@ -110,7 +107,6 @@ class ShuttleTvExtractor(
      * Servers available for the item, in the player's own order. Fetched
      * fresh on every call: the challenge flow runs end-to-end each time.
      */
-    @RequiresApi(Build.VERSION_CODES.O)
     suspend fun getProviders(path: String): List<ProviderDto> {
         val info = parsePath(path)
         val challenge = prepareChallenge(info)
@@ -134,7 +130,6 @@ class ShuttleTvExtractor(
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     suspend fun videosFor(path: String, providerId: String): List<Video> {
         val info = parsePath(path)
         val serverName = serverName(providerId)
@@ -183,8 +178,6 @@ class ShuttleTvExtractor(
         ?: providerId.replaceFirstChar { it.uppercase() }
 
     // ============================== Challenge =============================
-
-    @RequiresApi(Build.VERSION_CODES.O)
     private suspend fun prepareChallenge(info: PathInfo): Challenge {
         // x-cs-q: base64url(JSON [type, id, season, episode]) — nulls for movies.
         val challengeId = buildJsonArray {
@@ -193,8 +186,9 @@ class ShuttleTvExtractor(
             add(info.season)
             add(info.episode)
         }.toString()
-        val q = Base64.getUrlEncoder().withoutPadding()
-            .encodeToString(challengeId.toByteArray(Charsets.UTF_8))
+        val q = kotlin.io.encoding.Base64.UrlSafe
+            .encode(challengeId.toByteArray(Charsets.UTF_8))
+            .trimEnd('=')
 
         val bootstrap = challengeClient.post(
             BOOTSTRAP_URL,
@@ -264,7 +258,6 @@ class ShuttleTvExtractor(
     }
 
     // =============================== Streams ==============================
-
     private suspend fun buildVideos(serverName: String, result: DecryptedStreamDto): List<Video> {
         if (result.error != null) {
             Log.i(TAG, "$serverName returned no streams: ${result.error}")

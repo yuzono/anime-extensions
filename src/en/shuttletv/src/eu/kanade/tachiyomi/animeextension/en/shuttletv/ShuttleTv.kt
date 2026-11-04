@@ -1,8 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.shuttletv
 
 import android.content.SharedPreferences
-import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -543,7 +541,6 @@ abstract class ShuttleTv :
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
 
     // ============================= Hosters ===============================
-    @RequiresApi(Build.VERSION_CODES.O)
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val path = episode.url.substringBefore("#")
         val enabledServers = preferences.enabledServerIds
@@ -565,7 +562,6 @@ abstract class ShuttleTv :
     override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException("Not used")
 
     // ============================ Video Links ============================
-    @RequiresApi(Build.VERSION_CODES.O)
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
         val (path, providerId) = hoster.internalData.split("|||", limit = 2)
         val videos = extractor.videosFor(path, providerId)
