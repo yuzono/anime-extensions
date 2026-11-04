@@ -249,9 +249,9 @@ abstract class ShuttleTv :
             ?.state
             ?.filter { it.state }
             .orEmpty()
-        val userGenres = selectedGenres.mapNotNull { genreMap[it.name] }
-        if (selectedGenres.isNotEmpty() && userGenres.isEmpty() && !animesOnly) return null
-        val genreIds = if (animesOnly) (listOf("16") + userGenres).distinct() else userGenres
+        val mappedGenres = selectedGenres.mapNotNull { genreMap[it.name] }
+        if (selectedGenres.isNotEmpty() && mappedGenres.size < selectedGenres.size) return null
+        val genreIds = if (animesOnly) (listOf("16") + mappedGenres).distinct() else mappedGenres
         val genreParam = genreIds.joinToString(",")
 
         val providers = filters.firstInstanceOrNull<Filters.WatchProviderFilter>()
