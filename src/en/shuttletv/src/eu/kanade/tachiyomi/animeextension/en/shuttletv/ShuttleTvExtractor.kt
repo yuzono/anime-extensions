@@ -13,6 +13,8 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.post
 import keiyoushi.utils.toJsonRequestBody
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.add
@@ -23,6 +25,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.Base64
+import keiyoushi.network.post as networkPost
 
 /**
  * Resolves streams from CineSrc (the player behind ShuttleTV) by delegating
@@ -108,7 +111,7 @@ class ShuttleTvExtractor(
      * fresh on every call: the challenge flow runs end-to-end each time.
      */
     @RequiresApi(Build.VERSION_CODES.O)
-    suspend fun getProviders(path: String): List<ProviderDto> = runCatching {
+    suspend fun getProviders(path: String): List<ProviderDto> {
         val info = parsePath(path)
         val challenge = prepareChallenge(info)
 
@@ -121,14 +124,14 @@ class ShuttleTvExtractor(
             EMPTY_LIST_BODY,
         ).bodyString()
 
-        providersBody.extractNextJsRsc<List<ProviderDto>>().orEmpty()
-            .ifEmpty {
+        val providers = providersBody.extractNextJsRsc<List<ProviderDto>>()
+        return when {
+            providers == null -> {
                 Log.w(TAG, "provider list unparseable, using fallback; body[0..140]=${providersBody.take(140)}")
                 FALLBACK_PROVIDERS
             }
-    }.getOrElse { e ->
-        Log.e(TAG, "Error listing providers for $path", e)
-        emptyList()
+            else -> providers
+        }
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -136,60 +139,43 @@ class ShuttleTvExtractor(
         val info = parsePath(path)
         val serverName = serverName(providerId)
 
-        // Every video request mints and immediately spends its own fresh
-        // challenge — tokens are bound to a single getStream call. Challenges
-        // coexist fine in parallel (verified: concurrent mint + getStream all
-        // validate), so the player's parallel hoster resolution is not
-        // serialized.
-        return try {
-            val challenge = prepareChallenge(info)
+        val challenge = prepareChallenge(info)
 
-            // Server actions take POSITIONAL args — a JSON array, not
-            // an object (a named object deserializes as one garbage
-            // argument and the challenge validation fails).
-            val payload = buildJsonArray {
-                add(info.tmdbId)
-                add(if (info.isMovie) "movie" else "show")
-                add(info.season ?: UNDEFINED_ARG)
-                add(info.episode ?: UNDEFINED_ARG)
-                add(challenge.token)
-                add(providerId)
-            }.toString()
+        val payload = buildJsonArray {
+            add(info.tmdbId)
+            add(if (info.isMovie) "movie" else "show")
+            add(info.season ?: UNDEFINED_ARG)
+            add(info.episode ?: UNDEFINED_ARG)
+            add(challenge.token)
+            add(providerId)
+        }.toString()
 
-            // Providers that can't serve the item answer 500.
-            val response = runCatching {
-                challengeClient.post(
-                    info.embedUrl,
-                    baseHeaders().newBuilder()
-                        .set("Next-Action", challenge.actionIds.getStream)
-                        .build(),
-                    payload.toRequestBody(TEXT_PLAIN),
-                )
-            }.getOrNull() ?: return emptyList()
-            if (!response.isSuccessful) {
-                response.close()
-                return emptyList()
-            }
-
-            val body = response.bodyString()
-            if (INVALID_CHALLENGE_MARKER in body) {
-                throw IllegalStateException("cinesrc rejected the challenge token")
-            }
-            val state = challenge.state
-
-            val decrypted = challengeClient.post(
-                "$ENC_DEC_API/dec-cinesrc",
-                encDecHeaders(),
-                body = DecRequestDto(text = body, state = state).toJsonRequestBody(),
-            ).parseAs<EncDecResponseDto<DecryptedStreamDto>>().result
-
-            buildVideos(serverName, decrypted)
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Throwable) {
-            Log.e(TAG, "Error resolving video for $path/$providerId", e)
-            emptyList()
+        val response = challengeClient.networkPost(
+            info.embedUrl,
+            baseHeaders().newBuilder()
+                .set("Next-Action", challenge.actionIds.getStream)
+                .build(),
+            payload.toRequestBody(TEXT_PLAIN),
+            ensureSuccess = false,
+        )
+        if (!response.isSuccessful) {
+            response.close()
+            return emptyList()
         }
+
+        val body = response.bodyString()
+        if (INVALID_CHALLENGE_MARKER in body) {
+            throw IllegalStateException("cinesrc rejected the challenge token")
+        }
+        val state = challenge.state
+
+        val decrypted = challengeClient.post(
+            "$ENC_DEC_API/dec-cinesrc",
+            encDecHeaders(),
+            body = DecRequestDto(text = body, state = state).toJsonRequestBody(),
+        ).parseAs<EncDecResponseDto<DecryptedStreamDto>>().result
+
+        return buildVideos(serverName, decrypted)
     }
 
     private fun serverName(providerId: String): String = SERVER_CATALOG.firstOrNull { it.id == providerId }
@@ -244,10 +230,12 @@ class ShuttleTvExtractor(
         // solutions must accompany the challenges in the encrypt step or
         // cinesrc rejects the resulting token.
         val stage1Solution = withContext(Dispatchers.Default) {
-            CinesrcChallenge.solveStage1(stage1, seed.seed)
+            val context = currentCoroutineContext()
+            CinesrcChallenge.solveStage1(stage1, seed.seed) { context.ensureActive() }
         }
         val stage2Solution = withContext(Dispatchers.Default) {
-            CinesrcChallenge.solveStage2(stage2)
+            val context = currentCoroutineContext()
+            CinesrcChallenge.solveStage2(stage2) { context.ensureActive() }
         }
 
         val encrypted = challengeClient.post(

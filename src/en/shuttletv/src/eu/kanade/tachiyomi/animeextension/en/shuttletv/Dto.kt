@@ -30,6 +30,13 @@ class MediaItemDto(
     val originCountries: List<String> = emptyList(),
     @SerialName("genre_ids")
     val genreIds: List<Int> = emptyList(),
+    val popularity: Double = 0.0,
+    @SerialName("vote_average")
+    val voteAverage: Float = 0f,
+    @SerialName("release_date")
+    val releaseDate: String? = null,
+    @SerialName("first_air_date")
+    val firstAirDate: String? = null,
 ) {
     val realTitle: String
         get() = title ?: name ?: "No Title"

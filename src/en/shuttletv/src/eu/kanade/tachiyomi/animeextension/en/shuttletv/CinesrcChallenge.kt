@@ -58,7 +58,7 @@ internal object CinesrcChallenge {
 
     // ---- Stage 2 ----
 
-    fun solveStage2(data: Stage2ChallengeDto): String {
+    fun solveStage2(data: Stage2ChallengeDto, ensureActive: () -> Unit = {}): String {
         val pack = data.pack
         val target = pack[0].jsonPrimitive.content.reversed()
         val salt = pack[3].jsonPrimitive.content.reversed()
@@ -74,6 +74,7 @@ internal object CinesrcChallenge {
 
         val digest = MessageDigest.getInstance("SHA-256")
         for (counter in 0 until (1 shl difficulty)) {
+            if (counter and 0x3FF == 0) ensureActive()
             val key = counter.toString(16).padStart(width, '0')
             val hash = digest.digest((salt + key).toByteArray()).toHexString()
             if (hash == target) return key
@@ -83,7 +84,7 @@ internal object CinesrcChallenge {
 
     // ---- Stage 1 ----
 
-    fun solveStage1(data: Stage1ChallengeDto, seed: String): String {
+    fun solveStage1(data: Stage1ChallengeDto, seed: String, ensureActive: () -> Unit = {}): String {
         val seedBytes = seed.hexToByteArray()
         val challenge = parseChallenge(data.w)
         val sBox = buildSBox(challenge.w, challenge.varr, challenge.sI, challenge.mB)
@@ -104,6 +105,7 @@ internal object CinesrcChallenge {
         val sha = MessageDigest.getInstance("SHA-256")
         var n = 0L
         while (true) {
+            if (n and 0x3FF == 0L) ensureActive()
             val m = mix(
                 challenge.w,
                 sBox,

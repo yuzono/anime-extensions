@@ -20,9 +20,9 @@ import keiyoushi.network.rateLimit
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.delegate
+import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingMapNotNull
 import keiyoushi.utils.parallelMapNotNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
@@ -81,7 +81,7 @@ abstract class ShuttleTv :
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
         val types = if (preferences.latestPref == "movie") listOf("movie", "tv") else listOf("tv", "movie")
 
-        return types.parallelCatchingMapNotNull { mediaType ->
+        return types.parallelMapNotNull { mediaType ->
             client.newCall(latestUpdatesRequest(page, mediaType))
                 .awaitSuccess()
                 .use { latestUpdatesParse(it) }
@@ -125,57 +125,72 @@ abstract class ShuttleTv :
             val rawId = url.pathSegments.getOrNull(1)
                 ?: throw Exception("Unsupported url")
             if (url.pathSegments.getOrNull(0) != "watch") throw Exception("Unsupported url")
-            return getSearchAnime(page, "$PREFIX_ID$rawId", filters)
+            val season = url.queryParameter("s")
+            val episode = url.queryParameter("e")
+            return getSearchAnime(page, "$PREFIX_ID$rawId:$season:$episode", filters)
         }
 
-        // Deep link, resolved from the URL above: "id:<tmdbId>"
+        // Deep link, resolved from the URL above: "id:<tmdbId>[:<season>:<episode>]".
+        // Season/episode params imply TV; without them the id is usually a
+        // movie, but IDs can collide — fall back to the other type.
         if (query.startsWith(PREFIX_ID)) {
-            val rawId = query.substringAfter(PREFIX_ID)
-            if (!DEEP_LINK_ID_REGEX.matches(rawId)) {
+            val parts = query.substringAfter(PREFIX_ID).split(":")
+            if (parts.size !in 1..3 || parts[0].toIntOrNull() == null ||
+                (parts.size == 3 && (parts[1].toIntOrNull() == null || parts[2].toIntOrNull() == null))
+            ) {
                 return AnimesPage(emptyList(), false)
             }
-            // Site watch links don't carry the media type; resolve it via TMDB.
-            val tempAnime = SAnime.create().apply { this.url = "/movie/$rawId" }
+            val rawId = parts[0]
+            val isTv = parts.size == 3
+
+            suspend fun details(animeUrl: String): List<SAnime> {
+                val tempAnime = SAnime.create().apply { this.url = animeUrl }
+                return getAnimeDetails(tempAnime).apply { this.url = animeUrl }.let(::listOf)
+            }
+
             return runCatching {
-                getAnimeDetails(tempAnime).apply { this.url = "/movie/$rawId" }
-                    .let(::listOf)
-            }.recoverCatching {
-                if (it is CancellationException) throw it
-                val tvAnime = SAnime.create().apply { this.url = "/tv/$rawId" }
-                getAnimeDetails(tvAnime).apply { this.url = "/tv/$rawId" }.let(::listOf)
+                if (isTv) details("/tv/$rawId") else details("/movie/$rawId")
+            }.recoverCatching { e ->
+                if (e is CancellationException) throw e
+                if (isTv) details("/movie/$rawId") else details("/tv/$rawId")
             }.getOrElse { emptyList() }
                 .let { AnimesPage(it, false) }
         }
 
-        val typeIndex = filters.filterIsInstance<Filters.TypeFilter>()
-            .firstOrNull()?.state ?: Filters.TYPE_ALL
+        val typeIndex = filters.firstInstanceOrNull<Filters.TypeFilter>()
+            ?.state ?: Filters.TYPE_ALL
         val isAnimes = typeIndex == Filters.TYPE_ANIMES
         val isAll = typeIndex == Filters.TYPE_ALL
 
         val rawPages: List<PageDto<MediaItemDto>> = if (query.isNotBlank() && isAll) {
-            listOfNotNull(fetchMediaPage(textSearchRequest(page, query, "multi")))
+            listOf(fetchMediaPage(textSearchRequest(page, query, "multi")))
         } else {
             val mediaTypes: List<String> = when (typeIndex) {
                 Filters.TYPE_MOVIES -> listOf("movie")
-                Filters.TYPE_TV, Filters.TYPE_ANIMES -> listOf("tv")
+                Filters.TYPE_TV -> listOf("tv")
+                Filters.TYPE_ANIMES -> listOf("movie", "tv")
                 else -> if (preferences.latestPref == "movie") listOf("movie", "tv") else listOf("tv", "movie")
             }
             mediaTypes.parallelMapNotNull { mediaType ->
                 val request = when {
-                    // Animes-only + query: use discover with with_text_query so
-                    // the server applies the query AND the anime filters before
-                    // paginating — text search + client-side filtering makes
-                    // the app paginate through pages with no anime results.
                     query.isNotBlank() && isAnimes ->
                         discoverRequest(page, mediaType, filters, animesOnly = true, textQuery = query)
                     query.isNotBlank() -> textSearchRequest(page, query, mediaType)
                     else -> discoverRequest(page, mediaType, filters, animesOnly = isAnimes)
                 }
-                fetchMediaPage(request)
+                request?.let { fetchMediaPage(it) }
             }
         }
 
-        var items = rawPages.flatMap { it.results }
+        val sortIndex = filters.firstInstanceOrNull<Filters.SortFilter>()
+            ?.state ?: Filters.SORT_POPULAR
+        var items = if (rawPages.size > 1) {
+            // Merged so interleaved pages respect the selected sort key
+            // instead of appending whole movie and TV blocks.
+            mergeBySort(rawPages.flatMap { it.results }, sortIndex)
+        } else {
+            rawPages.flatMap { it.results }
+        }
         if (query.isNotBlank() && isAll) {
             items = items.filter { it.mediaType == "movie" || it.mediaType == "tv" }
         }
@@ -185,10 +200,8 @@ abstract class ShuttleTv :
         return AnimesPage(items.map(::mediaItemToSAnime), hasNextPage)
     }
 
-    private suspend fun fetchMediaPage(request: Request): PageDto<MediaItemDto>? = runCatching {
-        client.newCall(request).awaitSuccess()
-            .parseAs<PageDto<MediaItemDto>>()
-    }.getOrNull()
+    private suspend fun fetchMediaPage(request: Request): PageDto<MediaItemDto> = client.newCall(request).awaitSuccess()
+        .parseAs<PageDto<MediaItemDto>>()
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = throw UnsupportedOperationException("Not used; getSearchAnime is overridden")
 
@@ -208,9 +221,9 @@ abstract class ShuttleTv :
         filters: AnimeFilterList,
         animesOnly: Boolean,
         textQuery: String? = null,
-    ): Request {
-        val sortIndex = filters.filterIsInstance<Filters.SortFilter>()
-            .firstOrNull()?.state ?: Filters.SORT_POPULAR
+    ): Request? {
+        val sortIndex = filters.firstInstanceOrNull<Filters.SortFilter>()
+            ?.state ?: Filters.SORT_POPULAR
         val sortBy = when (sortIndex) {
             Filters.SORT_RATING -> "vote_average.desc"
             Filters.SORT_RECENT -> if (mediaType == "movie") {
@@ -226,16 +239,17 @@ abstract class ShuttleTv :
         } else {
             Filters.TV_GENRE_MAP
         }
-        val userGenres = filters.filterIsInstance<Filters.GenreFilter>()
-            .firstOrNull()?.state
+        val selectedGenres = filters.firstInstanceOrNull<Filters.GenreFilter>()
+            ?.state
             ?.filter { it.state }
-            ?.mapNotNull { genreMap[it.name] }
             .orEmpty()
+        val userGenres = selectedGenres.mapNotNull { genreMap[it.name] }
+        if (selectedGenres.isNotEmpty() && userGenres.isEmpty() && !animesOnly) return null
         val genreIds = if (animesOnly) (listOf("16") + userGenres).distinct() else userGenres
         val genreParam = genreIds.joinToString(",")
 
-        val providers = filters.filterIsInstance<Filters.WatchProviderFilter>()
-            .firstOrNull()?.state
+        val providers = filters.firstInstanceOrNull<Filters.WatchProviderFilter>()
+            ?.state
             ?.filter { it.state }
             ?.joinToString("|") { it.id }
             .orEmpty()
@@ -328,6 +342,7 @@ abstract class ShuttleTv :
             status = parseStatus(movie.status)
             background_url = movie.backdropPath?.let { "https://image.tmdb.org/t/p/w1280$it" }
             fetch_type = FetchType.Episodes
+            initialized = true
             description = buildString {
                 movie.overview?.also { append(it + "\n\n") }
                 val details = listOfNotNull(
@@ -371,6 +386,7 @@ abstract class ShuttleTv :
             status = parseStatus(tv.status)
             background_url = tv.backdropPath?.let { "https://image.tmdb.org/t/p/w1280$it" }
             fetch_type = FetchType.Seasons
+            initialized = true
             description = buildString {
                 tv.overview?.also { append(it + "\n\n") }
                 val details = listOfNotNull(
@@ -479,25 +495,19 @@ abstract class ShuttleTv :
                         .filter { it.seasonNumber > 0 }
                         .map { season ->
                             async {
-                                try {
-                                    val seasonDetail = client.get(
-                                        "$apiUrl/tv/$tvId/season/${season.seasonNumber}?api_key=$TMDB_API_KEY",
-                                    ).parseAs<TvSeasonDetailDto>()
-                                    seasonDetail.episodes.reversed().map { episode ->
-                                        SEpisode.create().apply {
-                                            name = "E${episode.episodeNumber} - ${episode.name}"
-                                            episode_number = episode.episodeNumber.toFloat()
-                                            scanlator = "Season ${season.seasonNumber}"
-                                            date_upload = parseDate(episode.airDate)
-                                            summary = episode.overview?.takeIf { it.isNotBlank() }
-                                            preview_url = episode.stillPath?.let { "https://image.tmdb.org/t/p/w500$it" }
-                                            url = "tv/$tvId/${season.seasonNumber}/${episode.episodeNumber}"
-                                        }
+                                val seasonDetail = client.get(
+                                    "$apiUrl/tv/$tvId/season/${season.seasonNumber}?api_key=$TMDB_API_KEY",
+                                ).parseAs<TvSeasonDetailDto>()
+                                seasonDetail.episodes.reversed().map { episode ->
+                                    SEpisode.create().apply {
+                                        name = "E${episode.episodeNumber} - ${episode.name}"
+                                        episode_number = episode.episodeNumber.toFloat()
+                                        scanlator = "Season ${season.seasonNumber}"
+                                        date_upload = parseDate(episode.airDate)
+                                        summary = episode.overview?.takeIf { it.isNotBlank() }
+                                        preview_url = episode.stillPath?.let { "https://image.tmdb.org/t/p/w500$it" }
+                                        url = "tv/$tvId/${season.seasonNumber}/${episode.episodeNumber}"
                                     }
-                                } catch (e: CancellationException) {
-                                    throw e
-                                } catch (_: Throwable) {
-                                    emptyList()
                                 }
                             }
                         }.awaitAll().flatten()
@@ -660,8 +670,20 @@ abstract class ShuttleTv :
     private fun parseMediaPage(response: Response): AnimesPage {
         val pageDto = response.parseAs<PageDto<MediaItemDto>>()
         val hasNextPage = pageDto.page < pageDto.totalPages
-        val animeList = pageDto.results.map(::mediaItemToSAnime)
+        val animeList = pageDto.results
+            .filter { it.mediaType == null || it.mediaType == "movie" || it.mediaType == "tv" }
+            .map(::mediaItemToSAnime)
         return AnimesPage(animeList, hasNextPage)
+    }
+
+    private fun mergeBySort(items: List<MediaItemDto>, sortIndex: Int): List<MediaItemDto> = when (sortIndex) {
+        Filters.SORT_RATING -> items.sortedByDescending { it.voteAverage }
+        Filters.SORT_RECENT -> items.sortedByDescending { itemSortDate(it) }
+        else -> items.sortedByDescending { it.popularity }
+    }
+
+    private fun itemSortDate(item: MediaItemDto): Long = synchronized(DATE_FORMATTER) {
+        DATE_FORMATTER.tryParse(item.releaseDate ?: item.firstAirDate)
     }
 
     private fun mediaItemToSAnime(media: MediaItemDto): SAnime = SAnime.create().apply {
@@ -680,7 +702,9 @@ abstract class ShuttleTv :
         else -> SAnime.UNKNOWN
     }
 
-    private fun parseDate(dateStr: String?): Long = DATE_FORMATTER.tryParse(dateStr)
+    private fun parseDate(dateStr: String?): Long = synchronized(DATE_FORMATTER) {
+        DATE_FORMATTER.tryParse(dateStr)
+    }
 
     companion object {
         // Deep-link prefix.
