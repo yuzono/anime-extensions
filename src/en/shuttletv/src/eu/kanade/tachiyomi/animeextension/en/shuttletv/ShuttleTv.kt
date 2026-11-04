@@ -712,8 +712,6 @@ abstract class ShuttleTv :
         // Deep-link prefix.
         const val PREFIX_ID = "id:"
 
-        private val DEEP_LINK_ID_REGEX = Regex("""\d+""")
-
         private val animeUrlRegex = Regex("""/(movie|tv)/(\d+)""")
 
         private val DATE_FORMATTER by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH) }
