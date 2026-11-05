@@ -150,7 +150,10 @@ abstract class Kartoons :
                         } else {
                             "/$type/$id"
                         }
-                        val fakeAnime = SAnime.create().apply { this.url = animeUrl }
+                        val fakeAnime = SAnime.create().apply {
+                            this.url = animeUrl
+                            this.title = ""
+                        }
                         val details = getAnimeDetails(fakeAnime)
                         return AnimesPage(listOf(details), false)
                     }
@@ -225,7 +228,8 @@ abstract class Kartoons :
             val data = res.data ?: throw IOException("Show data not found")
             SAnime.create().apply {
                 this.url = anime.url
-                title = if (isSingleSeason) anime.title else data.title.trim()
+                val seasonTitle = runCatching { anime.title }.getOrNull()?.takeIf { it.isNotBlank() } ?: data.title.trim()
+                title = if (isSingleSeason) seasonTitle else data.title.trim()
                 description = data.description
                 thumbnail_url = data.image ?: data.coverImage
                 genre = data.tags.joinToString(", ")
@@ -264,8 +268,7 @@ abstract class Kartoons :
         return seasons.mapNotNull { season ->
             val seasonSlug = season.slug ?: season.seasonNumber?.toString() ?: return@mapNotNull null
             val seasonNum = season.seasonNumber ?: 1
-            val rawTitle = season.title?.trim().orEmpty()
-            val cleanTitle = rawTitle.removePrefix("Season $seasonNum").removePrefix(":").removePrefix("-").trim()
+            val cleanTitle = cleanSeasonTitle(season.title, seasonNum)
             val seasonTitle = if (cleanTitle.isNotBlank()) {
                 String.format(Locale.US, "Season %02d: %s", seasonNum, cleanTitle)
             } else {
@@ -308,7 +311,7 @@ abstract class Kartoons :
             val seasonNum = anime.season_number.toInt().takeIf { it > 0 }
                 ?: seasonSlug.removePrefix("season-").toIntOrNull()
                 ?: 1
-            val rawTitle = anime.title.removePrefix("Season $seasonNum").removePrefix(":").removePrefix("-").trim()
+            val rawTitle = cleanSeasonTitle(runCatching { anime.title }.getOrNull(), seasonNum)
             val scanlatorName = if (rawTitle.isNotBlank()) {
                 String.format(Locale.US, "Season %02d: %s", seasonNum, rawTitle)
             } else {
@@ -380,8 +383,7 @@ abstract class Kartoons :
 
         for ((season, episodes) in seasonResults) {
             val seasonNum = season.seasonNumber ?: 1
-            val rawTitle = season.title?.trim().orEmpty()
-            val cleanTitle = rawTitle.removePrefix("Season $seasonNum").removePrefix(":").removePrefix("-").trim()
+            val cleanTitle = cleanSeasonTitle(season.title, seasonNum)
             val scanlatorName = if (cleanTitle.isNotBlank()) {
                 String.format(Locale.US, "Season %02d: %s", seasonNum, cleanTitle)
             } else {
@@ -392,7 +394,7 @@ abstract class Kartoons :
             for (ep in episodes) {
                 val epNum = ep.episodeNumber ?: episodeCount
                 val epTitle = ep.title?.trim().orEmpty()
-                val seasonPrefix = if (rawTitle.isNotBlank()) "[$rawTitle] " else "Season $seasonNum "
+                val seasonPrefix = if (cleanTitle.isNotBlank()) "[$cleanTitle] " else "Season $seasonNum "
                 val epNumStr = if (epNum % 1f == 0f) epNum.toInt().toString() else epNum.toString()
                 episodeList.add(
                     SEpisode.create().apply {
@@ -540,6 +542,11 @@ abstract class Kartoons :
                 else -> 1
             }
         }
+    }
+
+    private fun cleanSeasonTitle(title: String?, seasonNum: Int): String {
+        val raw = title?.trim().orEmpty()
+        return raw.replace(Regex("""^Season\s+0*$seasonNum\s*[:\-]?\s*""", RegexOption.IGNORE_CASE), "").trim()
     }
 
     private fun isSafeUrl(url: String): Boolean {
