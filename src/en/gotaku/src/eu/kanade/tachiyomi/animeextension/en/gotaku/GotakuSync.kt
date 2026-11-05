@@ -13,6 +13,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import keiyoushi.utils.applicationContext
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -28,6 +29,26 @@ class GotakuSync(
     private val syncSessionCounter = AtomicInteger(0)
 
     @Volatile private var activeCompletionLatch: CountDownLatch? = null
+
+    @Volatile private var currentPageUrl: String? = null
+
+    private fun isTrustedPageUrl(url: String?): Boolean {
+        return !url.isNullOrEmpty() && try {
+            val parsed = url.toHttpUrl()
+            parsed.scheme == "https" && parsed.host == trustedHost
+        } catch (_: Exception) {
+            false
+        }
+        // Require https and the exact host.
+    }
+
+    private val trustedHost: String by lazy {
+        try {
+            baseUrl.toHttpUrl().host
+        } catch (_: Exception) {
+            baseUrl.substringAfter("//", baseUrl).substringBefore('/')
+        }
+    }
 
     class GotakuCredentials(
         val version: String,
@@ -51,33 +72,41 @@ class GotakuSync(
     class JsBridge(
         private val sessionId: Int,
         private val currentSessionIdProvider: () -> Int,
+        private val trustedPage: () -> Boolean,
         private val onSeed: (Int, String) -> Unit,
         private val onInfo: (Int, String) -> Unit,
         private val onVersion: (Int, String) -> Unit,
     ) {
         @JavascriptInterface
         fun onSeedCaptured(seedJson: String) {
-            if (sessionId == currentSessionIdProvider()) {
+            if (sessionId == currentSessionIdProvider() && trustedPage()) {
                 onSeed(sessionId, seedJson)
             }
         }
 
         @JavascriptInterface
         fun onInfoCaptured(infoStr: String) {
-            if (sessionId == currentSessionIdProvider()) {
+            if (sessionId == currentSessionIdProvider() && trustedPage()) {
                 onInfo(sessionId, infoStr)
             }
         }
 
         @JavascriptInterface
         fun onVersionCaptured(versionStr: String) {
-            if (sessionId == currentSessionIdProvider()) {
+            if (sessionId == currentSessionIdProvider() && trustedPage()) {
                 onVersion(sessionId, versionStr)
             }
         }
     }
 
-    fun sync(force: Boolean = false): GotakuCredentials? {
+    /**
+     * @param force Run a WebView capture even when stored credentials exist.
+     * @param replaceStored Promote policy for the capture: true when the stored
+     *   credentials were just proven broken (failure-triggered resync) — the
+     *   fresh capture always wins; false for proactive refreshes, where a lower
+     *   captured build must not replace newer stored credentials.
+     */
+    fun sync(force: Boolean = false, replaceStored: Boolean = force): GotakuCredentials? {
         if (!force) {
             readStoredCredentials()?.let { return it }
         }
@@ -108,6 +137,7 @@ class GotakuSync(
         var capturedSeed: ByteArray? = null
         var capturedVersion: String? = null
         var capturedInfo: String = "api-seal|v1"
+        var infoCaptured = false
 
         fun acceptVersion(ver: String) {
             val candidate = ver.trim().toIntOrNull() ?: return
@@ -115,7 +145,7 @@ class GotakuSync(
             if (current == null || candidate > current) {
                 capturedVersion = candidate.toString()
                 Log.d(TAG, "Captured API_VERSION: $capturedVersion")
-                checkAndFinish(captureLatch, capturedSeed, capturedVersion)
+                checkAndFinish(captureLatch, capturedSeed, capturedVersion, infoCaptured)
             }
         }
 
@@ -127,6 +157,7 @@ class GotakuSync(
             val bridge = JsBridge(
                 sessionId = sessionId,
                 currentSessionIdProvider = { sessionId },
+                trustedPage = { isTrustedPageUrl(currentPageUrl) },
                 onSeed = { sId, seedJson ->
                     if (sId == sessionId) {
                         try {
@@ -136,7 +167,7 @@ class GotakuSync(
                             if (bytes.size == 32) {
                                 capturedSeed = bytes
                                 Log.d(TAG, "Captured API_SEED (${bytes.size} bytes)")
-                                checkAndFinish(captureLatch, capturedSeed, capturedVersion)
+                                checkAndFinish(captureLatch, capturedSeed, capturedVersion, infoCaptured)
                             }
                         } catch (e: Exception) {
                             Log.w(TAG, "Failed to parse captured seed", e)
@@ -146,7 +177,9 @@ class GotakuSync(
                 onInfo = { sId, infoStr ->
                     if (sId == sessionId && infoStr.isNotBlank()) {
                         capturedInfo = infoStr
+                        infoCaptured = true
                         Log.d(TAG, "Captured HKDF Info: $infoStr")
+                        checkAndFinish(captureLatch, capturedSeed, capturedVersion, infoCaptured)
                     }
                 },
                 onVersion = { sId, ver ->
@@ -179,9 +212,12 @@ class GotakuSync(
                     view.webViewClient = object : WebViewClient() {
                         override fun onPageStarted(v: WebView?, url: String?, favicon: Bitmap?) {
                             super.onPageStarted(v, url, favicon)
-                            if (url != null && url.startsWith(baseUrl)) {
-                                injectHook()
+                            currentPageUrl = url
+                            if (!isTrustedPageUrl(url)) {
+                                v?.stopLoading()
+                                return
                             }
+                            injectHook()
                         }
 
                         override fun onLoadResource(v: WebView?, url: String?) {
@@ -193,17 +229,26 @@ class GotakuSync(
 
                         override fun onPageFinished(v: WebView?, url: String?) {
                             super.onPageFinished(v, url)
-                            if (url != null && url.startsWith(baseUrl)) {
+                            if (isTrustedPageUrl(url)) {
                                 injectHook()
+                                if (url?.contains("/browse") == true) {
+                                    v?.evaluateJavascript(NAVIGATE_TO_FIRST_TITLE_SCRIPT, null)
+                                }
                             }
                         }
+
+                        override fun shouldOverrideUrlLoading(v: WebView?, request: WebResourceRequest?): Boolean = // true = WebView must not load it. Only same-origin
+                            !isTrustedPageUrl(request?.url?.toString())
+
+                        @Deprecated("Deprecated in Java")
+                        override fun shouldOverrideUrlLoading(v: WebView?, url: String?): Boolean = !isTrustedPageUrl(url)
 
                         override fun shouldInterceptRequest(
                             v: WebView?,
                             request: WebResourceRequest?,
                         ): WebResourceResponse? {
                             val reqUrl = request?.url?.toString().orEmpty()
-                            if (reqUrl.startsWith(baseUrl)) {
+                            if (isTrustedPageUrl(currentPageUrl) && reqUrl.startsWith(baseUrl)) {
                                 if (capturedSeed == null) {
                                     handler.post(injectHook)
                                 }
@@ -232,9 +277,9 @@ class GotakuSync(
             val version = capturedVersion
             val info = capturedInfo
 
-            if (seed != null && version != null && seed.size == 32 && version.all { it.isDigit() }) {
+            if (seed != null && version != null && infoCaptured && seed.size == 32 && version.all { it.isDigit() }) {
                 val creds = GotakuCredentials(version, seed, info)
-                return promoteCapture(creds, forced = force)
+                return promoteCapture(creds, replaceAny = replaceStored)
             }
 
             return readStoredCredentials()
@@ -253,21 +298,24 @@ class GotakuSync(
         }
     }
 
-    private fun checkAndFinish(latch: CountDownLatch, seed: ByteArray?, version: String?) {
-        if (seed != null && seed.size == 32 && version != null && version.all { it.isDigit() }) {
+    private fun checkAndFinish(latch: CountDownLatch, seed: ByteArray?, version: String?, infoOk: Boolean) {
+        if (seed != null && seed.size == 32 && version != null && version.all { it.isDigit() } && infoOk) {
             latch.countDown()
         }
     }
 
     /**
      * A fresh capture from the live site replaces stored credentials when:
-     *  - a previous sync failed (forced), or there was nothing stored, or
+     *  - there was nothing stored, or
+     *  - [replaceAny] — the stored set was just proven broken (426 / decrypt
+     *    failure), so the bytes the site is serving right now are the only
+     *    truth, even if the stored version number is "newer", or
      *  - the captured build is newer than the stored one, or
      *  - the builds are equal but the captured seed differs.
      */
-    private fun promoteCapture(creds: GotakuCredentials, forced: Boolean): GotakuCredentials {
+    private fun promoteCapture(creds: GotakuCredentials, replaceAny: Boolean): GotakuCredentials {
         val stored = readStoredCredentials()
-        val better = forced ||
+        val better = replaceAny ||
             stored == null ||
             creds.version.toLong() > stored.version.toLong() ||
             (creds.version == stored.version && creds != stored)
@@ -313,6 +361,25 @@ class GotakuSync(
         const val PREF_API_SEED_KEY = "gotaku_api_seed"
         const val PREF_API_VERSION_KEY = "gotaku_api_version"
         const val PREF_HKDF_INFO_KEY = "gotaku_hkdf_info"
+
+        private val NAVIGATE_TO_FIRST_TITLE_SCRIPT = """
+            (function() {
+                try {
+                    if (!window.location.pathname.startsWith('/browse')) return;
+                    if (window.__gotakuTitleNav) return;
+                    window.__gotakuTitleNav = true;
+                    var tries = 0;
+                    (function poll() {
+                        var a = document.querySelector('a[href^="/title/"]');
+                        if (a && a.getAttribute('href')) {
+                            window.location.assign(a.getAttribute('href'));
+                            return;
+                        }
+                        if (++tries < 20) setTimeout(poll, 500);
+                    })();
+                } catch (e) {}
+            })();
+        """.trimIndent()
 
         private val HOOK_SCRIPT_TEMPLATE = """
             (function() {

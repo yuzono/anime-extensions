@@ -140,10 +140,9 @@ abstract class Gotaku :
             initialSyncStarted = true
             // Learn the exact build (k) and seed the site is currently serving,
             // so refresh right away and then re-sync every 30 minutes.
-            // sync() is internally deduplicated (single WebView at a time).
-            credentialSyncExecutor.execute { runCatching { sync.sync(force = true) } }
+            credentialSyncExecutor.execute { runCatching { sync.sync(force = true, replaceStored = false) } }
             credentialSyncExecutor.scheduleWithFixedDelay(
-                { runCatching { sync.sync(force = true) } },
+                { runCatching { sync.sync(force = true, replaceStored = false) } },
                 CREDENTIAL_REFRESH_INTERVAL_MS,
                 CREDENTIAL_REFRESH_INTERVAL_MS,
                 TimeUnit.MILLISECONDS,
@@ -186,11 +185,11 @@ abstract class Gotaku :
         }
 
         if (statusCode == HTTP_UPGRADE_REQUIRED) {
-            // The site no longer serves this build. Refresh credentials for
-            // FUTURE calls, but never re-issue THIS request with the same
-            // broken build — a 426 is authoritative, not transient.
-            Log.w(TAG, "Site rejected build k=$version with 426 for $finalUrl. Resyncing credentials.")
-            Thread { runCatching { sync.sync(force = true) } }.start()
+            Log.w(TAG, "Site rejected build k=$version with 426 for $finalUrl. Awaiting credential resync...")
+            val refreshed = sync.sync(force = true, replaceStored = true)
+            if (!isRetry && refreshed != null && refreshed != creds) {
+                return decryptApiCall(url, referer, isRetry = true)
+            }
             return null
         }
 
@@ -200,7 +199,7 @@ abstract class Gotaku :
                 return decrypted
             }
             Log.w(TAG, "decryptInfo failed for $finalUrl with version=$version. Triggering WebView sync...")
-            val newCreds = sync.sync(force = true)
+            val newCreds = sync.sync(force = true, replaceStored = true)
             if (newCreds != null && !isRetry) {
                 return decryptApiCall(url, referer, isRetry = true)
             }
