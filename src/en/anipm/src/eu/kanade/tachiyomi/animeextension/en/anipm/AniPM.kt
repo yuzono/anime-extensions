@@ -70,7 +70,7 @@ abstract class AniPM :
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     // =============================== Browse ===============================
-    private fun apiHeaders(referer: String = "$baseUrl/anime") = headers.newBuilder()
+    private fun apiHeaders(referer: String = "$baseUrl/") = headers.newBuilder()
         .set("Accept", "application/json, text/plain, */*")
         .set("Referer", referer)
         .build()
@@ -122,7 +122,13 @@ abstract class AniPM :
     private fun parseCatalog(response: Response): AnimesPage {
         val dto = response.parseAs<CatalogResponseDto>()
 
-        val animes = dto.items.mapNotNull { it.toSAnime(baseUrl) }
+        val animes = dto.items.mapNotNull { item ->
+            val anime = item.toSAnime(baseUrl)
+            if (anime != null && !item.routeId.isNullOrBlank()) {
+                cacheRouteId(anime.url, item.routeId)
+            }
+            anime
+        }
         return AnimesPage(animes, dto.hasNextPage)
     }
 
@@ -194,15 +200,28 @@ abstract class AniPM :
     // ============================== Details ===============================
     override fun animeDetailsRequest(anime: SAnime): Request = GET(seriesUrl(anime.url), apiHeaders("$baseUrl/anime"))
 
-    override fun animeDetailsParse(response: Response): SAnime = response.parseAs<SeriesResponseDto>().toSAnime(baseUrl)
+    override fun animeDetailsParse(response: Response): SAnime {
+        val dto = response.parseAs<SeriesResponseDto>()
+        dto.routeId?.takeIf(String::isNotBlank)?.let { routeId ->
+            val handle = stableMainHandle(dto.source, dto.id, dto.anilistId, dto.routeId)
+            if (handle != null) {
+                cacheRouteId(handle, routeId)
+                cacheRouteId("set-${dto.id}", routeId)
+                dto.anilistId?.toLongOrNull()?.let { cacheRouteId("ani-$it", routeId) }
+            }
+        }
+        return dto.toSAnime(baseUrl)
+    }
 
     /** Re-bound entries that 404 to the same anime automatically */
     override suspend fun getAnimeDetails(anime: SAnime): SAnime = resolveSeries(anime.url, anime.title).toSAnime(baseUrl)
 
     override fun getAnimeUrl(anime: SAnime): String {
         val fresh = cachedHandle(anime.url) ?: anime.url
+        val routeId = cachedRouteId(anime.url) ?: cachedRouteId(fresh) ?: cachedRouteId(cleanHandle(fresh))
+        val path = routeId?.takeIf(String::isNotBlank) ?: cleanHandle(fresh)
         val prefix = if (isAniHandle(fresh)) "ani" else "anime"
-        return "$baseUrl/$prefix/${cleanHandle(fresh)}"
+        return "$baseUrl/$prefix/$path"
     }
 
     // ============================ Related ============================
@@ -231,6 +250,9 @@ abstract class AniPM :
         val related = sortedRelations.mapNotNull { rel ->
             val handle = rel.toHandle() ?: return@mapNotNull null
             val title = rel.title.takeIf(String::isNotBlank) ?: return@mapNotNull null
+            if (!rel.routeId.isNullOrBlank()) {
+                cacheRouteId(handle, rel.routeId)
+            }
             SAnime.create().apply {
                 url = handle
                 this.title = title
@@ -258,7 +280,13 @@ abstract class AniPM :
         )
         val dto = res.use { it.parseAs<RecommendResponseDto>() }
 
-        dto.items.mapNotNull { it.toSAnime(baseUrl) }
+        dto.items.mapNotNull { item ->
+            val anime = item.toSAnime(baseUrl)
+            if (anime != null && !item.routeId.isNullOrBlank()) {
+                cacheRouteId(anime.url, item.routeId)
+            }
+            anime
+        }
     } catch (_: Exception) {
         emptyList()
     }
@@ -522,6 +550,14 @@ abstract class AniPM :
                         val stableHandle = stableMainHandle(dto.source, dto.id, dto.anilistId, dto.routeId)
                             ?: dto.routeId
                             ?: handle
+                        dto.routeId?.takeIf(String::isNotBlank)?.let { routeId ->
+                            cacheRouteId(handle, routeId)
+                            cacheRouteId(stableHandle, routeId)
+                            cacheRouteId("set-${dto.id}", routeId)
+                            dto.anilistId?.toLongOrNull()?.let { aid ->
+                                cacheRouteId("ani-$aid", routeId)
+                            }
+                        }
                         return stableHandle to dto
                     }
                 }
@@ -621,6 +657,28 @@ abstract class AniPM :
         .split(' ')
         .filter(String::isNotBlank)
         .joinToString(" ")
+
+    // ============================ RouteId Cache ===========================
+    private fun routeIdCacheKey(handle: String): String {
+        val prefix = when {
+            isAniHandle(handle) -> "ani"
+            handle.startsWith("set-") -> "set"
+            else -> "raw"
+        }
+        return "route_id_cache_${prefix}_${cleanHandle(handle)}"
+    }
+
+    private fun cachedRouteId(handle: String?): String? = handle?.takeIf(String::isNotBlank)
+        ?.let {
+            preferences.getString(routeIdCacheKey(it), null)
+                ?: preferences.getString("route_id_cache_raw_${cleanHandle(it)}", null)
+        }
+        ?.takeIf(String::isNotBlank)
+
+    private fun cacheRouteId(handle: String, routeId: String) {
+        if (handle.isBlank() || routeId.isBlank()) return
+        preferences.edit().putString(routeIdCacheKey(handle), routeId).apply()
+    }
 
     // ============================ Handle cache ============================
 
