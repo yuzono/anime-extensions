@@ -99,7 +99,7 @@ abstract class Hanime :
 
     private suspend fun createSignatureProvider(mode: String?): SignatureProvider = when (mode) {
         "native" -> NativeSignatureProvider()
-        "webview" -> WebViewSignatureProvider(headers["User-Agent"])
+        "webview" -> WebViewSignatureProvider()
         "wasm" -> {
             val binary = runCatching {
                 withContext(Dispatchers.IO) { HanimeWasmBinary.fetchWasmBinary(client) }
@@ -108,12 +108,12 @@ abstract class Hanime :
                 ChicorySignatureProvider(binary)
             } else {
                 Log.w(TAG, "WASM binary fetch failed — falling back to WebView provider")
-                WebViewSignatureProvider(headers["User-Agent"])
+                WebViewSignatureProvider()
             }
         }
         else -> {
             Log.w(TAG, "Unknown signature provider mode '$mode', falling back to WebViewSignatureProvider")
-            WebViewSignatureProvider(headers["User-Agent"])
+            WebViewSignatureProvider()
         }
     }
 

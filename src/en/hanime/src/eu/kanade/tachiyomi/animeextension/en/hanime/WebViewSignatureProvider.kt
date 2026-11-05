@@ -60,9 +60,7 @@ import kotlin.coroutines.resumeWithException
  * 6. Deliver the [Signature] through the [JavascriptInterface] callback.
  * 7. Destroy the WebView on the main thread.
  */
-class WebViewSignatureProvider(
-    private val userAgent: String? = null,
-) : SignatureProvider {
+class WebViewSignatureProvider : SignatureProvider {
 
     override val name: String = "WebView"
 
@@ -153,11 +151,9 @@ class WebViewSignatureProvider(
             domStorageEnabled = true
             databaseEnabled = true
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            if (!userAgent.isNullOrBlank()) {
-                userAgentString = userAgent
-            }
+            userAgentString = USER_AGENT
         }
-        Log.d(TAG, "createWebView: JS enabled, UA = ${wv.settings.userAgentString?.take(30)}...")
+        Log.d(TAG, "createWebView: JS enabled, UA = ${USER_AGENT.take(30)}...")
 
         return wv
     }
@@ -375,6 +371,14 @@ class WebViewSignatureProvider(
 
         /** Name exposed to JavaScript via `addJavascriptInterface`. */
         private const val JS_INTERFACE_NAME = "AndroidInterface"
+
+        /**
+         * User agent string mimicking a recent Chrome on Android device.
+         * Must be mobile-class so hanime.tv serves the correct WASM payload.
+         */
+        private const val USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
 
         /**
          * JavaScript executed on each poll iteration.
