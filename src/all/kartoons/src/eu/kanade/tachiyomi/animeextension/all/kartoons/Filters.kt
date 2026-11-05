@@ -3,7 +3,7 @@ package eu.kanade.tachiyomi.animeextension.all.kartoons
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 
-object KartoonsFilters {
+object Filters {
 
     val CATALOG_OPTIONS = arrayOf(
         Pair("Popular Shows", "catalog/show?catalog=popular"),

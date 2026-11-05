@@ -4,7 +4,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class CatalogResponse(
+class CatalogResponse(
     val success: Boolean = false,
     val message: String? = null,
     val error: String? = null,
@@ -12,7 +12,7 @@ data class CatalogResponse(
 )
 
 @Serializable
-data class CatalogItem(
+class CatalogItem(
     val id: String,
     val title: String,
     val image: String? = null,
@@ -24,7 +24,7 @@ data class CatalogItem(
 )
 
 @Serializable
-data class SearchResponse(
+class SearchResponse(
     val success: Boolean = false,
     val message: String? = null,
     val error: String? = null,
@@ -32,7 +32,7 @@ data class SearchResponse(
 )
 
 @Serializable
-data class SearchItem(
+class SearchItem(
     val id: String,
     val title: String,
     val image: String? = null,
@@ -41,7 +41,7 @@ data class SearchItem(
 )
 
 @Serializable
-data class ShowDetailsResponse(
+class ShowDetailsResponse(
     val success: Boolean = false,
     val message: String? = null,
     val error: String? = null,
@@ -49,7 +49,7 @@ data class ShowDetailsResponse(
 )
 
 @Serializable
-data class ShowData(
+class ShowData(
     @SerialName("_id")
     val id: String,
     val title: String,
@@ -63,7 +63,7 @@ data class ShowData(
 )
 
 @Serializable
-data class SeasonData(
+class SeasonData(
     @SerialName("_id")
     val id: String,
     val seasonNumber: Int? = null,
@@ -73,7 +73,7 @@ data class SeasonData(
 )
 
 @Serializable
-data class MovieDetailsResponse(
+class MovieDetailsResponse(
     val success: Boolean = false,
     val message: String? = null,
     val error: String? = null,
@@ -81,7 +81,7 @@ data class MovieDetailsResponse(
 )
 
 @Serializable
-data class MovieData(
+class MovieData(
     @SerialName("_id")
     val id: String,
     val title: String,
@@ -94,7 +94,7 @@ data class MovieData(
 )
 
 @Serializable
-data class EpisodesResponse(
+class EpisodesResponse(
     val success: Boolean = false,
     val message: String? = null,
     val error: String? = null,
@@ -102,7 +102,7 @@ data class EpisodesResponse(
 )
 
 @Serializable
-data class EpisodeItem(
+class EpisodeItem(
     @SerialName("_id")
     val id: String,
     val seasonId: String? = null,
@@ -115,7 +115,7 @@ data class EpisodeItem(
 )
 
 @Serializable
-data class LinksResponse(
+class LinksResponse(
     val success: Boolean = false,
     val message: String? = null,
     val error: String? = null,
@@ -123,31 +123,31 @@ data class LinksResponse(
 )
 
 @Serializable
-data class LinksData(
+class LinksData(
     val links: List<StreamLink> = emptyList(),
     val subtitles: List<SubtitleItem> = emptyList(),
     val title: String? = null,
 )
 
 @Serializable
-data class StreamLink(
+class StreamLink(
     val name: String,
     val url: String,
 )
 
 @Serializable
-data class SubtitleItem(
+class SubtitleItem(
     val url: String,
     val lang: String? = null,
 )
 
 @Serializable
-data class StremioCatalogResponse(
+class StremioCatalogResponse(
     val metas: List<StremioMeta> = emptyList(),
 )
 
 @Serializable
-data class StremioMeta(
+class StremioMeta(
     val id: String? = null,
     val type: String? = null,
     val name: String? = null,

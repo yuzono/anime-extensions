@@ -46,6 +46,9 @@ abstract class Kartoons :
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
     private val syncExecutor = Executors.newSingleThreadExecutor()
 
+    private val apiUrl: String
+        get() = baseUrl.replace("://", "://api.")
+
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .add("Referer", "$baseUrl/")
         .add("Origin", baseUrl)
@@ -75,13 +78,7 @@ abstract class Kartoons :
             throw IOException(catalog.message ?: catalog.error ?: "Failed to fetch catalog")
         }
         val animeList = catalog.data.map { item ->
-            SAnime.create().apply {
-                val type = item.type?.ifBlank { "show" } ?: "show"
-                this.url = "/$type/${item.id}"
-                title = item.title.trim()
-                thumbnail_url = item.image ?: item.coverImage
-                fetch_type = if (type == "movie") FetchType.Episodes else FetchType.Seasons
-            }
+            createAnime(item.id, item.title.trim(), item.image ?: item.coverImage, item.type)
         }
         return AnimesPage(animeList, catalog.data.size >= 20)
     }
@@ -93,14 +90,7 @@ abstract class Kartoons :
             val name = meta.name?.trim()?.takeIf { it.isNotBlank() }
                 ?: meta.title?.trim()?.takeIf { it.isNotBlank() }
                 ?: return@mapNotNull null
-            val type = if (meta.type == "movie") "movie" else "show"
-            SAnime.create().apply {
-                this.url = "/$type/$rawId"
-                title = name
-                thumbnail_url = meta.poster
-                description = meta.description
-                fetch_type = if (type == "movie") FetchType.Episodes else FetchType.Seasons
-            }
+            createAnime(rawId, name, meta.poster, meta.type, meta.description)
         }
         return AnimesPage(animeList, catalog.metas.size >= 20)
     }
@@ -121,7 +111,7 @@ abstract class Kartoons :
             val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
             buildApiUrl("search?q=$encodedQuery&page=$page&limit=20")
         } else {
-            val catalogPath = filters.filterIsInstance<KartoonsFilters.CatalogFilter>()
+            val catalogPath = filters.filterIsInstance<Filters.CatalogFilter>()
                 .firstOrNull()?.selected ?: PREF_HOME_CATALOG_DEFAULT
             if (catalogPath.startsWith("stremio:")) {
                 buildStremioCatalogUrl(catalogPath.removePrefix("stremio:"), page)
@@ -136,27 +126,20 @@ abstract class Kartoons :
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.startsWith("http://") || query.startsWith("https://")) {
             val uri = query.toHttpUrlOrNull()
-            if (uri != null) {
-                val host = uri.host.lowercase()
-                if (host == "kartoons.to" || host == "kartoons.me" || host.endsWith(".kartoons.to") || host.endsWith(".kartoons.me")) {
-                    val segments = uri.pathSegments.filter { it.isNotEmpty() }
-                    val type = segments.getOrNull(0)
-                    val id = segments.getOrNull(1)
-                    if ((type == "show" || type == "movie") && !id.isNullOrBlank()) {
-                        val seasonSlug = uri.queryParameter("season")
-                            ?: if (segments.getOrNull(2) == "season") segments.getOrNull(3) else null
-                        val animeUrl = if (type == "show" && !seasonSlug.isNullOrBlank()) {
-                            "/show/$id/season/$seasonSlug"
-                        } else {
-                            "/$type/$id"
-                        }
-                        val fakeAnime = SAnime.create().apply {
-                            this.url = animeUrl
-                            this.title = ""
-                        }
-                        val details = getAnimeDetails(fakeAnime)
-                        return AnimesPage(listOf(details), false)
+            if (uri != null && uri.host.contains("kartoons", ignoreCase = true)) {
+                val segments = uri.pathSegments.filter { it.isNotEmpty() }
+                val type = segments.getOrNull(0)
+                val id = segments.getOrNull(1)
+                if ((type == "show" || type == "movie") && !id.isNullOrBlank()) {
+                    val seasonSlug = uri.queryParameter("season")
+                        ?: if (segments.getOrNull(2) == "season") segments.getOrNull(3) else null
+                    val animeUrl = if (type == "show" && !seasonSlug.isNullOrBlank()) {
+                        "/show/$id/season/$seasonSlug"
+                    } else {
+                        "/$type/$id"
                     }
+                    val details = getAnimeDetails(SAnime.create().apply { this.url = animeUrl })
+                    return AnimesPage(listOf(details), false)
                 }
             }
         }
@@ -171,13 +154,7 @@ abstract class Kartoons :
                 throw IOException(search.message ?: search.error ?: "Search failed")
             }
             val animeList = search.data.map { item ->
-                SAnime.create().apply {
-                    val type = item.type?.ifBlank { "show" } ?: "show"
-                    this.url = "/$type/${item.id}"
-                    title = item.title.trim()
-                    thumbnail_url = item.image
-                    fetch_type = if (type == "movie") FetchType.Episodes else FetchType.Seasons
-                }
+                createAnime(item.id, item.title.trim(), item.image, item.type)
             }
             AnimesPage(animeList, search.data.size >= 20)
         } else {
@@ -197,13 +174,13 @@ abstract class Kartoons :
         } else {
             anime.url.substringAfterLast("/")
         }
-        val apiUrl = if (isMovie) {
+        val showApiUrl = if (isMovie) {
             buildApiUrl("movie/$id")
         } else {
             buildApiUrl("show/$id")
         }
 
-        val response = client.get(apiUrl, headers)
+        val response = client.get(showApiUrl, headers)
         return if (isMovie) {
             val res = response.parseAs<MovieDetailsResponse>()
             if (!res.success) {
@@ -228,8 +205,7 @@ abstract class Kartoons :
             val data = res.data ?: throw IOException("Show data not found")
             SAnime.create().apply {
                 this.url = anime.url
-                val seasonTitle = runCatching { anime.title }.getOrNull()?.takeIf { it.isNotBlank() } ?: data.title.trim()
-                title = if (isSingleSeason) seasonTitle else data.title.trim()
+                title = data.title.trim()
                 description = data.description
                 thumbnail_url = data.image ?: data.coverImage
                 genre = data.tags.joinToString(", ")
@@ -268,7 +244,7 @@ abstract class Kartoons :
         return seasons.mapNotNull { season ->
             val seasonSlug = season.slug ?: season.seasonNumber?.toString() ?: return@mapNotNull null
             val seasonNum = season.seasonNumber ?: 1
-            val cleanTitle = cleanSeasonTitle(season.title, seasonNum)
+            val cleanTitle = cleanSeasonTitle(season.title)
             val seasonTitle = if (cleanTitle.isNotBlank()) {
                 String.format(Locale.US, "Season %02d: %s", seasonNum, cleanTitle)
             } else {
@@ -308,42 +284,15 @@ abstract class Kartoons :
         if (anime.url.contains("/season/")) {
             val showId = anime.url.substringAfter("/show/").substringBefore("/season/")
             val seasonSlug = anime.url.substringAfter("/season/").substringBefore("?")
-            val seasonNum = anime.season_number.toInt().takeIf { it > 0 }
-                ?: seasonSlug.removePrefix("season-").toIntOrNull()
-                ?: 1
-            val rawTitle = cleanSeasonTitle(runCatching { anime.title }.getOrNull(), seasonNum)
-            val scanlatorName = if (rawTitle.isNotBlank()) {
-                String.format(Locale.US, "Season %02d: %s", seasonNum, rawTitle)
-            } else {
-                String.format(Locale.US, "Season %02d", seasonNum)
-            }
-
             val episodesUrl = buildApiUrl("show/$showId/season/$seasonSlug/episodes")
             val epRes = client.get(episodesUrl, headers).parseAs<EpisodesResponse>()
             if (!epRes.success) {
                 throw IOException(epRes.message ?: epRes.error ?: "Failed to fetch episodes for season $seasonSlug")
             }
             var episodeCount = 1F
-
-            val episodes = epRes.data.map { ep ->
-                val epNum = ep.episodeNumber ?: episodeCount
-                val epTitle = ep.title?.trim().orEmpty()
-                val seasonPrefix = if (rawTitle.isNotBlank()) "[$rawTitle] " else "Season $seasonNum "
-                val epNumStr = if (epNum % 1f == 0f) epNum.toInt().toString() else epNum.toString()
-                episodeCount++
-                SEpisode.create().apply {
-                    name = if (epTitle.isNotBlank()) {
-                        "$seasonPrefix Episode $epNumStr: $epTitle"
-                    } else {
-                        "$seasonPrefix Episode $epNumStr"
-                    }
-                    episode_number = epNum
-                    url = "/show/$showId/season/$seasonSlug/episode/${ep.id}"
-                    preview_url = ep.image
-                    scanlator = scanlatorName
-                }
-            }
-            return episodes.reversed()
+            return epRes.data.map { ep ->
+                createEpisode(ep, showId, seasonSlug, fallbackNumber = episodeCount++)
+            }.reversed()
         }
 
         val showUrl = buildApiUrl("show/$id")
@@ -383,33 +332,16 @@ abstract class Kartoons :
 
         for ((season, episodes) in seasonResults) {
             val seasonNum = season.seasonNumber ?: 1
-            val cleanTitle = cleanSeasonTitle(season.title, seasonNum)
+            val cleanTitle = cleanSeasonTitle(season.title)
             val scanlatorName = if (cleanTitle.isNotBlank()) {
                 String.format(Locale.US, "Season %02d: %s", seasonNum, cleanTitle)
             } else {
                 String.format(Locale.US, "Season %02d", seasonNum)
             }
-            val seasonSlug = season.slug ?: "season-${season.seasonNumber ?: 1}"
+            val seasonSlug = season.slug ?: "season-$seasonNum"
 
             for (ep in episodes) {
-                val epNum = ep.episodeNumber ?: episodeCount
-                val epTitle = ep.title?.trim().orEmpty()
-                val seasonPrefix = if (cleanTitle.isNotBlank()) "[$cleanTitle] " else "Season $seasonNum "
-                val epNumStr = if (epNum % 1f == 0f) epNum.toInt().toString() else epNum.toString()
-                episodeList.add(
-                    SEpisode.create().apply {
-                        name = if (epTitle.isNotBlank()) {
-                            "$seasonPrefix Episode $epNumStr: $epTitle"
-                        } else {
-                            "$seasonPrefix Episode $epNumStr"
-                        }
-                        episode_number = epNum
-                        url = "/show/$id/season/$seasonSlug/episode/${ep.id}"
-                        preview_url = ep.image
-                        scanlator = scanlatorName
-                    },
-                )
-                episodeCount++
+                episodeList.add(createEpisode(ep, id, seasonSlug, scanlatorName, episodeCount++))
             }
         }
 
@@ -443,7 +375,6 @@ abstract class Kartoons :
                 val movieId = episode.url.substringAfter("/movie/").substringBefore("/").substringBefore("?")
                 buildApiUrl("movie/$movieId/links")
             }
-            episode.url.startsWith("http://") || episode.url.startsWith("https://") -> episode.url
             else -> buildApiUrl(episode.url)
         }
         val response = client.get(linkUrl, headers)
@@ -454,13 +385,18 @@ abstract class Kartoons :
         val data = linksRes.data ?: throw IOException("Stream links data is null")
 
         val subtitleTracks = data.subtitles.mapNotNull { sub ->
-            if (sub.url.isBlank() || !isSafeUrl(sub.url)) return@mapNotNull null
+            if (sub.url.isBlank()) return@mapNotNull null
             val lang = when (sub.lang?.lowercase()?.trim()) {
                 "eng", "en" -> "English"
                 "hin", "hi" -> "Hindi"
                 "tam", "ta" -> "Tamil"
                 "tel", "te" -> "Telugu"
-                null, "" -> "English"
+                "jpn", "ja" -> "Japanese"
+                "mal", "ml" -> "Malayalam"
+                "kan", "kn" -> "Kannada"
+                "ben", "bn" -> "Bengali"
+                "mar", "mr" -> "Marathi"
+                null, "" -> "Unknown"
                 else -> sub.lang.replaceFirstChar { it.uppercase() }
             }
             Track(sub.url, lang)
@@ -473,7 +409,7 @@ abstract class Kartoons :
             "tam" -> "Tamil"
             "tel" -> "Telugu"
             "eng" -> "English"
-            else -> "Hindi"
+            else -> "Unknown"
         }
         val audioLangRegex = Regex("""(?i)(?:^|[^a-zA-Z])${Regex.escape(preferredAudio)}(?:[^a-zA-Z]|$)""")
 
@@ -487,7 +423,7 @@ abstract class Kartoons :
 
         val videoList = mutableListOf<Video>()
         for (link in sortedLinks) {
-            if (link.url.isBlank() || !isSafeUrl(link.url)) continue
+            if (link.url.isBlank()) continue
             try {
                 if (link.url.contains(".m3u8")) {
                     videoList.add(
@@ -544,9 +480,9 @@ abstract class Kartoons :
         }
     }
 
-    private fun cleanSeasonTitle(title: String?, seasonNum: Int): String {
+    private fun cleanSeasonTitle(title: String?): String {
         val raw = title?.trim().orEmpty()
-        return raw.replace(Regex("""^Season\s+0*$seasonNum\s*[:\-]?\s*""", RegexOption.IGNORE_CASE), "").trim()
+        return raw.replace(SEASON_PREFIX_REGEX, "").trim()
     }
 
     private fun parseStatus(status: String?): Int = when (status?.lowercase()?.trim()) {
@@ -557,19 +493,40 @@ abstract class Kartoons :
         else -> SAnime.UNKNOWN
     }
 
-    private fun isSafeUrl(url: String): Boolean {
-        val httpUrl = url.toHttpUrlOrNull() ?: return false
-        val host = httpUrl.host.lowercase()
-        if (httpUrl.scheme != "http" && httpUrl.scheme != "https") return false
-        if (host == "localhost" || host.endsWith(".local") || host.endsWith(".internal")) return false
-        if (host == "127.0.0.1" || host == "::1" || host.startsWith("10.") || host.startsWith("192.168.")) return false
-        if (host.startsWith("169.254.")) return false
-        val parts = host.split(".")
-        if (parts.size == 4 && parts[0] == "172") {
-            val second = parts[1].toIntOrNull() ?: 0
-            if (second in 16..31) return false
+    private fun createAnime(
+        id: String,
+        title: String,
+        thumbnailUrl: String?,
+        type: String? = null,
+        description: String? = null,
+    ): SAnime {
+        val mediaType = if (type == "movie") "movie" else "show"
+        return SAnime.create().apply {
+            url = "/$mediaType/$id"
+            this.title = title
+            thumbnail_url = thumbnailUrl
+            this.description = description
+            fetch_type = if (mediaType == "movie") FetchType.Episodes else FetchType.Seasons
         }
-        return true
+    }
+
+    private fun createEpisode(
+        ep: EpisodeItem,
+        showId: String,
+        seasonSlug: String,
+        scanlatorName: String? = null,
+        fallbackNumber: Float = 1F,
+    ): SEpisode {
+        val epNum = ep.episodeNumber ?: fallbackNumber
+        val epTitle = ep.title?.trim().orEmpty()
+        val epNumStr = if (epNum % 1f == 0f) epNum.toInt().toString() else epNum.toString()
+        return SEpisode.create().apply {
+            name = if (epTitle.isNotBlank()) "Episode $epNumStr: $epTitle" else "Episode $epNumStr"
+            episode_number = epNum
+            url = "/show/$showId/season/$seasonSlug/episode/${ep.id}"
+            preview_url = ep.image
+            scanlator = scanlatorName
+        }
     }
 
     private fun syncWatchHistory(episodeUrl: String) {
@@ -583,12 +540,12 @@ abstract class Kartoons :
             episodeUrl.contains("movie/") -> {
                 val movieId = episodeUrl.substringAfter("movie/").substringBefore("/links").substringBefore("/").substringBefore("?")
                 if (movieId.isBlank()) return
-                "$API_BASE/api/stremio/stream/movie/kartoons:$movieId.json?token=$token"
+                "$apiUrl/api/stremio/stream/movie/kartoons:$movieId.json?token=$token"
             }
             episodeUrl.contains("episode/") -> {
                 val episodeId = episodeUrl.substringAfter("episode/").substringBefore("/links").substringBefore("/").substringBefore("?")
                 if (episodeId.isBlank()) return
-                "$API_BASE/api/stremio/stream/series/kartoons:$episodeId.json?token=$token"
+                "$apiUrl/api/stremio/stream/series/kartoons:$episodeId.json?token=$token"
             }
             else -> null
         } ?: return
@@ -611,12 +568,12 @@ abstract class Kartoons :
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         EditTextPreference(screen.context).apply {
             key = TOKEN_KEY
-            title = "Kartoons Token"
+            title = "$name Token"
             summary = preferences.getString(TOKEN_KEY, null)?.let {
                 "Token set (length: ${it.length})"
-            } ?: "Tap to enter your Kartoons token from kartoons.to/profile"
-            dialogTitle = "Kartoons Token"
-            dialogMessage = "1. Sign in to https://kartoons.to\n" +
+            } ?: "Tap to enter your $name token from $baseUrl/profile"
+            dialogTitle = "$name Token"
+            dialogMessage = "1. Sign in to $baseUrl\n" +
                 "2. Go to Profile -> Stremio tab\n" +
                 "3. Copy the token from the Manifest URL (after ?token=)\n" +
                 "4. Paste it here"
@@ -641,8 +598,8 @@ abstract class Kartoons :
         ListPreference(screen.context).apply {
             key = PREF_HOME_CATALOG_KEY
             title = "Default Browse Catalog"
-            entries = KartoonsFilters.CATALOG_OPTIONS.map { it.first }.toTypedArray()
-            entryValues = KartoonsFilters.CATALOG_OPTIONS.map { it.second }.toTypedArray()
+            entries = Filters.CATALOG_OPTIONS.map { it.first }.toTypedArray()
+            entryValues = Filters.CATALOG_OPTIONS.map { it.second }.toTypedArray()
             setDefaultValue(PREF_HOME_CATALOG_DEFAULT)
             summary = "%s"
             setOnPreferenceChangeListener { _, _ -> true }
@@ -651,7 +608,7 @@ abstract class Kartoons :
         SwitchPreferenceCompat(screen.context).apply {
             key = PREF_SYNC_WATCH_HISTORY_KEY
             title = "Sync Watch Activity to Website"
-            summary = "Updates Continue Watching on kartoons.to when you play a title"
+            summary = "Updates Continue Watching on $baseUrl when you play a title"
             setDefaultValue(true)
             setOnPreferenceChangeListener { _, _ -> true }
         }.also(screen::addPreference)
@@ -672,31 +629,31 @@ abstract class Kartoons :
     private fun buildApiUrl(pathWithQuery: String): String {
         val token = getCleanToken()
         if (token.isBlank()) {
-            throw Exception(
-                "Kartoons token is required. Sign in at https://kartoons.to, copy your token from Profile -> Stremio tab (Manifest URL ?token=...), and paste it in extension settings.",
+            throw IOException(
+                "User token is required. Configure your token in extension settings (Settings > Browse > Anime extensions > $name).",
             )
         }
         val sep = if (pathWithQuery.contains("?")) "&" else "?"
-        return "$API_BASE/api/cloudstream/$pathWithQuery${sep}token=$token"
+        return "$apiUrl/api/cloudstream/$pathWithQuery${sep}token=$token"
     }
 
     private fun buildStremioCatalogUrl(path: String, page: Int): String {
         val token = getCleanToken()
         if (token.isBlank()) {
-            throw Exception(
-                "Kartoons token is required to view your watchlist and continue-watching. Set your token in the extension settings (Kartoons -> Settings).",
+            throw IOException(
+                "User token is required to view your watchlist and continue-watching. Set your token in the extension settings (Settings > Browse > Anime extensions > $name).",
             )
         }
         val cleanPath = path.removePrefix("/")
         return if (page <= 1) {
-            "$API_BASE/api/stremio/$cleanPath.json?token=$token"
+            "$apiUrl/api/stremio/$cleanPath.json?token=$token"
         } else {
             val skip = (page - 1) * 20
-            "$API_BASE/api/stremio/$cleanPath/skip=$skip.json?token=$token"
+            "$apiUrl/api/stremio/$cleanPath/skip=$skip.json?token=$token"
         }
     }
 
-    override fun getFilterList(): AnimeFilterList = KartoonsFilters.getFilterList()
+    override fun getFilterList(): AnimeFilterList = Filters.getFilterList()
 
     override fun getAnimeUrl(anime: SAnime): String = "$baseUrl${if (anime.url.startsWith("/")) "" else "/"}${anime.url}"
 
@@ -709,7 +666,7 @@ abstract class Kartoons :
 
     companion object {
         private const val TAG = "Kartoons"
-        private const val API_BASE = "https://api.kartoons.me"
+        private val SEASON_PREFIX_REGEX = Regex("""^Season\s+\d+\s*[:\-]?\s*""", RegexOption.IGNORE_CASE)
         private const val TOKEN_KEY = "token"
         private const val PREF_AUDIO_LANG_KEY = "pref_audio_lang"
         private const val PREF_AUDIO_LANG_DEFAULT = "hin"
