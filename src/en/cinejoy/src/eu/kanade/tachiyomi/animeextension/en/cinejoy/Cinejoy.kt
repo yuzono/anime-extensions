@@ -131,8 +131,12 @@ abstract class Cinejoy :
             val url = "/$rawPath"
             val tempAnime = SAnime.create().apply { this.url = url }
             return runCatching {
-                getAnimeDetails(tempAnime).apply { this.url = url }
-                    .let(::listOf)
+                getAnimeDetails(tempAnime).apply {
+                    this.url = url
+                    if ("/season/" in url) {
+                        fetch_type = FetchType.Episodes
+                    }
+                }.let(::listOf)
             }.onFailure {
                 if (it is CancellationException) throw it
             }.getOrElse { emptyList() }
@@ -213,8 +217,8 @@ abstract class Cinejoy :
             .firstOrNull()?.state
             ?.filter { it.state }
             .orEmpty()
-        val genreIds = selectedGenres.mapNotNull { genreMap[it.name] }
-        if (selectedGenres.isNotEmpty() && genreIds.isEmpty()) return null
+        if (selectedGenres.any { genreMap[it.name] == null }) return null
+        val genreIds = selectedGenres.map { genreMap[it.name]!! }
         val genreParam = genreIds.joinToString(",")
 
         val year = filters.filterIsInstance<Filters.YearFilter>()
@@ -657,9 +661,8 @@ abstract class Cinejoy :
         val isPreferredServer = preferences.preferredServerName == serverName
 
         return videoList.sortedWith(
-            compareByDescending<Video> { v ->
-                isPreferredServer && qualityOf(v) == prefInt
-            }.thenByDescending { qualityOf(it) },
+            compareByDescending<Video> { qualityOf(it) == prefInt }
+                .thenByDescending { qualityOf(it) },
         ).map { v ->
             if (isPreferredServer && qualityOf(v) == prefInt) v.copy(preferred = true) else v
         }
@@ -673,7 +676,7 @@ abstract class Cinejoy :
         val parts = path.split("/")
         return when (parts.firstOrNull()) {
             "movie" -> "$baseUrl/movie/${parts[1]}"
-            "tv" -> "$baseUrl/series/${parts[1]}"
+            "tv" -> "$baseUrl/watch/tv/${parts[1]}/${parts[2]}/${parts[3]}"
             else -> baseUrl
         }
     }
@@ -752,7 +755,6 @@ abstract class Cinejoy :
     private fun parseMediaPage(response: Response): AnimesPage {
         val pageDto = response.parseAs<PageDto<MediaItemDto>>()
         val hasNextPage = pageDto.page < pageDto.totalPages
-        // Trending "all" mixes in TMDB people, which can't resolve as anime entries.
         val animeList = pageDto.results
             .filter { it.mediaType != "person" }
             .map(::mediaItemToSAnime)

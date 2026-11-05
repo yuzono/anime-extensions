@@ -173,6 +173,7 @@ class CinejoyExtractor(
             )
         }
     }.distinctBy { it.videoUrl }
+        .map { video -> video.copy(subtitleTracks = video.subtitleTracks.take(subLimit.coerceAtLeast(0))) }
 
     /**
      * fMP4 HLS (EXT-X-MAP) can't be demuxed by the app's FFmpeg directly, so
