@@ -14,8 +14,8 @@ import android.webkit.WebViewClient
 import keiyoushi.utils.applicationContext
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import java.net.HttpURLConnection
-import java.net.URL
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -25,6 +25,7 @@ class GotakuSync(
     private val preferences: SharedPreferences,
     private val baseUrl: String,
     private val headers: Headers,
+    private val client: OkHttpClient,
 ) {
     private val handler by lazy { Handler(Looper.getMainLooper()) }
     private val isSyncing = AtomicBoolean(false)
@@ -352,32 +353,27 @@ class GotakuSync(
      * decrypt that envelope or the capture is rejected.
      */
     private fun verifyCredentials(creds: GotakuCredentials): Boolean {
-        val url = "$baseUrl/api/v1/auth/me?k=${creds.version}"
-        return try {
-            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 10_000
-                readTimeout = 10_000
-                for (name in headers.names()) {
-                    if (name.equals("Host", true) || name.equals("Content-Length", true) || name.equals("Accept-Encoding", true)) continue
-                    setRequestProperty(name, headers[name])
+        val request = Request.Builder()
+            .url("$baseUrl/api/v1/auth/me?k=${creds.version}")
+            .headers(
+                headers.newBuilder()
+                    .set("Referer", "$baseUrl/browse")
+                    .set("Accept", "application/json")
+                    .build(),
+            )
+            .build()
+        return runCatching {
+            client.newBuilder().callTimeout(10, TimeUnit.SECONDS).build()
+                .newCall(request).execute().use { response ->
+                    response.isSuccessful &&
+                        Crypto.decryptInfo(
+                            response.body.bytes(),
+                            creds.version,
+                            creds.seed,
+                            creds.info,
+                        ) != null
                 }
-                setRequestProperty("Referer", "$baseUrl/browse")
-                setRequestProperty("Accept", "application/json")
-            }
-            val ok = runCatching {
-                conn.connect()
-                if (conn.responseCode in 200..299) {
-                    val body = conn.inputStream.use { it.readBytes() }
-                    Crypto.decryptInfo(body, creds.version, creds.seed, creds.info) != null
-                } else {
-                    false
-                }
-            }.getOrDefault(false)
-            conn.disconnect()
-            ok
-        } catch (_: Exception) {
-            false
-        }
+        }.getOrDefault(false)
     }
 
     private fun checkAndFinish(latch: CountDownLatch, seed: ByteArray?, version: String?, infoOk: Boolean) {

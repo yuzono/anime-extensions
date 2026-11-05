@@ -121,9 +121,7 @@ abstract class Gotaku :
 
     private fun Response.readBodyBoundedString(limit: Int): String? = readBodyBounded(limit)?.let { String(it, Charsets.UTF_8) }
 
-    private val sync by lazy {
-        GotakuSync(preferences, baseUrl, headers)
-    }
+    private val sync by lazy { GotakuSync(preferences, baseUrl, headers, client) }
 
     private val credentials: GotakuSync.GotakuCredentials
         get() {
