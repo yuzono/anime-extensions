@@ -69,6 +69,26 @@ class PostDto(
 }
 
 @Serializable
+class SeasonsResponse(
+    val list: List<SeasonDto>? = null,
+)
+
+@Serializable
+class SeasonDto(
+    private val id: String,
+    private val title: String,
+    private val poster: String? = null,
+    private val number: Double = -1.0,
+) {
+    fun toSAnime(): SAnime = SAnime.create().apply {
+        url = id
+        title = this@SeasonDto.title
+        thumbnail_url = poster
+        season_number = number
+    }
+}
+
+@Serializable
 class EpisodesResponse(
     val list: List<EpisodeDto>? = null,
 )

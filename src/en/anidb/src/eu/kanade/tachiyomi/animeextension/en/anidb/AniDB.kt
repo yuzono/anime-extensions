@@ -34,6 +34,8 @@ abstract class AniDB :
 
     override val supportsLatest = true
 
+    override val supportsRelatedAnimes = true
+
     override val disableRelatedAnimesBySearch = true
 
     private val preferences by getPreferencesLazy()
@@ -132,7 +134,18 @@ abstract class AniDB :
         return episodes.map { ep -> ep.toSEpisode(postId, offset).also { serverCache.put(it.url, ep.servers.orEmpty()) } }.reversed()
     }
 
-    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
+    // ============================== Seasons ===============================
+
+    override fun seasonListRequest(anime: SAnime): Request = apiRequest("/seasons", "id" to anime.url.toPostId().toString())
+
+    override fun seasonListParse(response: Response): List<SAnime> = response.parseAs<SeasonsResponse>().list.orEmpty()
+        .map { it.toSAnime() }
+
+    // Existing posts contain episodes, so expose sibling seasons through related entries.
+    override suspend fun fetchRelatedAnimeList(anime: SAnime): List<SAnime> {
+        val postId = anime.url.toPostId()
+        return getSeasonList(anime).filter { it.url.toPostId() != postId }
+    }
 
     // ============================ Video Links =============================
 
