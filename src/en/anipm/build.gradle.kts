@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "AniPM"
-    versionCode = 7
+    versionCode = 8
     contentWarning = ContentWarning.MIXED
     libVersion = "16"
 

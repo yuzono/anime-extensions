@@ -139,6 +139,7 @@ class SeriesResponseDto(
         url = stableMainHandle(source, id, anilistId, routeId) ?: routeId?.takeIf(String::isNotBlank) ?: "anime/$id"
         title = this@SeriesResponseDto.title
         thumbnail_url = stableCoverUrl(baseUrl, source, anilistId, routeId, malId, poster)
+        background_url = absoluteCover(baseUrl, banner)
         status = parseStatus(this@SeriesResponseDto.status)
         genre = buildList {
             addAll(genres.filter(String::isNotBlank).sortedBy { it })
@@ -194,11 +195,6 @@ class SeriesResponseDto(
             if (trackers.isNotEmpty()) {
                 append("**Trackers**: ${trackers.joinToString(" • ")}")
                 append("\n")
-            }
-            banner?.let {
-                append("\n![Banner](")
-                append(absoluteCover(baseUrl, it) ?: return@let)
-                append(")")
             }
         }.takeIf(String::isNotBlank)
     }
