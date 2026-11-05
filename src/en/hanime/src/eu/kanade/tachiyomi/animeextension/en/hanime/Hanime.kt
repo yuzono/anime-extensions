@@ -102,7 +102,7 @@ abstract class Hanime :
         "webview" -> WebViewSignatureProvider()
         "wasm" -> {
             val binary = runCatching {
-                withContext(Dispatchers.IO) { HanimeWasmBinary.fetchWasmBinary(client) }
+                withContext(Dispatchers.IO) { HanimeWasmBinary.fetchWasmBinary(client, headers["User-Agent"]) }
             }.getOrNull()
             if (binary != null) {
                 ChicorySignatureProvider(binary)
