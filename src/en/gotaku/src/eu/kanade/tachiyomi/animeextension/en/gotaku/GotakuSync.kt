@@ -14,6 +14,8 @@ import android.webkit.WebViewClient
 import keiyoushi.utils.applicationContext
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -248,9 +250,6 @@ class GotakuSync(
                             super.onPageFinished(v, url)
                             if (isTrustedPageUrl(url)) {
                                 injectHook()
-                                if (url?.contains("/browse") == true) {
-                                    v?.evaluateJavascript(NAVIGATE_TO_FIRST_TITLE_SCRIPT, null)
-                                }
                             }
                         }
 
@@ -265,13 +264,30 @@ class GotakuSync(
                             request: WebResourceRequest?,
                         ): WebResourceResponse? {
                             val reqUrl = request?.url?.toString().orEmpty()
+
+                            if (!request!!.isForMainFrame) {
+                                when (request.requestHeaders?.get("Sec-Fetch-Dest")) {
+                                    "iframe", "frame" ->
+                                        if (!isTrustedPageUrl(reqUrl)) {
+                                            Log.w(TAG, "Blocked untrusted frame document during sync: $reqUrl")
+                                            return WebResourceResponse(
+                                                "text/plain",
+                                                "utf-8",
+                                                403,
+                                                "Blocked",
+                                                emptyMap(),
+                                                java.io.ByteArrayInputStream(ByteArray(0)),
+                                            )
+                                        }
+                                }
+                            }
+
                             if (isTrustedPageUrl(currentPageUrl) && reqUrl.startsWith(baseUrl)) {
                                 if (capturedSeed == null) {
                                     handler.post(injectHook)
                                 }
-                                // Only capture API version 'k' from actual API endpoint requests (containing /api/)
                                 if (reqUrl.contains("/api/")) {
-                                    val kParam = request?.url?.getQueryParameter("k")
+                                    val kParam = request.url.getQueryParameter("k")
                                     if (!kParam.isNullOrEmpty() && kParam.all { it.isDigit() }) {
                                         acceptVersion(kParam)
                                     }
@@ -302,12 +318,13 @@ class GotakuSync(
                 infoOk = infoCaptured
             }
 
-            // Incomplete capture (e.g. seed/version fired but deriveKey info
-            // never did): do NOT persist a possibly-default info — keep the
-            // stored credentials and wait for a later, complete capture.
             if (seed != null && version != null && infoOk && seed.size == 32 && version.all { it.isDigit() }) {
                 val creds = GotakuCredentials(version, seed, info)
-                return promoteCapture(creds, replaceAny = replaceStored)
+                if (verifyCredentials(creds)) {
+                    return promoteCapture(creds, replaceAny = replaceStored)
+                }
+                Log.w(TAG, "Captured credentials failed the API decrypt oracle — discarded")
+                return readStoredCredentials()
             }
 
             return readStoredCredentials()
@@ -323,6 +340,43 @@ class GotakuSync(
                 activeCompletionLatch = null
                 isSyncing.set(false)
             }
+        }
+    }
+
+    /**
+     * Cryptographic self-check of freshly captured credentials — the only
+     * values that can be persisted are ones that actually decrypt the live
+     * site. The site version-tags only its API endpoints (auth/me, episode
+     * lists, episode details, embeds), and `/api/v1/auth/me` is callable with
+     * just the version, so a captured (version, seed, info) triple must
+     * decrypt that envelope or the capture is rejected.
+     */
+    private fun verifyCredentials(creds: GotakuCredentials): Boolean {
+        val url = "$baseUrl/api/v1/auth/me?k=${creds.version}"
+        return try {
+            val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 10_000
+                readTimeout = 10_000
+                for (name in headers.names()) {
+                    if (name.equals("Host", true) || name.equals("Content-Length", true) || name.equals("Accept-Encoding", true)) continue
+                    setRequestProperty(name, headers[name])
+                }
+                setRequestProperty("Referer", "$baseUrl/browse")
+                setRequestProperty("Accept", "application/json")
+            }
+            val ok = runCatching {
+                conn.connect()
+                if (conn.responseCode in 200..299) {
+                    val body = conn.inputStream.use { it.readBytes() }
+                    Crypto.decryptInfo(body, creds.version, creds.seed, creds.info) != null
+                } else {
+                    false
+                }
+            }.getOrDefault(false)
+            conn.disconnect()
+            ok
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -389,25 +443,6 @@ class GotakuSync(
         const val PREF_API_SEED_KEY = "gotaku_api_seed"
         const val PREF_API_VERSION_KEY = "gotaku_api_version"
         const val PREF_HKDF_INFO_KEY = "gotaku_hkdf_info"
-
-        private val NAVIGATE_TO_FIRST_TITLE_SCRIPT = """
-            (function() {
-                try {
-                    if (!window.location.pathname.startsWith('/browse')) return;
-                    if (window.__gotakuTitleNav) return;
-                    window.__gotakuTitleNav = true;
-                    var tries = 0;
-                    (function poll() {
-                        var a = document.querySelector('a[href^="/title/"]');
-                        if (a && a.getAttribute('href')) {
-                            window.location.assign(a.getAttribute('href'));
-                            return;
-                        }
-                        if (++tries < 20) setTimeout(poll, 500);
-                    })();
-                } catch (e) {}
-            })();
-        """.trimIndent()
 
         private val HOOK_SCRIPT_TEMPLATE = """
             (function() {

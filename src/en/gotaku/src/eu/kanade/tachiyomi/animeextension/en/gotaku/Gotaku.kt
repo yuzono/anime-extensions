@@ -44,6 +44,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.roundToInt
 
 @Source
@@ -144,35 +145,28 @@ abstract class Gotaku :
             // so refresh right away and then re-sync every 30 minutes.
             val executor = credentialSyncExecutor
             val syncRef = WeakReference(sync)
+            val futureRef = AtomicReference<ScheduledFuture<*>?>(null)
 
             val runSync: () -> Unit = {
                 syncRef.get()?.let { s -> runCatching { s.sync(force = true, replaceStored = false) } }
             }
             executor.execute(runSync)
-            credentialRefreshFuture = executor.scheduleWithFixedDelay(
-                {
-                    if (syncRef.get() == null) {
-                        stopCredentialRefreshLoop(executor)
-                    } else {
-                        runSync()
-                    }
-                },
-                CREDENTIAL_REFRESH_INTERVAL_MS,
-                CREDENTIAL_REFRESH_INTERVAL_MS,
-                TimeUnit.MILLISECONDS,
+            futureRef.set(
+                executor.scheduleWithFixedDelay(
+                    {
+                        if (syncRef.get() == null) {
+                            releaseCredentialLoop(futureRef, executor)
+                        } else {
+                            runSync()
+                        }
+                    },
+                    CREDENTIAL_REFRESH_INTERVAL_MS,
+                    CREDENTIAL_REFRESH_INTERVAL_MS,
+                    TimeUnit.MILLISECONDS,
+                ),
             )
         }
     }
-
-    @Synchronized
-    private fun stopCredentialRefreshLoop(executor: ScheduledExecutorService) {
-        credentialRefreshFuture?.cancel(false)
-        credentialRefreshFuture = null
-        executor.shutdownNow()
-        Log.d(TAG, "Credential refresh loop released (source instance dropped by host)")
-    }
-
-    @Volatile private var credentialRefreshFuture: ScheduledFuture<*>? = null
 
     private val credentialSyncExecutor: ScheduledExecutorService by lazy {
         Executors.newSingleThreadScheduledExecutor { runnable ->
@@ -956,6 +950,21 @@ abstract class Gotaku :
         private const val CREDENTIAL_REFRESH_INTERVAL_MS = 30L * 60 * 1000
 
         private const val TAG = "Gotaku"
+
+        /**
+         * Release of a dropped instance's refresh loop — companion (static)
+         * on purpose: the scheduled tick must not touch instance members,
+         * otherwise the task pins the source [Gotaku] forever and the
+         * WeakReference release signal can never fire.
+         */
+        private fun releaseCredentialLoop(
+            futureRef: AtomicReference<ScheduledFuture<*>?>,
+            executor: ScheduledExecutorService,
+        ) {
+            futureRef.get()?.cancel(false)
+            executor.shutdownNow()
+            Log.d(TAG, "Credential refresh loop released (source instance dropped by host)")
+        }
 
         private const val MAX_HTML_BODY_BYTES = 2 * 1024 * 1024
 
