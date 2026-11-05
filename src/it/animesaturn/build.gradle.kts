@@ -8,7 +8,7 @@ yuzono {
     name = "Anime Saturn"
     versionCode = 15
     contentWarning = ContentWarning.SAFE
-    libVersion = "14"
+    libVersion = "16"
 
     source {
         name = "AnimeSaturn"
