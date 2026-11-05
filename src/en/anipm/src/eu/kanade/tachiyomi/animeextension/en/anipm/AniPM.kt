@@ -218,7 +218,7 @@ abstract class AniPM :
 
     override fun getAnimeUrl(anime: SAnime): String {
         val fresh = cachedHandle(anime.url) ?: anime.url
-        val routeId = cachedRouteId(anime.url) ?: cachedRouteId(fresh) ?: cachedRouteId(cleanHandle(fresh))
+        val routeId = cachedRouteId(anime.url) ?: cachedRouteId(fresh)
         val path = routeId?.takeIf(String::isNotBlank) ?: cleanHandle(fresh)
         val prefix = if (isAniHandle(fresh)) "ani" else "anime"
         return "$baseUrl/$prefix/$path"
@@ -250,9 +250,6 @@ abstract class AniPM :
         val related = sortedRelations.mapNotNull { rel ->
             val handle = rel.toHandle() ?: return@mapNotNull null
             val title = rel.title.takeIf(String::isNotBlank) ?: return@mapNotNull null
-            if (!rel.routeId.isNullOrBlank()) {
-                cacheRouteId(handle, rel.routeId)
-            }
             SAnime.create().apply {
                 url = handle
                 this.title = title
@@ -280,13 +277,7 @@ abstract class AniPM :
         )
         val dto = res.use { it.parseAs<RecommendResponseDto>() }
 
-        dto.items.mapNotNull { item ->
-            val anime = item.toSAnime(baseUrl)
-            if (anime != null && !item.routeId.isNullOrBlank()) {
-                cacheRouteId(anime.url, item.routeId)
-            }
-            anime
-        }
+        dto.items.mapNotNull { it.toSAnime(baseUrl) }
     } catch (_: Exception) {
         emptyList()
     }
@@ -305,6 +296,9 @@ abstract class AniPM :
                 val numStr = fmtNum(ep.number)
                 episode_number = ep.number.toFloat()
                 url = "$handle/$numStr"
+                if (!ep.routeId.isNullOrBlank()) {
+                    cacheEpisodeRouteId(handle, numStr, ep.routeId)
+                }
                 val realTitle = ep.title?.takeIf { it.isNotBlank() && !it.startsWith("Episode ", true) }
                 name = buildString {
                     append("Episode $numStr")
@@ -326,8 +320,12 @@ abstract class AniPM :
 
     override fun getEpisodeUrl(episode: SEpisode): String {
         val (handle, num) = episode.url.split("/").let { it[0] to it.getOrElse(1) { "" } }
-        val prefix = if (isAniHandle(handle)) "ani" else "anime"
-        return "$baseUrl/$prefix/${cleanHandle(handle)}?ep=$num"
+        val fresh = cachedHandle(handle) ?: handle
+        val routeId = cachedRouteId(handle) ?: cachedRouteId(fresh)
+        val path = routeId?.takeIf(String::isNotBlank) ?: cleanHandle(fresh)
+        val prefix = if (isAniHandle(fresh)) "ani" else "anime"
+        val epRoute = cachedEpisodeRouteId(handle, num) ?: num
+        return "$baseUrl/$prefix/$path?ep=$epRoute"
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
@@ -558,6 +556,13 @@ abstract class AniPM :
                                 cacheRouteId("ani-$aid", routeId)
                             }
                         }
+                        dto.episodes.forEach { ep ->
+                            if (!ep.routeId.isNullOrBlank()) {
+                                val numStr = fmtNum(ep.number)
+                                cacheEpisodeRouteId(handle, numStr, ep.routeId)
+                                cacheEpisodeRouteId(stableHandle, numStr, ep.routeId)
+                            }
+                        }
                         return stableHandle to dto
                     }
                 }
@@ -669,15 +674,23 @@ abstract class AniPM :
     }
 
     private fun cachedRouteId(handle: String?): String? = handle?.takeIf(String::isNotBlank)
-        ?.let {
-            preferences.getString(routeIdCacheKey(it), null)
-                ?: preferences.getString("route_id_cache_raw_${cleanHandle(it)}", null)
-        }
+        ?.let { preferences.getString(routeIdCacheKey(it), null) }
         ?.takeIf(String::isNotBlank)
 
     private fun cacheRouteId(handle: String, routeId: String) {
         if (handle.isBlank() || routeId.isBlank()) return
         preferences.edit().putString(routeIdCacheKey(handle), routeId).apply()
+    }
+
+    // ========================== Episode Route Cache =======================
+    private fun episodeRouteIdCacheKey(handle: String, numStr: String): String = "episode_route_${cleanHandle(handle)}_$numStr"
+
+    private fun cachedEpisodeRouteId(handle: String, numStr: String): String? = preferences.getString(episodeRouteIdCacheKey(handle, numStr), null)
+        ?.takeIf { it.isNotBlank() }
+
+    private fun cacheEpisodeRouteId(handle: String, numStr: String, episodeRouteId: String) {
+        if (handle.isBlank() || numStr.isBlank() || episodeRouteId.isBlank()) return
+        preferences.edit().putString(episodeRouteIdCacheKey(handle, numStr), episodeRouteId).apply()
     }
 
     // ============================ Handle cache ============================
