@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.all.kartoons
 
+import android.util.Log
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
@@ -24,8 +25,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import okhttp3.Call
-import okhttp3.Callback
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
@@ -33,6 +32,8 @@ import okhttp3.Response
 import java.io.IOException
 import java.net.URLEncoder
 import java.util.Locale
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.Executors
 
 @Source
 abstract class Kartoons :
@@ -42,8 +43,8 @@ abstract class Kartoons :
     override val supportsLatest = true
 
     private val preferences by getPreferencesLazy()
-
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+    private val syncExecutor = Executors.newSingleThreadExecutor()
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .add("Referer", "$baseUrl/")
@@ -70,6 +71,9 @@ abstract class Kartoons :
             return parseStremioCatalog(response)
         }
         val catalog = response.parseAs<CatalogResponse>()
+        if (!catalog.success) {
+            throw IOException(catalog.message ?: catalog.error ?: "Failed to fetch catalog")
+        }
         val animeList = catalog.data.map { item ->
             SAnime.create().apply {
                 val type = item.type?.ifBlank { "show" } ?: "show"
@@ -86,7 +90,9 @@ abstract class Kartoons :
         val catalog = response.parseAs<StremioCatalogResponse>()
         val animeList = catalog.metas.mapNotNull { meta ->
             val rawId = meta.id?.removePrefix("kartoons:")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val name = (meta.name ?: meta.title)?.trim()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val name = meta.name?.trim()?.takeIf { it.isNotBlank() }
+                ?: meta.title?.trim()?.takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
             val type = if (meta.type == "movie") "movie" else "show"
             SAnime.create().apply {
                 this.url = "/$type/$rawId"
@@ -113,7 +119,7 @@ abstract class Kartoons :
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val url = if (query.isNotBlank()) {
             val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
-            buildApiUrl("search?q=$encodedQuery&limit=20")
+            buildApiUrl("search?q=$encodedQuery&page=$page&limit=20")
         } else {
             val catalogPath = filters.filterIsInstance<KartoonsFilters.CatalogFilter>()
                 .firstOrNull()?.selected ?: PREF_HOME_CATALOG_DEFAULT
@@ -158,6 +164,9 @@ abstract class Kartoons :
         val requestUrl = response.request.url.toString()
         return if (requestUrl.contains("/search?")) {
             val search = response.parseAs<SearchResponse>()
+            if (!search.success) {
+                throw IOException(search.message ?: search.error ?: "Search failed")
+            }
             val animeList = search.data.map { item ->
                 SAnime.create().apply {
                     val type = item.type?.ifBlank { "show" } ?: "show"
@@ -167,7 +176,7 @@ abstract class Kartoons :
                     fetch_type = if (type == "movie") FetchType.Episodes else FetchType.Seasons
                 }
             }
-            AnimesPage(animeList, false)
+            AnimesPage(animeList, search.data.size >= 20)
         } else {
             popularAnimeParse(response)
         }
@@ -194,7 +203,10 @@ abstract class Kartoons :
         val response = client.get(apiUrl, headers)
         return if (isMovie) {
             val res = response.parseAs<MovieDetailsResponse>()
-            val data = res.data
+            if (!res.success) {
+                throw IOException(res.message ?: res.error ?: "Failed to fetch movie details")
+            }
+            val data = res.data ?: throw IOException("Movie data not found")
             SAnime.create().apply {
                 this.url = anime.url
                 title = data.title.trim()
@@ -207,7 +219,10 @@ abstract class Kartoons :
             }
         } else {
             val res = response.parseAs<ShowDetailsResponse>()
-            val data = res.data
+            if (!res.success) {
+                throw IOException(res.message ?: res.error ?: "Failed to fetch show details")
+            }
+            val data = res.data ?: throw IOException("Show data not found")
             SAnime.create().apply {
                 this.url = anime.url
                 title = if (isSingleSeason) anime.title else data.title.trim()
@@ -239,7 +254,11 @@ abstract class Kartoons :
 
         val showUrl = buildApiUrl("show/$id")
         val showRes = client.get(showUrl, headers).parseAs<ShowDetailsResponse>()
-        val seasons = showRes.data.seasons
+        if (!showRes.success) {
+            throw IOException(showRes.message ?: showRes.error ?: "Failed to fetch show details")
+        }
+        val showData = showRes.data ?: return emptyList()
+        val seasons = showData.seasons
         if (seasons.isEmpty()) return emptyList()
 
         return seasons.mapNotNull { season ->
@@ -276,7 +295,7 @@ abstract class Kartoons :
                 SEpisode.create().apply {
                     name = "Movie"
                     episode_number = 1F
-                    url = "movie/$id/links"
+                    url = "/movie/$id"
                     preview_url = anime.thumbnail_url
                     scanlator = "Movie"
                 },
@@ -298,6 +317,9 @@ abstract class Kartoons :
 
             val episodesUrl = buildApiUrl("show/$showId/season/$seasonSlug/episodes")
             val epRes = client.get(episodesUrl, headers).parseAs<EpisodesResponse>()
+            if (!epRes.success) {
+                throw IOException(epRes.message ?: epRes.error ?: "Failed to fetch episodes for season $seasonSlug")
+            }
             var episodeCount = 1F
 
             val episodes = epRes.data.map { ep ->
@@ -313,7 +335,7 @@ abstract class Kartoons :
                         "$seasonPrefix Episode $epNumStr"
                     }
                     episode_number = epNum
-                    url = "episode/${ep.id}/links"
+                    url = "/show/$showId/season/$seasonSlug/episode/${ep.id}"
                     preview_url = ep.image
                     scanlator = scanlatorName
                 }
@@ -323,8 +345,13 @@ abstract class Kartoons :
 
         val showUrl = buildApiUrl("show/$id")
         val showRes = client.get(showUrl, headers).parseAs<ShowDetailsResponse>()
-        val seasons = showRes.data.seasons
+        if (!showRes.success) {
+            throw IOException(showRes.message ?: showRes.error ?: "Failed to fetch show details")
+        }
+        val showData = showRes.data ?: throw IOException("Show data is null")
+        val seasons = showData.seasons
 
+        val recordedErrors = ConcurrentLinkedQueue<Throwable>()
         val seasonResults = coroutineScope {
             seasons.map { season ->
                 async(Dispatchers.IO) {
@@ -332,12 +359,20 @@ abstract class Kartoons :
                     val episodesUrl = buildApiUrl("show/$id/season/$seasonSlug/episodes")
                     try {
                         val epRes = client.get(episodesUrl, headers).parseAs<EpisodesResponse>()
+                        if (!epRes.success) {
+                            throw IOException(epRes.message ?: epRes.error ?: "Failed to fetch season $seasonSlug")
+                        }
                         Pair(season, epRes.data)
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        recordedErrors.add(e)
                         null
                     }
                 }
             }.awaitAll().filterNotNull()
+        }
+
+        if (seasonResults.isEmpty() && recordedErrors.isNotEmpty()) {
+            throw IOException("Failed to load seasons", recordedErrors.peek())
         }
 
         val episodeList = mutableListOf<SEpisode>()
@@ -352,6 +387,7 @@ abstract class Kartoons :
             } else {
                 String.format(Locale.US, "Season %02d", seasonNum)
             }
+            val seasonSlug = season.slug ?: "season-${season.seasonNumber ?: 1}"
 
             for (ep in episodes) {
                 val epNum = ep.episodeNumber ?: episodeCount
@@ -366,7 +402,7 @@ abstract class Kartoons :
                             "$seasonPrefix Episode $epNumStr"
                         }
                         episode_number = epNum
-                        url = "episode/${ep.id}/links"
+                        url = "/show/$id/season/$seasonSlug/episode/${ep.id}"
                         preview_url = ep.image
                         scanlator = scanlatorName
                     },
@@ -380,33 +416,43 @@ abstract class Kartoons :
 
     // ============================ Video Links =============================
 
-    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
-        val videos = extractVideos(episode)
-        return listOf(
-            Hoster(
-                hosterName = name,
-                videoList = videos,
-            ),
-        )
-    }
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> = listOf(
+        Hoster(
+            hosterUrl = episode.url,
+            hosterName = name,
+        ),
+    )
 
     override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
 
-    override suspend fun getVideoList(hoster: Hoster): List<Video> = hoster.videoList.orEmpty()
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        syncWatchHistory(hoster.hosterUrl)
+        val fakeEpisode = SEpisode.create().apply { url = hoster.hosterUrl }
+        return extractVideos(fakeEpisode)
+    }
 
     private suspend fun extractVideos(episode: SEpisode): List<Video> {
-        syncWatchHistory(episode.url)
-        val linkUrl = if (episode.url.startsWith("http://") || episode.url.startsWith("https://")) {
-            episode.url
-        } else {
-            buildApiUrl(episode.url)
+        val linkUrl = when {
+            episode.url.contains("/episode/") -> {
+                val epId = episode.url.substringAfter("/episode/").substringBefore("/").substringBefore("?")
+                buildApiUrl("episode/$epId/links")
+            }
+            episode.url.contains("/movie/") -> {
+                val movieId = episode.url.substringAfter("/movie/").substringBefore("/").substringBefore("?")
+                buildApiUrl("movie/$movieId/links")
+            }
+            episode.url.startsWith("http://") || episode.url.startsWith("https://") -> episode.url
+            else -> buildApiUrl(episode.url)
         }
         val response = client.get(linkUrl, headers)
         val linksRes = response.parseAs<LinksResponse>()
-        val data = linksRes.data ?: return emptyList()
+        if (!linksRes.success) {
+            throw IOException(linksRes.message ?: linksRes.error ?: "Failed to fetch stream links")
+        }
+        val data = linksRes.data ?: throw IOException("Stream links data is null")
 
         val subtitleTracks = data.subtitles.mapNotNull { sub ->
-            if (sub.url.isBlank()) return@mapNotNull null
+            if (sub.url.isBlank() || !isSafeUrl(sub.url)) return@mapNotNull null
             val lang = when (sub.lang?.lowercase()?.trim()) {
                 "eng", "en" -> "English"
                 "hin", "hi" -> "Hindi"
@@ -427,7 +473,7 @@ abstract class Kartoons :
             "eng" -> "English"
             else -> "Hindi"
         }
-        val audioLangRegex = Regex("\\b${Regex.escape(preferredAudio)}\\b", RegexOption.IGNORE_CASE)
+        val audioLangRegex = Regex("""(?i)(?:^|[^a-zA-Z])${Regex.escape(preferredAudio)}(?:[^a-zA-Z]|$)""")
 
         val sortedLinks = data.links.sortedByDescending { link ->
             when {
@@ -439,11 +485,9 @@ abstract class Kartoons :
 
         val videoList = mutableListOf<Video>()
         for (link in sortedLinks) {
-            if (link.url.isBlank()) continue
+            if (link.url.isBlank() || !isSafeUrl(link.url)) continue
             try {
                 if (link.url.contains(".m3u8")) {
-                    // Always add the direct proxy master playlist so ExoPlayer/MPV
-                    // plays the full stream seamlessly with native HLS buffering
                     videoList.add(
                         Video(
                             videoUrl = link.url,
@@ -453,7 +497,6 @@ abstract class Kartoons :
                         ),
                     )
 
-                    // Also extract variant streams if available, ensuring child URLs are tagged with .m3u8
                     runCatching {
                         playlistUtils.extractFromHls(
                             playlistUrl = link.url,
@@ -469,7 +512,8 @@ abstract class Kartoons :
                                 videoUrl = fixedUrl,
                                 videoTitle = video.videoTitle,
                                 headers = headers,
-                                subtitleTracks = subtitleTracks,
+                                subtitleTracks = (video.subtitleTracks.orEmpty() + subtitleTracks).distinctBy { it.url },
+                                audioTracks = video.audioTracks,
                             )
                         }
                     }.getOrNull()?.let { subVideos ->
@@ -498,6 +542,21 @@ abstract class Kartoons :
         }
     }
 
+    private fun isSafeUrl(url: String): Boolean {
+        val httpUrl = url.toHttpUrlOrNull() ?: return false
+        val host = httpUrl.host.lowercase()
+        if (httpUrl.scheme != "http" && httpUrl.scheme != "https") return false
+        if (host == "localhost" || host.endsWith(".local") || host.endsWith(".internal")) return false
+        if (host == "127.0.0.1" || host == "::1" || host.startsWith("10.") || host.startsWith("192.168.")) return false
+        if (host.startsWith("169.254.")) return false
+        val parts = host.split(".")
+        if (parts.size == 4 && parts[0] == "172") {
+            val second = parts[1].toIntOrNull() ?: 0
+            if (second in 16..31) return false
+        }
+        return true
+    }
+
     private fun syncWatchHistory(episodeUrl: String) {
         val syncEnabled = preferences.getBoolean(PREF_SYNC_WATCH_HISTORY_KEY, true)
         if (!syncEnabled) return
@@ -507,29 +566,29 @@ abstract class Kartoons :
 
         val syncUrl = when {
             episodeUrl.contains("movie/") -> {
-                val movieId = episodeUrl.substringAfter("movie/").substringBefore("/links").substringBefore("?")
+                val movieId = episodeUrl.substringAfter("movie/").substringBefore("/links").substringBefore("/").substringBefore("?")
                 if (movieId.isBlank()) return
                 "$API_BASE/api/stremio/stream/movie/kartoons:$movieId.json?token=$token"
             }
             episodeUrl.contains("episode/") -> {
-                val episodeId = episodeUrl.substringAfter("episode/").substringBefore("/links").substringBefore("?")
+                val episodeId = episodeUrl.substringAfter("episode/").substringBefore("/links").substringBefore("/").substringBefore("?")
                 if (episodeId.isBlank()) return
                 "$API_BASE/api/stremio/stream/series/kartoons:$episodeId.json?token=$token"
             }
             else -> null
         } ?: return
 
-        client.newCall(GET(syncUrl, headers)).enqueue(
-            object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
-                    // Non-critical background sync
+        syncExecutor.execute {
+            try {
+                client.newCall(GET(syncUrl, headers)).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Watch history sync returned HTTP ${response.code}")
+                    }
                 }
-
-                override fun onResponse(call: Call, response: Response) {
-                    response.close()
-                }
-            },
-        )
+            } catch (e: Exception) {
+                Log.w(TAG, "Watch history sync failed: ${e.message}")
+            }
+        }
     }
 
     // ============================= Preferences ============================
@@ -624,11 +683,17 @@ abstract class Kartoons :
 
     override fun getFilterList(): AnimeFilterList = KartoonsFilters.getFilterList()
 
-    override fun getAnimeUrl(anime: SAnime): String = "$baseUrl${anime.url}"
+    override fun getAnimeUrl(anime: SAnime): String = "$baseUrl${if (anime.url.startsWith("/")) "" else "/"}${anime.url}"
 
-    override fun getEpisodeUrl(episode: SEpisode): String = baseUrl
+    override fun getEpisodeUrl(episode: SEpisode): String = if (episode.url.startsWith("http://") || episode.url.startsWith("https://")) {
+        episode.url
+    } else {
+        val path = if (episode.url.startsWith("/")) episode.url else "/${episode.url}"
+        "$baseUrl$path"
+    }
 
     companion object {
+        private const val TAG = "Kartoons"
         private const val API_BASE = "https://api.kartoons.me"
         private const val TOKEN_KEY = "token"
         private const val PREF_AUDIO_LANG_KEY = "pref_audio_lang"

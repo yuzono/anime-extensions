@@ -6,6 +6,8 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class CatalogResponse(
     val success: Boolean = false,
+    val message: String? = null,
+    val error: String? = null,
     val data: List<CatalogItem> = emptyList(),
 )
 
@@ -24,6 +26,8 @@ data class CatalogItem(
 @Serializable
 data class SearchResponse(
     val success: Boolean = false,
+    val message: String? = null,
+    val error: String? = null,
     val data: List<SearchItem> = emptyList(),
 )
 
@@ -39,7 +43,9 @@ data class SearchItem(
 @Serializable
 data class ShowDetailsResponse(
     val success: Boolean = false,
-    val data: ShowData,
+    val message: String? = null,
+    val error: String? = null,
+    val data: ShowData? = null,
 )
 
 @Serializable
@@ -68,7 +74,9 @@ data class SeasonData(
 @Serializable
 data class MovieDetailsResponse(
     val success: Boolean = false,
-    val data: MovieData,
+    val message: String? = null,
+    val error: String? = null,
+    val data: MovieData? = null,
 )
 
 @Serializable
@@ -86,6 +94,8 @@ data class MovieData(
 @Serializable
 data class EpisodesResponse(
     val success: Boolean = false,
+    val message: String? = null,
+    val error: String? = null,
     val data: List<EpisodeItem> = emptyList(),
 )
 
@@ -105,6 +115,8 @@ data class EpisodeItem(
 @Serializable
 data class LinksResponse(
     val success: Boolean = false,
+    val message: String? = null,
+    val error: String? = null,
     val data: LinksData? = null,
 )
 

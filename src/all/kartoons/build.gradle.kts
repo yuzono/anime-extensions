@@ -11,6 +11,7 @@ yuzono {
     libVersion = "16"
 
     source {
+        id = 363309995007167848L
         lang = "all"
         baseUrl = "https://kartoons.to"
     }
