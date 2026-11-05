@@ -201,9 +201,10 @@ abstract class Gotaku :
         }
 
         if (statusCode == HTTP_UPGRADE_REQUIRED) {
+            if (isRetry) return null
             Log.w(TAG, "Site rejected build k=$version with 426 for $finalUrl. Awaiting credential resync...")
             val refreshed = sync.sync(force = true, replaceStored = true)
-            if (!isRetry && refreshed != null && refreshed != creds) {
+            if (refreshed != null && refreshed != creds) {
                 return decryptApiCall(url, referer, isRetry = true)
             }
             return null
@@ -216,7 +217,7 @@ abstract class Gotaku :
             }
             Log.w(TAG, "decryptInfo failed for $finalUrl with version=$version. Triggering WebView sync...")
             val newCreds = sync.sync(force = true, replaceStored = true)
-            if (newCreds != null && !isRetry) {
+            if (!isRetry && newCreds != null && newCreds != creds) {
                 return decryptApiCall(url, referer, isRetry = true)
             }
         } else {
