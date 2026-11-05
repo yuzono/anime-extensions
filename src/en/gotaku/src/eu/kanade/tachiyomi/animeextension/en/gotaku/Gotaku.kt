@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.annotation.Source
+import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
@@ -38,6 +39,9 @@ import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
 @Source
@@ -134,13 +138,22 @@ abstract class Gotaku :
     private fun ensureSync() {
         if (!initialSyncStarted) {
             initialSyncStarted = true
-            if (sync.readStoredCredentials() == null) {
-                Thread {
-                    try {
-                        sync.sync(force = false)
-                    } catch (_: Exception) {}
-                }.start()
-            }
+            // Learn the exact build (k) and seed the site is currently serving,
+            // so refresh right away and then re-sync every 30 minutes.
+            // sync() is internally deduplicated (single WebView at a time).
+            credentialSyncExecutor.execute { runCatching { sync.sync(force = true) } }
+            credentialSyncExecutor.scheduleWithFixedDelay(
+                { runCatching { sync.sync(force = true) } },
+                CREDENTIAL_REFRESH_INTERVAL_MS,
+                CREDENTIAL_REFRESH_INTERVAL_MS,
+                TimeUnit.MILLISECONDS,
+            )
+        }
+    }
+
+    private val credentialSyncExecutor: ScheduledExecutorService by lazy {
+        Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "GotakuCredSync").apply { isDaemon = true }
         }
     }
 
@@ -162,18 +175,26 @@ abstract class Gotaku :
             "$url${sep}k=$version"
         }
 
-        var response: Response? = null
+        var statusCode = -1
         val responseBytes = try {
-            response = client.get(finalUrl, apiHeaders(referer))
+            val response = client.get(finalUrl, apiHeaders(referer), ensureSuccess = false)
+            statusCode = response.code
             response.readBodyBounded(MAX_API_BODY_BYTES)
         } catch (e: Exception) {
             Log.w(TAG, "decryptApiCall request failed: $finalUrl", e)
             null
-        } finally {
-            response?.close()
         }
 
-        if (responseBytes != null) {
+        if (statusCode == HTTP_UPGRADE_REQUIRED) {
+            // The site no longer serves this build. Refresh credentials for
+            // FUTURE calls, but never re-issue THIS request with the same
+            // broken build — a 426 is authoritative, not transient.
+            Log.w(TAG, "Site rejected build k=$version with 426 for $finalUrl. Resyncing credentials.")
+            Thread { runCatching { sync.sync(force = true) } }.start()
+            return null
+        }
+
+        if (responseBytes != null && statusCode in 200..299) {
             val decrypted = Crypto.decryptInfo(responseBytes, version, seed, info)
             if (decrypted != null) {
                 return decrypted
@@ -184,7 +205,7 @@ abstract class Gotaku :
                 return decryptApiCall(url, referer, isRetry = true)
             }
         } else {
-            Log.w(TAG, "decryptApiCall received no body for $finalUrl (network/size error)")
+            Log.w(TAG, "decryptApiCall got no usable body for $finalUrl (status=$statusCode)")
         }
 
         return null
@@ -906,6 +927,10 @@ abstract class Gotaku :
         )
 
         private const val MAX_API_BODY_BYTES = 8 * 1024 * 1024
+
+        private const val HTTP_UPGRADE_REQUIRED = 426
+
+        private const val CREDENTIAL_REFRESH_INTERVAL_MS = 30L * 60 * 1000
 
         private const val TAG = "Gotaku"
 

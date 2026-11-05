@@ -109,6 +109,16 @@ class GotakuSync(
         var capturedVersion: String? = null
         var capturedInfo: String = "api-seal|v1"
 
+        fun acceptVersion(ver: String) {
+            val candidate = ver.trim().toIntOrNull() ?: return
+            val current = capturedVersion?.toIntOrNull()
+            if (current == null || candidate > current) {
+                capturedVersion = candidate.toString()
+                Log.d(TAG, "Captured API_VERSION: $capturedVersion")
+                checkAndFinish(captureLatch, capturedSeed, capturedVersion)
+            }
+        }
+
         var webView: WebView? = null
 
         try {
@@ -141,9 +151,7 @@ class GotakuSync(
                 },
                 onVersion = { sId, ver ->
                     if (sId == sessionId && ver.isNotBlank() && ver.all { it.isDigit() }) {
-                        capturedVersion = ver
-                        Log.d(TAG, "Captured API_VERSION: $ver")
-                        checkAndFinish(captureLatch, capturedSeed, capturedVersion)
+                        acceptVersion(ver)
                     }
                 },
             )
@@ -203,9 +211,7 @@ class GotakuSync(
                                 if (reqUrl.contains("/api/")) {
                                     val kParam = request?.url?.getQueryParameter("k")
                                     if (!kParam.isNullOrEmpty() && kParam.all { it.isDigit() }) {
-                                        capturedVersion = kParam
-                                        Log.d(TAG, "Captured API_VERSION from API request URL: $kParam")
-                                        checkAndFinish(captureLatch, capturedSeed, capturedVersion)
+                                        acceptVersion(kParam)
                                     }
                                 }
                             }
@@ -228,8 +234,7 @@ class GotakuSync(
 
             if (seed != null && version != null && seed.size == 32 && version.all { it.isDigit() }) {
                 val creds = GotakuCredentials(version, seed, info)
-                saveStoredCredentials(creds)
-                return creds
+                return promoteCapture(creds, forced = force)
             }
 
             return readStoredCredentials()
@@ -252,6 +257,25 @@ class GotakuSync(
         if (seed != null && seed.size == 32 && version != null && version.all { it.isDigit() }) {
             latch.countDown()
         }
+    }
+
+    /**
+     * A fresh capture from the live site replaces stored credentials when:
+     *  - a previous sync failed (forced), or there was nothing stored, or
+     *  - the captured build is newer than the stored one, or
+     *  - the builds are equal but the captured seed differs.
+     */
+    private fun promoteCapture(creds: GotakuCredentials, forced: Boolean): GotakuCredentials {
+        val stored = readStoredCredentials()
+        val better = forced ||
+            stored == null ||
+            creds.version.toLong() > stored.version.toLong() ||
+            (creds.version == stored.version && creds != stored)
+        if (better) {
+            saveStoredCredentials(creds)
+            return creds
+        }
+        return stored
     }
 
     fun readStoredCredentials(): GotakuCredentials? {
