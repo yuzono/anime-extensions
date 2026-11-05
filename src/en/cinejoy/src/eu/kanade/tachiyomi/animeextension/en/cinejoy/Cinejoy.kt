@@ -158,15 +158,33 @@ abstract class Cinejoy :
                 Filters.TYPE_TV -> listOf("tv")
                 else -> listOf("movie", "tv")
             }
-            mediaTypes.parallelMapNotNull { mediaType ->
+            val requests = mediaTypes.mapNotNull { mediaType ->
                 val request = if (query.isNotBlank()) {
                     textSearchRequest(page, query, mediaType)
                 } else {
                     discoverRequest(page, mediaType, filters, sortIndex)
-                        ?: return@parallelMapNotNull null
+                        ?: return@mapNotNull null
                 }
-                fetchMediaPage(request)
+                request
             }
+
+            var lastError: Throwable? = null
+            val pages = requests.parallelMapNotNull { request ->
+                try {
+                    fetchMediaPage(request)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    synchronized(requests) {
+                        lastError = e
+                    }
+                    null
+                }
+            }
+            if (pages.isEmpty() && requests.isNotEmpty()) {
+                lastError?.let { throw it }
+            }
+            pages
         }
 
         val results = rawPages.flatMap { it.results }
