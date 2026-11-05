@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.annotation.Source
+import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
@@ -34,10 +35,16 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.nanohttpd.protocols.http.NanoHTTPD
+import java.lang.ref.WeakReference
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.roundToInt
 
 @Source
@@ -114,9 +121,7 @@ abstract class Gotaku :
 
     private fun Response.readBodyBoundedString(limit: Int): String? = readBodyBounded(limit)?.let { String(it, Charsets.UTF_8) }
 
-    private val sync by lazy {
-        GotakuSync(preferences, baseUrl, headers)
-    }
+    private val sync by lazy { GotakuSync(preferences, baseUrl, headers, client) }
 
     private val credentials: GotakuSync.GotakuCredentials
         get() {
@@ -134,13 +139,36 @@ abstract class Gotaku :
     private fun ensureSync() {
         if (!initialSyncStarted) {
             initialSyncStarted = true
-            if (sync.readStoredCredentials() == null) {
-                Thread {
-                    try {
-                        sync.sync(force = false)
-                    } catch (_: Exception) {}
-                }.start()
+            // Learn the exact build (k) and seed the site is currently serving,
+            // so refresh right away and then re-sync every 30 minutes.
+            val executor = credentialSyncExecutor
+            val syncRef = WeakReference(sync)
+            val futureRef = AtomicReference<ScheduledFuture<*>?>(null)
+
+            val runSync: () -> Unit = {
+                syncRef.get()?.let { s -> runCatching { s.sync(force = true, replaceStored = false) } }
             }
+            executor.execute(runSync)
+            futureRef.set(
+                executor.scheduleWithFixedDelay(
+                    {
+                        if (syncRef.get() == null) {
+                            releaseCredentialLoop(futureRef, executor)
+                        } else {
+                            runSync()
+                        }
+                    },
+                    CREDENTIAL_REFRESH_INTERVAL_MS,
+                    CREDENTIAL_REFRESH_INTERVAL_MS,
+                    TimeUnit.MILLISECONDS,
+                ),
+            )
+        }
+    }
+
+    private val credentialSyncExecutor: ScheduledExecutorService by lazy {
+        Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "GotakuCredSync").apply { isDaemon = true }
         }
     }
 
@@ -162,29 +190,38 @@ abstract class Gotaku :
             "$url${sep}k=$version"
         }
 
-        var response: Response? = null
+        var statusCode = -1
         val responseBytes = try {
-            response = client.get(finalUrl, apiHeaders(referer))
+            val response = client.get(finalUrl, apiHeaders(referer), ensureSuccess = false)
+            statusCode = response.code
             response.readBodyBounded(MAX_API_BODY_BYTES)
         } catch (e: Exception) {
             Log.w(TAG, "decryptApiCall request failed: $finalUrl", e)
             null
-        } finally {
-            response?.close()
         }
 
-        if (responseBytes != null) {
+        if (statusCode == HTTP_UPGRADE_REQUIRED) {
+            if (isRetry) return null
+            Log.w(TAG, "Site rejected build k=$version with 426 for $finalUrl. Awaiting credential resync...")
+            val refreshed = sync.sync(force = true, replaceStored = true)
+            if (refreshed != null && refreshed != creds) {
+                return decryptApiCall(url, referer, isRetry = true)
+            }
+            return null
+        }
+
+        if (responseBytes != null && statusCode in 200..299) {
             val decrypted = Crypto.decryptInfo(responseBytes, version, seed, info)
             if (decrypted != null) {
                 return decrypted
             }
             Log.w(TAG, "decryptInfo failed for $finalUrl with version=$version. Triggering WebView sync...")
-            val newCreds = sync.sync(force = true)
-            if (newCreds != null && !isRetry) {
+            val newCreds = sync.sync(force = true, replaceStored = true)
+            if (!isRetry && newCreds != null && newCreds != creds) {
                 return decryptApiCall(url, referer, isRetry = true)
             }
         } else {
-            Log.w(TAG, "decryptApiCall received no body for $finalUrl (network/size error)")
+            Log.w(TAG, "decryptApiCall got no usable body for $finalUrl (status=$statusCode)")
         }
 
         return null
@@ -907,7 +944,26 @@ abstract class Gotaku :
 
         private const val MAX_API_BODY_BYTES = 8 * 1024 * 1024
 
+        private const val HTTP_UPGRADE_REQUIRED = 426
+
+        private const val CREDENTIAL_REFRESH_INTERVAL_MS = 30L * 60 * 1000
+
         private const val TAG = "Gotaku"
+
+        /**
+         * Release of a dropped instance's refresh loop — companion (static)
+         * on purpose: the scheduled tick must not touch instance members,
+         * otherwise the task pins the source [Gotaku] forever and the
+         * WeakReference release signal can never fire.
+         */
+        private fun releaseCredentialLoop(
+            futureRef: AtomicReference<ScheduledFuture<*>?>,
+            executor: ScheduledExecutorService,
+        ) {
+            futureRef.get()?.cancel(false)
+            executor.shutdownNow()
+            Log.d(TAG, "Credential refresh loop released (source instance dropped by host)")
+        }
 
         private const val MAX_HTML_BODY_BYTES = 2 * 1024 * 1024
 
