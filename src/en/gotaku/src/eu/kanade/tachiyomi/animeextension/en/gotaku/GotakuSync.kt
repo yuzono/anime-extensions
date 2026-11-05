@@ -139,12 +139,34 @@ class GotakuSync(
         var capturedInfo: String = "api-seal|v1"
         var infoCaptured = false
 
+        val captureLock = Any()
+
+        /** Keeps the GREATEST version seen — never the first-seen. */
         fun acceptVersion(ver: String) {
             val candidate = ver.trim().toIntOrNull() ?: return
-            val current = capturedVersion?.toIntOrNull()
-            if (current == null || candidate > current) {
-                capturedVersion = candidate.toString()
-                Log.d(TAG, "Captured API_VERSION: $capturedVersion")
+            synchronized(captureLock) {
+                val current = capturedVersion?.toIntOrNull()
+                if (current == null || candidate > current) {
+                    capturedVersion = candidate.toString()
+                    Log.d(TAG, "Captured API_VERSION: $capturedVersion")
+                    checkAndFinish(captureLatch, capturedSeed, capturedVersion, infoCaptured)
+                }
+            }
+        }
+
+        fun acceptSeed(bytes: ByteArray) {
+            synchronized(captureLock) {
+                capturedSeed = bytes
+                Log.d(TAG, "Captured API_SEED (${bytes.size} bytes)")
+                checkAndFinish(captureLatch, capturedSeed, capturedVersion, infoCaptured)
+            }
+        }
+
+        fun acceptInfo(info: String) {
+            synchronized(captureLock) {
+                capturedInfo = info
+                infoCaptured = true
+                Log.d(TAG, "Captured HKDF Info: $info")
                 checkAndFinish(captureLatch, capturedSeed, capturedVersion, infoCaptured)
             }
         }
@@ -165,9 +187,7 @@ class GotakuSync(
                                 .mapNotNull { it.trim().toIntOrNull()?.toByte() }
                                 .toByteArray()
                             if (bytes.size == 32) {
-                                capturedSeed = bytes
-                                Log.d(TAG, "Captured API_SEED (${bytes.size} bytes)")
-                                checkAndFinish(captureLatch, capturedSeed, capturedVersion, infoCaptured)
+                                acceptSeed(bytes)
                             }
                         } catch (e: Exception) {
                             Log.w(TAG, "Failed to parse captured seed", e)
@@ -176,10 +196,7 @@ class GotakuSync(
                 },
                 onInfo = { sId, infoStr ->
                     if (sId == sessionId && infoStr.isNotBlank()) {
-                        capturedInfo = infoStr
-                        infoCaptured = true
-                        Log.d(TAG, "Captured HKDF Info: $infoStr")
-                        checkAndFinish(captureLatch, capturedSeed, capturedVersion, infoCaptured)
+                        acceptInfo(infoStr)
                     }
                 },
                 onVersion = { sId, ver ->
@@ -273,11 +290,22 @@ class GotakuSync(
 
             captureLatch.await(TIMEOUT_SEC, TimeUnit.SECONDS)
 
-            val seed = capturedSeed
-            val version = capturedVersion
-            val info = capturedInfo
+            // Read the final capture state under the same lock the callbacks use
+            val seed: ByteArray?
+            val version: String?
+            val info: String
+            val infoOk: Boolean
+            synchronized(captureLock) {
+                seed = capturedSeed
+                version = capturedVersion
+                info = capturedInfo
+                infoOk = infoCaptured
+            }
 
-            if (seed != null && version != null && infoCaptured && seed.size == 32 && version.all { it.isDigit() }) {
+            // Incomplete capture (e.g. seed/version fired but deriveKey info
+            // never did): do NOT persist a possibly-default info — keep the
+            // stored credentials and wait for a later, complete capture.
+            if (seed != null && version != null && infoOk && seed.size == 32 && version.all { it.isDigit() }) {
                 val creds = GotakuCredentials(version, seed, info)
                 return promoteCapture(creds, replaceAny = replaceStored)
             }

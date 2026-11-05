@@ -35,12 +35,14 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.nanohttpd.protocols.http.NanoHTTPD
+import java.lang.ref.WeakReference
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
@@ -140,15 +142,37 @@ abstract class Gotaku :
             initialSyncStarted = true
             // Learn the exact build (k) and seed the site is currently serving,
             // so refresh right away and then re-sync every 30 minutes.
-            credentialSyncExecutor.execute { runCatching { sync.sync(force = true, replaceStored = false) } }
-            credentialSyncExecutor.scheduleWithFixedDelay(
-                { runCatching { sync.sync(force = true, replaceStored = false) } },
+            val executor = credentialSyncExecutor
+            val syncRef = WeakReference(sync)
+
+            val runSync: () -> Unit = {
+                syncRef.get()?.let { s -> runCatching { s.sync(force = true, replaceStored = false) } }
+            }
+            executor.execute(runSync)
+            credentialRefreshFuture = executor.scheduleWithFixedDelay(
+                {
+                    if (syncRef.get() == null) {
+                        stopCredentialRefreshLoop(executor)
+                    } else {
+                        runSync()
+                    }
+                },
                 CREDENTIAL_REFRESH_INTERVAL_MS,
                 CREDENTIAL_REFRESH_INTERVAL_MS,
                 TimeUnit.MILLISECONDS,
             )
         }
     }
+
+    @Synchronized
+    private fun stopCredentialRefreshLoop(executor: ScheduledExecutorService) {
+        credentialRefreshFuture?.cancel(false)
+        credentialRefreshFuture = null
+        executor.shutdownNow()
+        Log.d(TAG, "Credential refresh loop released (source instance dropped by host)")
+    }
+
+    @Volatile private var credentialRefreshFuture: ScheduledFuture<*>? = null
 
     private val credentialSyncExecutor: ScheduledExecutorService by lazy {
         Executors.newSingleThreadScheduledExecutor { runnable ->
