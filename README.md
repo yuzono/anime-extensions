@@ -7,7 +7,7 @@
 ![Visitor Count](https://count.getloli.com/get/@yuzono?theme=capoo-2)
 </div>
 
-# ![app icon](./.github/readme-images/app-icon.png)Anikku/Animiru Extensions
+# ![app icon](./.github/readme-images/app-icon.png) Anikku/Animiru Extensions
 Anikku/Animiru is a free and open source anime player for Android 8.0 and above.
 
 This repository contains the available extension catalogues for the [Anikku](https://github.com/komikku-app/anikku) or [Animiru](https://github.com/animiruorg/animiru) forks.
