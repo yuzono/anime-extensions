@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.animeextension.en.cinejoy
 
 import android.util.Base64
 import android.util.Log
-import android.util.LruCache
 import aniyomi.lib.hlsdash.HlsDashServer
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.model.Track
@@ -30,22 +29,6 @@ class CinejoyExtractor(
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
-    private val resultCache = LruCache<CacheKey, CachedResult>(CACHE_SIZE)
-    private val resultCacheLock = Any()
-
-    private data class CacheKey(
-        val serverName: String,
-        val path: String,
-        val title: String,
-        val year: String,
-        val imdbId: String,
-    )
-
-    private data class CachedResult(
-        val result: List<Video>,
-        val expiresAtMillis: Long,
-    )
-
     suspend fun videosForServer(
         server: WingServerInfo,
         path: String,
@@ -57,16 +40,6 @@ class CinejoyExtractor(
         val pathParts = path.split("/")
         val isMovie = pathParts.first() == "movie"
         val tmdbId = pathParts[1]
-
-        val now = System.currentTimeMillis()
-        val cacheKey = CacheKey(server.name, path, title, year, imdbId)
-
-        val cached = synchronized(resultCacheLock) {
-            resultCache.get(cacheKey)?.takeIf { it.expiresAtMillis > now }
-        }
-        if (cached != null) {
-            return cached.result
-        }
 
         return try {
             // 1. Build the wing.st request URL.
@@ -120,11 +93,7 @@ class CinejoyExtractor(
                 return emptyList()
             }
 
-            val videos = buildVideos(server, streams, subLimit)
-            synchronized(resultCacheLock) {
-                resultCache.put(cacheKey, CachedResult(videos, now + CACHE_TTL_MS))
-            }
-            videos
+            buildVideos(server, streams, subLimit)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -150,7 +119,11 @@ class CinejoyExtractor(
         streams: List<StreamDto>,
         subLimit: Int,
     ): List<Video> = streams.flatMap { stream ->
-        val url = stream.playlist ?: return@flatMap emptyList()
+        val url = stream.playlist
+            // Only fetch plain http(s) playlists; anything else in the
+            // payload is a malformed or hostile entry.
+            ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+            ?: return@flatMap emptyList()
         val subtitles = stream.captions.mapNotNull { caption ->
             val u = caption.url ?: return@mapNotNull null
             Track(u, caption.language ?: "unknown")
@@ -214,9 +187,9 @@ class CinejoyExtractor(
     private suspend fun maybeConvertFmp4Hls(
         video: Video,
         renditions: List<AudioRendition>,
-    ): Video = runCatching {
+    ): Video = try {
         val playlist = client.get(video.videoUrl, wingHeaders).bodyString()
-        if (!playlist.contains("#EXT-X-MAP")) return@runCatching video
+        if (!playlist.contains("#EXT-X-MAP")) return video
 
         val audioTracks = renditions.mapNotNull { rendition ->
             runCatching {
@@ -224,7 +197,7 @@ class CinejoyExtractor(
                     return@mapNotNull null
                 }
                 Track(HlsDashServer.register(client, wingHeaders, rendition.url, null), rendition.name)
-            }.getOrNull()
+            }.onFailure { if (it is CancellationException) throw it }.getOrNull()
         }
 
         video.copy(
@@ -236,7 +209,11 @@ class CinejoyExtractor(
             ),
             audioTracks = audioTracks,
         )
-    }.getOrDefault(video)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        video
+    }
 
     private fun parseAudioRenditions(masterUrl: String, masterText: String): List<AudioRendition> = EXT_X_MEDIA_REGEX.findAll(masterText)
         .map { line -> ATTRIBUTE_REGEX.findAll(line.value).associate { it.groupValues[1] to it.groupValues[2].removeSurrounding("\"") } }
@@ -317,9 +294,6 @@ class CinejoyExtractor(
         private const val DEC_CINEJOY_URL = "$ENC_DEC_API/dec-cinejoy"
         private const val SITE_ORIGIN = "https://cinejoy.pk"
         private const val HEX = "0123456789ABCDEF"
-
-        private const val CACHE_SIZE = 64
-        private const val CACHE_TTL_MS = 60_000L
 
         private val EXT_X_MEDIA_REGEX = Regex("""#EXT-X-MEDIA:.*""")
         private val ATTRIBUTE_REGEX = Regex("""([A-Z0-9-]+)=("[^"]*"|[^,]*)""")

@@ -22,10 +22,11 @@ import keiyoushi.utils.addSetPreference
 import keiyoushi.utils.delegate
 import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingMapNotNull
+import keiyoushi.utils.parallelMap
 import keiyoushi.utils.parallelMapNotNull
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonString
+import keiyoushi.utils.tryParse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -74,15 +75,16 @@ abstract class Cinejoy :
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
         val types = listOf("movie", "tv")
 
-        return types.parallelCatchingMapNotNull { mediaType ->
+        val rawPages = types.parallelMap { mediaType ->
             client.newCall(latestUpdatesRequest(page, mediaType))
                 .awaitSuccess()
-                .use { latestUpdatesParse(it) }
-        }.let { animePages ->
-            val animes = animePages.flatMap { it.animes }
-            val hasNextPage = animePages.any { it.hasNextPage }
-            AnimesPage(animes, hasNextPage)
+                .parseAs<PageDto<MediaItemDto>>()
         }
+
+        val animes = rawPages.flatMap { it.results }
+            .sortedByDescending { it.mediaSortDate }
+        val hasNextPage = rawPages.any { it.page < it.totalPages }
+        return AnimesPage(animes.map(::mediaItemToSAnime), hasNextPage)
     }
 
     override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
@@ -110,7 +112,7 @@ abstract class Cinejoy :
         query: String,
         filters: AnimeFilterList,
     ): AnimesPage {
-        if (query.startsWith("https://")) {
+        if (query.startsWith("http://") || query.startsWith("https://")) {
             val url = query.toHttpUrl()
             if (url.host.removePrefix("www.") != baseUrl.toHttpUrl().host.removePrefix("www.")) {
                 throw Exception("Unsupported url")
@@ -140,13 +142,12 @@ abstract class Cinejoy :
         val typeIndex = filters.filterIsInstance<Filters.TypeFilter>()
             .firstOrNull()?.state ?: Filters.TYPE_ALL
         val isAll = typeIndex == Filters.TYPE_ALL
+        val sortIndex = filters.filterIsInstance<Filters.SortFilter>()
+            .firstOrNull()?.state ?: Filters.SORT_POPULAR
 
-        // Only search/multi and trending tag results with media_type; the
-        // per-type search/discover endpoints don't, so their results must
-        // not be filtered on it.
         val isMultiSearch = query.isNotBlank() && isAll
         val rawPages: List<PageDto<MediaItemDto>> = if (isMultiSearch) {
-            listOfNotNull(fetchMediaPage(textSearchRequest(page, query, "multi")))
+            listOf(fetchMediaPage(textSearchRequest(page, query, "multi")))
         } else {
             val mediaTypes: List<String> = when (typeIndex) {
                 Filters.TYPE_MOVIES -> listOf("movie")
@@ -157,7 +158,8 @@ abstract class Cinejoy :
                 val request = if (query.isNotBlank()) {
                     textSearchRequest(page, query, mediaType)
                 } else {
-                    discoverRequest(page, mediaType, filters)
+                    discoverRequest(page, mediaType, filters, sortIndex)
+                        ?: return@parallelMapNotNull null
                 }
                 fetchMediaPage(request)
             }
@@ -165,15 +167,13 @@ abstract class Cinejoy :
 
         val results = rawPages.flatMap { it.results }
             .let { if (isMultiSearch) it.filter { media -> media.mediaType == "movie" || media.mediaType == "tv" } else it }
+            .let { if (query.isBlank()) it.sortedWith(discoverComparator(sortIndex)) else it }
         val hasNextPage = rawPages.any { it.page < it.totalPages }
 
         return AnimesPage(results.map(::mediaItemToSAnime), hasNextPage)
     }
 
-    private suspend fun fetchMediaPage(request: Request): PageDto<MediaItemDto>? = runCatching {
-        client.newCall(request).awaitSuccess()
-            .parseAs<PageDto<MediaItemDto>>()
-    }.getOrNull()
+    private suspend fun fetchMediaPage(request: Request): PageDto<MediaItemDto> = client.newCall(request).awaitSuccess().parseAs<PageDto<MediaItemDto>>()
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = throw UnsupportedOperationException("Not used; getSearchAnime is overridden")
 
@@ -192,9 +192,8 @@ abstract class Cinejoy :
         page: Int,
         mediaType: String,
         filters: AnimeFilterList,
-    ): Request {
-        val sortIndex = filters.filterIsInstance<Filters.SortFilter>()
-            .firstOrNull()?.state ?: Filters.SORT_POPULAR
+        sortIndex: Int,
+    ): Request? {
         val sortBy = when (sortIndex) {
             Filters.SORT_RATING -> "vote_average.desc"
             Filters.SORT_RECENT -> if (mediaType == "movie") {
@@ -210,11 +209,12 @@ abstract class Cinejoy :
         } else {
             Filters.TV_GENRE_MAP
         }
-        val genreIds = filters.filterIsInstance<Filters.GenreFilter>()
+        val selectedGenres = filters.filterIsInstance<Filters.GenreFilter>()
             .firstOrNull()?.state
             ?.filter { it.state }
-            ?.mapNotNull { genreMap[it.name] }
             .orEmpty()
+        val genreIds = selectedGenres.mapNotNull { genreMap[it.name] }
+        if (selectedGenres.isNotEmpty() && genreIds.isEmpty()) return null
         val genreParam = genreIds.joinToString(",")
 
         val year = filters.filterIsInstance<Filters.YearFilter>()
@@ -251,12 +251,19 @@ abstract class Cinejoy :
         }
     }
 
+    /** Mirrors the `sort_by` request in [discoverRequest] for merging pages. */
+    private fun discoverComparator(sortIndex: Int): Comparator<MediaItemDto> = when (sortIndex) {
+        Filters.SORT_RATING -> compareByDescending { it.voteAverage }
+        Filters.SORT_RECENT -> compareByDescending { it.mediaSortDate }
+        else -> compareByDescending { it.popularity }
+    }
+
     private fun today(): String = synchronized(DATE_FORMATTER) {
         DATE_FORMATTER.format(Date())
     }
 
     /**
-     * Maps a cinejoy.pk url to a deep-link query:
+     * Maps a Cinejoy url to a deep-link query:
      *   /movie/{id}-{slug}-{year}      → id:movie/{id}
      *   /series/{id}-{slug}-{year}     → id:tv/{id}
      *   /watch/movie/{id}              → id:movie/{id}
@@ -328,6 +335,7 @@ abstract class Cinejoy :
             status = parseStatus(movie.status)
             background_url = movie.backdropPath?.let { "https://image.tmdb.org/t/p/w1280$it" }
             fetch_type = FetchType.Episodes
+            initialized = true
             description = buildString {
                 movie.overview?.also { append(it + "\n\n") }
                 val details = listOfNotNull(
@@ -371,6 +379,7 @@ abstract class Cinejoy :
             status = parseStatus(tv.status)
             background_url = tv.backdropPath?.let { "https://image.tmdb.org/t/p/w1280$it" }
             fetch_type = FetchType.Seasons
+            initialized = true
             description = buildString {
                 tv.overview?.also { append(it + "\n\n") }
                 val details = listOfNotNull(
@@ -592,13 +601,20 @@ abstract class Cinejoy :
             serverCache?.takeIf { it.expiresAtMillis > now }?.let { return it.servers }
         }
 
-        val servers = runCatching {
+        // Only the fallback catalog is cached on genuine failures; a
+        // canceled call rethrows instead of poisoning the cache for ten
+        // minutes.
+        val servers = try {
             client.get("$WING_API_BASE/servers", headers)
                 .parseAs<WingServersDto>()
                 .servers
                 .filter { it.status == null || it.status == "ok" }
                 .map { WingServerInfo(it.name, it.fourK) }
-        }.getOrNull().orEmpty().ifEmpty { DEFAULT_SERVERS }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            DEFAULT_SERVERS
+        }
 
         synchronized(serverCacheLock) {
             serverCache = ServerCache(servers, now + SERVER_CACHE_TTL_MS)
@@ -736,7 +752,10 @@ abstract class Cinejoy :
     private fun parseMediaPage(response: Response): AnimesPage {
         val pageDto = response.parseAs<PageDto<MediaItemDto>>()
         val hasNextPage = pageDto.page < pageDto.totalPages
-        val animeList = pageDto.results.map(::mediaItemToSAnime)
+        // Trending "all" mixes in TMDB people, which can't resolve as anime entries.
+        val animeList = pageDto.results
+            .filter { it.mediaType != "person" }
+            .map(::mediaItemToSAnime)
         return AnimesPage(animeList, hasNextPage)
     }
 
@@ -756,11 +775,9 @@ abstract class Cinejoy :
         else -> SAnime.UNKNOWN
     }
 
-    private fun parseDate(dateStr: String?): Long = runCatching {
-        synchronized(DATE_FORMATTER) {
-            DATE_FORMATTER.parse(dateStr ?: "")?.time ?: 0L
-        }
-    }.getOrDefault(0L)
+    private fun parseDate(dateStr: String?): Long = synchronized(DATE_FORMATTER) {
+        DATE_FORMATTER.tryParse(dateStr)
+    }
 
     companion object {
         // Deep-link prefix.
@@ -774,7 +791,7 @@ abstract class Cinejoy :
 
         private val YEAR_REGEX = Regex("""\d{4}""")
 
-        private val DATE_FORMATTER by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH) }
+        private val DATE_FORMATTER by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.ROOT) }
 
         // Rating sort uses a higher floor: TMDB has many obscure titles
         // with a handful of perfect-score votes that would dominate.

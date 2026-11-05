@@ -21,9 +21,20 @@ class MediaItemDto(
     val mediaType: String? = null,
     val title: String? = null,
     val name: String? = null,
+    @SerialName("release_date")
+    val releaseDate: String? = null,
+    @SerialName("first_air_date")
+    val firstAirDate: String? = null,
+    val popularity: Float = 0f,
+    @SerialName("vote_average")
+    val voteAverage: Float = 0f,
 ) {
     val realTitle: String
         get() = title ?: name ?: "No Title"
+
+    // Comparable date used to merge movie and TV pages onto one ordering.
+    val mediaSortDate: String
+        get() = releaseDate ?: firstAirDate ?: ""
 }
 
 @Serializable
