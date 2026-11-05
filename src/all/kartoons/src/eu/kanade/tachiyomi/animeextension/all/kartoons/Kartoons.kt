@@ -216,7 +216,7 @@ abstract class Kartoons :
                 description = data.description
                 thumbnail_url = data.image ?: data.coverImage
                 genre = data.tags.joinToString(", ")
-                status = SAnime.COMPLETED
+                status = parseStatus(data.status).takeIf { it != SAnime.UNKNOWN } ?: SAnime.COMPLETED
                 fetch_type = FetchType.Episodes
                 initialized = true
             }
@@ -233,7 +233,7 @@ abstract class Kartoons :
                 description = data.description
                 thumbnail_url = data.image ?: data.coverImage
                 genre = data.tags.joinToString(", ")
-                status = SAnime.UNKNOWN
+                status = parseStatus(data.status)
                 fetch_type = if (isSingleSeason) FetchType.Episodes else FetchType.Seasons
                 initialized = true
             }
@@ -281,7 +281,7 @@ abstract class Kartoons :
                 thumbnail_url = anime.thumbnail_url
                 description = anime.description
                 genre = anime.genre
-                status = anime.status
+                status = parseStatus(showData.status).takeIf { it != SAnime.UNKNOWN } ?: anime.status
                 season_number = seasonNum.toDouble()
                 fetch_type = FetchType.Episodes
                 initialized = true
@@ -547,6 +547,14 @@ abstract class Kartoons :
     private fun cleanSeasonTitle(title: String?, seasonNum: Int): String {
         val raw = title?.trim().orEmpty()
         return raw.replace(Regex("""^Season\s+0*$seasonNum\s*[:\-]?\s*""", RegexOption.IGNORE_CASE), "").trim()
+    }
+
+    private fun parseStatus(status: String?): Int = when (status?.lowercase()?.trim()) {
+        "ended", "completed", "finished" -> SAnime.COMPLETED
+        "ongoing", "returning series", "in production" -> SAnime.ONGOING
+        "cancelled", "canceled" -> SAnime.CANCELLED
+        "on hiatus", "hiatus" -> SAnime.ON_HIATUS
+        else -> SAnime.UNKNOWN
     }
 
     private fun isSafeUrl(url: String): Boolean {

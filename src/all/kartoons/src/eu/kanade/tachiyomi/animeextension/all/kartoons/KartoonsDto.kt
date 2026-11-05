@@ -57,6 +57,7 @@ data class ShowData(
     val image: String? = null,
     val coverImage: String? = null,
     val releaseYear: Int? = null,
+    val status: String? = null,
     val tags: List<String> = emptyList(),
     val seasons: List<SeasonData> = emptyList(),
 )
@@ -88,6 +89,7 @@ data class MovieData(
     val image: String? = null,
     val coverImage: String? = null,
     val releaseYear: Int? = null,
+    val status: String? = null,
     val tags: List<String> = emptyList(),
 )
 
