@@ -198,7 +198,7 @@ abstract class AniPM :
     }
 
     // ============================== Details ===============================
-    override fun animeDetailsRequest(anime: SAnime): Request = GET(seriesUrl(anime.url), apiHeaders("$baseUrl/anime"))
+    override fun animeDetailsRequest(anime: SAnime): Request = GET(seriesUrl(anime.url), apiHeaders("$baseUrl/"))
 
     override fun animeDetailsParse(response: Response): SAnime {
         val dto = response.parseAs<SeriesResponseDto>()
