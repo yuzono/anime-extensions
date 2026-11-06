@@ -5,35 +5,41 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 
 @Serializable
-data class AnimeStatus(
+class AnimeStatus(
     val id: Int,
 )
 
 @Serializable
-data class CoverInfo(
+class CoverInfo(
     val default: String,
 )
 
 @Serializable
-data class GenreInfo(
+class GenreInfo(
     val id: Int,
     val name: String,
 )
 
 @Serializable
-data class PublisherInfo(
+class PublisherInfo(
     val id: Int,
     val name: String,
 )
 
 @Serializable
-data class AuthorInfo(
+class AuthorInfo(
     val id: Int,
     val name: String,
 )
 
 @Serializable
-data class AnimeData(
+class AnimeType(
+    val id: Int,
+    val label: String? = null,
+)
+
+@Serializable
+class AnimeData(
     val id: Int,
     @SerialName("rus_name") val rusName: String? = null,
     @SerialName("eng_name") val engName: String? = null,
@@ -42,6 +48,7 @@ data class AnimeData(
     val cover: CoverInfo,
 
     // Optional
+    val type: AnimeType? = null,
     @SerialName("is_licensed") val licensed: Boolean? = null,
     val summary: JsonElement? = null,
     val genres: List<GenreInfo>? = null,
@@ -51,64 +58,64 @@ data class AnimeData(
 )
 
 @Serializable
-data class PageMetaData(
+class PageMetaData(
     val next: String? = null,
 )
 
 @Serializable
-data class AnimeList(
+class AnimeList(
     val data: List<AnimeData>,
     val links: PageMetaData? = null,
 )
 
 @Serializable
-data class AnimeInfo(
+class AnimeInfo(
     val data: AnimeData,
 )
 
 @Serializable
-data class AnimeSimilars(
+class AnimeSimilars(
     val data: List<AnimeSimilar>,
 )
 
 @Serializable
-data class AnimeSimilar(
+class AnimeSimilar(
     val media: AnimeData,
 )
 
 // ============================== Episode ==============================
 @Serializable
-data class TeamInfo(
+class TeamInfo(
     val id: Int,
     val name: String,
 )
 
 @Serializable
-data class VideoQuality(
+class VideoQuality(
     val href: String,
     val quality: Int,
 )
 
 @Serializable
-data class VideoMetaData(
+class VideoMetaData(
     val id: Int,
     val quality: List<VideoQuality>,
 )
 
 @Serializable
-data class TranslationInfo(
+class TranslationInfo(
     val id: Int,
 )
 
 @Serializable
-data class SubtitleInfo(
+class SubtitleInfo(
     val id: Int,
     val format: String,
     val src: String,
 )
 
 @Serializable
-data class VideoInfo(
+class VideoInfo(
     val id: Int,
     val player: String,
     val team: TeamInfo,
@@ -124,7 +131,7 @@ data class VideoInfo(
 )
 
 @Serializable
-data class EpisodeInfo(
+class EpisodeInfo(
     val id: Int,
     @SerialName("name") val episodeName: String,
     val number: String,
@@ -136,36 +143,36 @@ data class EpisodeInfo(
 )
 
 @Serializable
-data class EpisodeVideoData(
+class EpisodeVideoData(
     val data: EpisodeInfo,
 )
 
 @Serializable
-data class EpisodeList(
+class EpisodeList(
     val data: List<EpisodeInfo>,
 )
 
 // ============================== VideoServer ==============================
 @Serializable
-data class VideoServerInfo(
+class VideoServerInfo(
     val id: String,
     val label: String,
     val url: String,
 )
 
 @Serializable
-data class VideoServers(
+class VideoServers(
     val videoServers: List<VideoServerInfo>,
 )
 
 @Serializable
-data class VideoServerData(
+class VideoServerData(
     val data: VideoServers,
 )
 
 // ============================== Kodik ==============================
 @Serializable
-data class KodikForm(
+class KodikForm(
     val d: String = "",
     @SerialName("d_sign") val dSign: String = "",
     val pd: String = "",
@@ -175,18 +182,18 @@ data class KodikForm(
 )
 
 @Serializable
-data class KodikVideoInfo(
+class KodikVideoInfo(
     val src: String,
 )
 
 @Serializable
-data class KodikVideoQuality(
+class KodikVideoQuality(
     @SerialName("480") val bad: List<KodikVideoInfo>,
     @SerialName("720") val good: List<KodikVideoInfo>,
     @SerialName("360") val ugly: List<KodikVideoInfo>,
 )
 
 @Serializable
-data class KodikData(
+class KodikData(
     val links: KodikVideoQuality,
 )
