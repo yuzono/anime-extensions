@@ -12,7 +12,7 @@ Anikku/Animiru is a free and open source anime player for Android 8.0 and above.
 
 This repository contains the available extension catalogues for the [Anikku](https://github.com/komikku-app/anikku) or [Animiru](https://github.com/animiruorg/animiru) forks.
 
-## Recommend App
+## Recommended apps
 
 ### [Anikku](https://github.com/komikku-app/anikku)
 
