@@ -67,14 +67,10 @@ integration.stopServer()
 
 ## Automatic Detection
 
-The server automatically detects various fake header formats:
+Segments are scanned for obfuscation junk before being served:
 
-- **JPEG Headers**: Detects JPEG magic bytes and finds video content after them
-- **PNG Headers**: Detects PNG magic bytes and finds video content after them
-- **GIF Headers**: Detects GIF magic bytes and finds video content after them
-- **MPEG-TS**: Detects MPEG-TS sync bytes (0x47) for valid transport streams
-- **MP4**: Detects "ftyp" atom for MP4 files
-- **AVI**: Detects "RIFF" and "AVI" headers for AVI files
+- **MPEG-TS**: the segment is walked as a grid of 188-byte packets. Only bytes that sit *between* packets (a fake JPEG/PNG/GIF header at the start, or disguise blocks inserted between packets) are stripped, never packet payload. Magic bytes appear by chance inside compressed audio/video, so content is never pattern-matched.
+- **MP4 / AVI**: when a non-TS segment starts with JPEG, PNG or GIF magic, the leading bytes up to the `ftyp` atom or `RIFF` header are stripped.
 
 ## Usage Example
 

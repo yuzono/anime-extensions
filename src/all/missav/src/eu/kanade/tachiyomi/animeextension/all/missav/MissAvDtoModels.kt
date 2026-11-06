@@ -51,3 +51,42 @@ data class VideoInfo(
     @SerialName("title_en")
     val titleEn: String?,
 )
+
+@Serializable
+class SearchRequest(
+    val searchQuery: String,
+    val scenario: String,
+    val count: Int,
+    val returnProperties: Boolean,
+    val includedProperties: List<String>,
+    val cascadeCreate: Boolean,
+)
+
+@Serializable
+class NextRecommsRequest(
+    val count: Int,
+    val cascadeCreate: Boolean,
+)
+
+@Serializable
+class BatchRequest(
+    val requests: List<BatchItem>,
+    val distinctRecomms: Boolean,
+)
+
+@Serializable
+class BatchItem(
+    val method: String,
+    val path: String,
+    val params: RelatedParams,
+)
+
+@Serializable
+class RelatedParams(
+    val targetUserId: String,
+    val scenario: String,
+    val count: Int,
+    val returnProperties: Boolean,
+    val includedProperties: List<String>,
+    val cascadeCreate: Boolean,
+)
