@@ -31,11 +31,11 @@ import kotlin.collections.toByteArray
  */
 object Crypto {
     val DEFAULT_API_SEED = listOf(
-        169, 97, 13, 229, 137, 106, 199, 91, 124, 53, 130, 103, 235, 216, 204,
-        41, 161, 207, 4, 157, 109, 106, 130, 5, 57, 176, 155, 55, 18, 148, 80, 128,
+        30, 99, 206, 236, 176, 26, 228, 147, 55, 35, 152, 123, 6, 17, 126,
+        179, 40, 181, 197, 210, 194, 90, 232, 35, 247, 20, 130, 43, 71, 117, 123, 82,
     ).map { it.toByte() }.toByteArray()
 
-    const val DEFAULT_API_VERSION = "8"
+    const val DEFAULT_API_VERSION = "10"
 
     private val MANIFEST_SEED = "458e5403c40a73332706df406193dd6b040a2ea97a6bb59b52b294a61006e6ef".decodeHex()
 

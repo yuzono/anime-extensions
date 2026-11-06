@@ -1,22 +1,22 @@
 <div align="center">
 
-| Install on Aniyomi | Install on Anikku | Build | Discord |
-|:------------------:|:-----------------:|:-----:|:-------:|
-| [![Install](https://img.shields.io/badge/Click%20here%20to%20install%20repo-gray?style=flat&labelColor=red)](https://intradeus.github.io/http-protocol-redirector/?r=aniyomi://add-repo?url=https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json) | [![Install](https://img.shields.io/badge/Click%20here%20to%20install%20repo-gray?style=flat&labelColor=red)](https://intradeus.github.io/http-protocol-redirector/?r=anikku://add-repo?url=https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json) | ![CI](https://github.com/yuzono/anime-extensions/actions/workflows/build_push.yml/badge.svg) | [![Discord](https://img.shields.io/discord/1377136877491982366.svg?label=&labelColor=6A7EC2&color=7389D8&logo=discord&logoColor=FFFFFF)](https://discord.gg/85MZhUX688) |
+|                                                                                                                          Install on Anikku                                                                                                                           |                                            Build                                             |                                                                                 Discord                                                                                 |
+|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|:--------------------------------------------------------------------------------------------:|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
+| [![Install](https://img.shields.io/badge/Click%20here%20to%20install%20repo-gray?style=flat&labelColor=red)](https://intradeus.github.io/http-protocol-redirector/?r=aniyomi://add-repo?url=https://raw.githubusercontent.com/yuzono/anime-repo/repo/index.min.json) | ![CI](https://github.com/yuzono/anime-extensions/actions/workflows/build_push.yml/badge.svg) | [![Discord](https://img.shields.io/discord/1377136877491982366.svg?label=&labelColor=6A7EC2&color=7389D8&logo=discord&logoColor=FFFFFF)](https://discord.gg/85MZhUX688) |
 
 ![Visitor Count](https://count.getloli.com/get/@yuzono?theme=capoo-2)
 </div>
 
-# ![app icon](./.github/readme-images/app-icon.png)Anikku/Aniyomi Extensions
-Anikku/Aniyomi is a free and open source anime player for Android 6.0 and above.
+# ![app icon](./.github/readme-images/app-icon.png) Anikku/Animiru Extensions
+Anikku/Animiru is a free and open source anime player for Android 8.0 and above.
 
-This repository contains the available extension catalogues for the [Anikku](https://github.com/komikku-app/anikku) or [Aniyomi](https://github.com/aniyomiorg/aniyomi) forks.
+This repository contains the available extension catalogues for the [Anikku](https://github.com/komikku-app/anikku) or [Animiru](https://github.com/animiruorg/animiru) forks.
 
-## Recommend App
+## Recommended apps
 
 ### [Anikku](https://github.com/komikku-app/anikku)
 
-### [Aniyomi](https://github.com/aniyomiorg/aniyomi)
+### [Animiru](https://github.com/animiruorg/animiru)
 
 ## How to add the repo
 
@@ -74,7 +74,7 @@ It might also be good to read our [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
 
 This project does not have any affiliation with the content providers available.
 
-This project is not affiliated with Anikku/Aniyomi. Don't ask for help about these extensions at the
-official support means of Anikku/Aniyomi. All credits to the codebase goes to the original contributors.
+This project is not affiliated with Anikku/Animiru. Don't ask for help about these extensions at the
+official support means of Anikku/Animiru. All credits to the codebase goes to the original contributors.
 
 The developer of this application does not have any affiliation with the content providers available.

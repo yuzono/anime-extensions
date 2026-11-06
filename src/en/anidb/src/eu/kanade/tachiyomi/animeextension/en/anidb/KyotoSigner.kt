@@ -15,7 +15,7 @@ internal const val PLAY_URL = "https://api.kyotoplayer.com"
 
 private const val API_HOST = "api.kyotoplayer.com"
 private const val APP_ID = "com.kyotoplayer"
-private const val APP_VERSION = "132"
+private const val APP_VERSION = "133"
 
 // Android 16, which every device in DEVICE_MODELS runs
 private const val OS_VERSION = "36"
@@ -106,8 +106,8 @@ private val secureRandom by lazy { SecureRandom() }
 private const val CERTIFICATE_HASH = "482a900b2906766b2e8d3cf19fcf6d06d0b6c9569cb6305c9c43200a8e20979e"
 
 // HMAC-SHA256 keyed with the constant table in libkyoto.so (key[i] = data[i] xor (i * 0x49 + 0x29)),
-// over the certificate hash above. The table changed in 1.3.2.
+// over the certificate hash above. The table changes with the app version (1.3.2, 1.3.3, ...).
 private val SIGNING_KEY by lazy {
     CERTIFICATE_HASH.decodeHex()
-        .hmacSha256("9589ba06efeb990bafe302235854766f4d5b9cabcb57ad6ad6bb41cd7b6a8408".decodeHex())
+        .hmacSha256("a0afd4a8afe8a963faeb1fdc6733b6c292d74861b30ca383d1775b4835a6d65f".decodeHex())
 }
