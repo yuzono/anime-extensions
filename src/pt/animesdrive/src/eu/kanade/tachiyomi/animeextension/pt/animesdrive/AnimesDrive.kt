@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.pt.animesdrive
 
 import aniyomi.lib.bloggerextractor.BloggerExtractor
-import eu.kanade.tachiyomi.animeextension.pt.animesdrive.extractors.UniversalExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -128,15 +127,14 @@ abstract class AnimesDrive : DooPlay() {
     // ============================ Video Links =============================
     override fun videoListParse(response: Response): List<Video> {
         val document = response.useAsJsoup()
-        val players = document.select(".animeq-player__server")
+        val players = document.select(".animeq-player__server, ul#playeroptionsul li")
         return players.parallelCatchingFlatMapBlocking(::getPlayerVideos)
     }
 
     private val bloggerExtractor by lazy { BloggerExtractor(client) }
-    private val universalExtractor by lazy { UniversalExtractor(client) }
 
     private suspend fun getPlayerVideos(player: Element): List<Video> {
-        val name = player.attr("data-source-name")
+        val name = player.attr("data-source-name").ifEmpty { player.selectFirst("span.title")!!.text() }
             .run {
                 when (this.uppercase()) {
                     "SD" -> "360p"
@@ -171,13 +169,15 @@ abstract class AnimesDrive : DooPlay() {
     }
 
     private suspend fun getPlayerUrl(player: Element): String? {
-        val type = "tv"
         val id = player.parents()
             .selectFirst("meta#dooplay-ajax-counter")
             ?.attr("data-postid")
             ?: return null
-        val num = player.attr("data-animeq-switch").toInt() + 1
-        return client.newCall(GET("$baseUrl/wp-json/dooplayer/v2/$id/$type/$num"))
+        val num = player.attr("data-animeq-switch")
+            .toIntOrNull()?.plus(1)
+            ?: player.attr("data-nume")
+
+        return client.newCall(GET("$baseUrl/wp-json/dooplayer/v2/$id/tv/$num"))
             .awaitSuccess().bodyString()
             .substringAfter("\"embed_url\":\"")
             .substringBefore("\",")
