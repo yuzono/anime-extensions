@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.all.javgg
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.okruextractor.OkruExtractor
+import aniyomi.lib.playlistutils.PlaylistUtils
 import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.vidhideextractor.VidHideExtractor
 import aniyomi.lib.voeextractor.VoeExtractor
@@ -10,22 +11,33 @@ import aniyomi.lib.youruploadextractor.YourUploadExtractor
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
-import keiyoushi.utils.AnimeHttpLegacySource
+import keiyoushi.network.get
+import keiyoushi.network.post
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 
 @Source
 abstract class Javgg :
-    AnimeHttpLegacySource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = true
@@ -34,31 +46,25 @@ abstract class Javgg :
 
     private val preferences by getPreferencesLazy()
 
+    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+
     companion object {
         private const val PREF_QUALITY_KEY = "preferred_quality"
         private const val PREF_QUALITY_DEFAULT = "1080"
         private val QUALITY_LIST = arrayOf("1080", "720", "480", "360")
 
         private const val PREF_SERVER_KEY = "preferred_server"
-        private const val PREF_SERVER_DEFAULT = "StreamWish"
+        private const val PREF_SERVER_DEFAULT = "VidHide"
 
-        /**
-         * Current servers available on the site:
-         * TB: TurboPlay
-         * VH: VidHide
-         * MD: MixDrop
-         * SW: StreamWish
-         * VG: JavGuard
-         * VO: Voe
-         * upjav: upjav
-         */
         private val SERVER_LIST = arrayOf(
+            "VidHide",
+            "Vidara",
             "StreamWish",
+            "StreamHG",
             "Voe",
             "Okru",
             "YourUpload",
             "FileLions",
-            "StreamHideVid",
             "TurboPlay",
         )
     }
@@ -154,50 +160,230 @@ abstract class Javgg :
         }
     }
 
-    override fun videoListParse(response: Response): List<Video> {
-        val document = response.asJsoup()
-        return document.select("[id*=source-player] iframe").parallelCatchingFlatMapBlocking {
-            val numOpt = it.closest(".source-box")?.attr("id")?.replace("source-player-", "")
-            val serverName = document.select("[data-nume=\"$numOpt\"] .server").attr("data-text")
-            serverVideoResolver(serverName, it.attr("src"))
-        }
-    }
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
+        val document = client.get(baseUrl + episode.url, headers).useAsJsoup()
 
-    private suspend fun serverVideoResolver(server: String, url: String): List<Video> {
-        val embedUrl = server.lowercase()
-        return when {
-            embedUrl.contains("ok.ru") || embedUrl.contains("okru") -> OkruExtractor(client).videosFromUrl(url)
+        val hosters = mutableListOf<Hoster>()
 
-            embedUrl.contains("filelions") || embedUrl.contains("lion") -> StreamWishExtractor(client, headers).videosFromUrl(url, videoNameGen = { "FileLions:$it" })
+        document.select(".dooplay_player_option").forEach { option ->
+            val numOpt = option.attr("data-nume")
+            if (numOpt.isBlank() || numOpt == "trailer") return@forEach
 
-            embedUrl.contains("wishembed") || embedUrl.contains("streamwish") || embedUrl.contains("strwish") || embedUrl.contains("wish") -> {
-                val docHeaders = headers.newBuilder()
-                    .add("Origin", "https://streamwish.to")
-                    .add("Referer", "https://streamwish.to/")
-                    .build()
-                StreamWishExtractor(client, docHeaders).videosFromUrl(url, videoNameGen = { "StreamWish:$it" })
+            val sourceBox = document.selectFirst("#source-player-$numOpt") ?: return@forEach
+            val iframe = sourceBox.selectFirst("iframe") ?: return@forEach
+            val rawEmbedUrl = iframe.attr("src").ifEmpty { iframe.attr("data-src") }.trim()
+            if (rawEmbedUrl.isBlank()) return@forEach
+            val embedUrl = when {
+                rawEmbedUrl.startsWith("//") -> "https:$rawEmbedUrl"
+                rawEmbedUrl.startsWith("/") -> baseUrl.trimEnd('/') + rawEmbedUrl
+                !rawEmbedUrl.startsWith("http") -> "https://$rawEmbedUrl"
+                else -> rawEmbedUrl
             }
 
-            embedUrl.contains("vidhide") || embedUrl.contains("streamhide") || embedUrl.contains("guccihide") || embedUrl.contains("streamvid") -> VidHideExtractor(client, headers).videosFromUrl(url)
+            val part = option.selectFirst(".title")?.text().orEmpty()
+            val serverAttr = option.selectFirst(".server")?.attr("data-text")?.trim().orEmpty()
+            val serverText = option.selectFirst(".server")?.text().orEmpty()
+            val rawServer = serverAttr.ifEmpty { serverText }
 
-            embedUrl.contains("voe") -> VoeExtractor(client, headers).videosFromUrl(url)
+            if (rawServer.equals("f4scom", true) || embedUrl.contains("f4jav") || embedUrl.contains("f4stream")) {
+                return@forEach
+            }
 
-            embedUrl.contains("yourupload") || embedUrl.contains("upload") -> YourUploadExtractor(client).videoFromUrl(url, headers = headers)
+            val serverName = when {
+                embedUrl.contains("vidara") || rawServer.contains("vidara", true) -> "Vidara"
+                embedUrl.contains("earnvid") || embedUrl.contains("vidhide") || rawServer.contains("vidhide", true) -> "VidHide"
+                embedUrl.contains("streamhg") || rawServer.contains("streamhg", true) -> "StreamHG"
+                embedUrl.contains("streamwish") || embedUrl.contains("wishembed") || embedUrl.contains("strwish") ||
+                    embedUrl.contains("wishfast") || embedUrl.contains("dwish") ||
+                    rawServer.contains("streamwish", true) || rawServer.contains("wish", true) -> "StreamWish"
+                embedUrl.contains("filelions") || embedUrl.contains("fviplions") ||
+                    rawServer.contains("filelions", true) || rawServer.contains("lion", true) -> "FileLions"
+                embedUrl.contains("voe") || rawServer.contains("voe", true) -> "Voe"
+                embedUrl.contains("ok.ru") || rawServer.contains("okru", true) -> "Okru"
+                embedUrl.contains("yourupload") || rawServer.contains("yourupload", true) -> "YourUpload"
+                embedUrl.contains("turboplay") || rawServer.contains("turboplay", true) -> "TurboPlay"
+                rawServer.isNotBlank() -> rawServer.replaceFirstChar { it.uppercase() }
+                else -> "Server"
+            }
 
-            embedUrl.contains("turboplay") -> {
-                val turboDocument = client.newCall(GET(url)).execute().asJsoup()
-                val masterUrl = turboDocument.select("#video_player").attr("data-hash")
-                val customHeaders = headers.newBuilder().apply {
-                    add("Accept", "*/*")
-                    add("Origin", "https://${turboDocument.location().toHttpUrl().host}")
-                    add("Referer", "https://${turboDocument.location().toHttpUrl().host}/")
-                }.build()
+            val hosterName = if (part.isNotBlank() && !part.equals("Server", ignoreCase = true)) {
+                "$serverName - $part"
+            } else {
+                serverName
+            }
 
-                listOf(Video(masterUrl, "TurboPlay", masterUrl, customHeaders))
+            hosters.add(
+                Hoster(
+                    hosterName = hosterName,
+                    hosterUrl = embedUrl,
+                ),
+            )
+        }
+
+        return hosters.sortHosters()
+    }
+
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val rawUrl = hoster.hosterUrl.trim()
+        val url = when {
+            rawUrl.startsWith("//") -> "https:$rawUrl"
+            rawUrl.startsWith("/") -> baseUrl.trimEnd('/') + rawUrl
+            !rawUrl.startsWith("http") -> "https://$rawUrl"
+            else -> rawUrl
+        }
+        val nameLower = hoster.hosterName.lowercase()
+        val part = if (nameLower.contains("part")) {
+            hoster.hosterName.substringAfter("-").trim()
+        } else {
+            ""
+        }
+        val prefix = if (part.isNotBlank()) "$part - " else ""
+
+        return when {
+            url.contains("vidara.so") || url.contains("gasobni.com") || nameLower.contains("vidara") -> {
+                extractVidara(url, prefix)
+            }
+
+            url.contains("earnvid") || url.contains("vidhide") || url.contains("streamhide") ||
+                url.contains("guccihide") || url.contains("streamvid") || nameLower.contains("vidhide") -> {
+                val extHeaders = headers.newBuilder().set("Referer", "$baseUrl/").build()
+                VidHideExtractor(client, extHeaders).videosFromUrl(url) { quality ->
+                    "${prefix}VidHide - $quality"
+                }
+            }
+
+            url.contains("streamhg") || nameLower.contains("streamhg") -> {
+                val extHeaders = headers.newBuilder().set("Referer", "$baseUrl/").build()
+                VidHideExtractor(client, extHeaders).videosFromUrl(url) { quality ->
+                    "${prefix}StreamHG - $quality"
+                }
+            }
+
+            url.contains("streamwish") || url.contains("wishembed") || url.contains("strwish") ||
+                url.contains("wishfast") || url.contains("dwish") || nameLower.contains("streamwish") -> {
+                val host = url.toHttpUrlOrNull()?.host ?: "streamwish.to"
+                val docHeaders = headers.newBuilder()
+                    .set("Origin", "https://$host")
+                    .set("Referer", "https://$host/")
+                    .build()
+                StreamWishExtractor(client, docHeaders).videosFromUrl(url) { quality ->
+                    "${prefix}StreamWish - $quality"
+                }
+            }
+
+            url.contains("filelions") || url.contains("fviplions") || nameLower.contains("filelions") -> {
+                StreamWishExtractor(client, headers).videosFromUrl(url) { quality ->
+                    "${prefix}FileLions - $quality"
+                }
+            }
+
+            url.contains("voe") || nameLower.contains("voe") -> {
+                VoeExtractor(client, headers).videosFromUrl(url)
+            }
+
+            url.contains("ok.ru") || url.contains("okru") || nameLower.contains("okru") -> {
+                OkruExtractor(client).videosFromUrl(url)
+            }
+
+            url.contains("yourupload") || nameLower.contains("yourupload") -> {
+                YourUploadExtractor(client).videoFromUrl(url, headers = headers)
+            }
+
+            url.contains("turboplay") || nameLower.contains("turboplay") -> {
+                extractTurboPlay(url)
             }
 
             else -> emptyList()
+        }.sortVideos()
+    }
+
+    private suspend fun extractVidara(url: String, prefix: String): List<Video> {
+        val httpUrl = url.toHttpUrlOrNull() ?: return emptyList()
+        val path = httpUrl.encodedPath
+        val filecode = when {
+            "/e/" in path -> path.substringAfter("/e/").substringBefore("/")
+            "/v/" in path -> path.substringAfter("/v/").substringBefore("/")
+            else -> httpUrl.pathSegments.lastOrNull { it.isNotBlank() }
+        } ?: return emptyList()
+        if (filecode.isBlank()) return emptyList()
+
+        val embedHost = httpUrl.host
+        val body = """{"filecode":"$filecode","device":"web"}"""
+            .toRequestBody("application/json".toMediaType())
+
+        val hostsToTry = listOfNotNull(embedHost, "vidara.so", "gasobni.com").distinct()
+        var streamUrl: String? = null
+        var subTracks: List<Track> = emptyList()
+        var successHost: String = embedHost
+
+        for (host in hostsToTry) {
+            val apiHeaders = headers.newBuilder()
+                .set("Referer", url)
+                .set("Origin", "https://$host")
+                .build()
+
+            try {
+                val data = client.post("https://$host/api/stream", apiHeaders, body)
+                    .parseAs<VidaraResponse>()
+
+                if (!data.streamingUrl.isNullOrBlank()) {
+                    streamUrl = data.streamingUrl
+                    successHost = host
+                    subTracks = data.subtitles?.mapNotNull { sub ->
+                        if (sub.filePath.isNotBlank()) {
+                            Track(sub.filePath, sub.language ?: "Subtitle")
+                        } else {
+                            null
+                        }
+                    }.orEmpty()
+                    break
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                continue
+            }
         }
+
+        if (streamUrl.isNullOrBlank()) return emptyList()
+
+        return playlistUtils.extractFromHls(
+            playlistUrl = streamUrl,
+            referer = "https://$successHost/",
+            videoNameGen = { quality -> "${prefix}Vidara - $quality" },
+            subtitleList = subTracks,
+        )
+    }
+
+    private suspend fun extractTurboPlay(url: String): List<Video> {
+        val turboDocument = client.get(url, headers).useAsJsoup()
+        val masterUrl = turboDocument.select("#video_player").attr("data-hash")
+        if (masterUrl.isBlank()) return emptyList()
+        val host = turboDocument.location().toHttpUrl().host
+        val customHeaders = headers.newBuilder()
+            .set("Accept", "*/*")
+            .set("Origin", "https://$host")
+            .set("Referer", "https://$host/")
+            .build()
+        return listOf(
+            Video(
+                videoUrl = masterUrl,
+                videoTitle = "TurboPlay",
+                headers = customHeaders,
+            ),
+        )
+    }
+
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
+
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
+
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val rawServer = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
+        val server = if (rawServer.equals("StreamHideVid", ignoreCase = true)) "VidHide" else rawServer
+        return sortedWith(
+            compareBy { it.hosterName.contains(server, true) },
+        ).reversed()
     }
 
     private fun org.jsoup.nodes.Element.getImageUrl(): String? {
@@ -221,7 +407,8 @@ abstract class Javgg :
 
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-        val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
+        val rawServer = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
+        val server = if (rawServer.equals("StreamHideVid", ignoreCase = true)) "VidHide" else rawServer
         return this.sortedWith(
             compareBy(
                 { it.videoTitle.contains(server, true) },
@@ -232,6 +419,10 @@ abstract class Javgg :
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        if (preferences.getString(PREF_SERVER_KEY, null) == "StreamHideVid") {
+            preferences.edit().putString(PREF_SERVER_KEY, "VidHide").apply()
+        }
+
         ListPreference(screen.context).apply {
             key = PREF_SERVER_KEY
             title = "Preferred server"
@@ -264,4 +455,18 @@ abstract class Javgg :
             }
         }.also(screen::addPreference)
     }
+
+    @Serializable
+    private data class VidaraResponse(
+        @SerialName("streaming_url")
+        val streamingUrl: String? = null,
+        val subtitles: List<VidaraSubtitle>? = null,
+    )
+
+    @Serializable
+    private data class VidaraSubtitle(
+        @SerialName("file_path")
+        val filePath: String = "",
+        val language: String? = null,
+    )
 }
