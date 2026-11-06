@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.pt.betteranimeio
 
+import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
@@ -20,7 +21,7 @@ import java.util.Locale
 abstract class BetterAnimeIo : DooPlay() {
     private val contentUrl = "$baseUrl/animes"
 
-    private val extractor by lazy { BetterAnimeIoExtractor(client) }
+    private val extractor by lazy { BetterAnimeIoExtractor(client, headers) }
 
     // ============================== Popular ===============================
     override fun popularAnimeSelector() = "div#featured-titles article.item div.poster"
@@ -28,9 +29,18 @@ abstract class BetterAnimeIo : DooPlay() {
     override fun popularAnimeRequest(page: Int): Request = GET(contentUrl, headers)
 
     // =============================== Latest ===============================
-    override fun latestUpdatesSelector() = "div#archive-content article.item div.poster"
+    override fun latestUpdatesSelector() = "div#archive-content .episodes"
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$contentUrl/page/$page", headers)
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/episodios/page/$page", headers)
+
+    override fun latestUpdatesFromElement(element: Element): SAnime = SAnime.create().apply {
+        val url = element.selectFirst("a")?.attr("href") ?: element.attr("href")
+        val epNum = element.selectFirst("h3")!!.ownText()
+        val animeName = element.selectFirst("p")!!.text()
+        setUrlWithoutDomain(url)
+        title = "$epNum  -  $animeName"
+        thumbnail_url = element.selectFirst(".contentImg")!!.attr("data-thumb")
+    }
 
     // ============================== Episodes ==============================
     override fun getSeasonEpisodes(season: Element): List<SEpisode> {
@@ -49,6 +59,7 @@ abstract class BetterAnimeIo : DooPlay() {
 
         episode_number = epNum.toFloatOrNull() ?: 0F
         name = "$episodeSeasonPrefix $seasonName x $epNum"
+        scanlator = "$episodeSeasonPrefix $seasonName"
         setUrlWithoutDomain(link.attr("href"))
 
         element.selectFirst(".timeAgo[data-time]")?.attr("data-time")?.let { dateStr ->
