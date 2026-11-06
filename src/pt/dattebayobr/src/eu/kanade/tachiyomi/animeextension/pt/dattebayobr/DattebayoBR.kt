@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.bodyString
@@ -16,6 +17,7 @@ import keiyoushi.utils.useAsJsoup
 import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONArray
+import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -61,7 +63,30 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
     // Latest
     override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
 
-    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val document = response.useAsJsoup()
+
+        val animes = document
+            .select("div.ultimosEpisodiosHomeItem")
+            .map { element ->
+                SAnime.create().apply {
+                    val anchor = element.selectFirst("a")!!
+
+                    title = element
+                        .selectFirst(".ultimosEpisodiosHomeItemInfosNome")
+                        ?.text()
+                        ?.trim()
+                        ?: "Sem título"
+
+                    setUrlWithoutDomain(anchor.attr("href"))
+
+                    thumbnail_url = element
+                        .selectFirst(".ultimosEpisodiosHomeItemImg img")
+                        ?.attr("abs:src")
+                }
+            }
+        return AnimesPage(animes, hasNextPage = false)
+    }
 
     // Search
     override fun searchAnimeRequest(
@@ -102,7 +127,7 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
 
     // Details
     override fun animeDetailsParse(response: Response): SAnime {
-        val document = response.useAsJsoup()
+        val document = getRealAnimeDoc(response.useAsJsoup())
 
         return SAnime.create().apply {
             title = document.selectFirst(".tituloPage h1")
@@ -150,14 +175,9 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
                 .replace(",", ".")
                 .toFloatOrNull()
 
-            val episodeName = element.selectFirst(".ultimosEpisodiosHomeItemInfosNome")
-                ?.text()
-                ?.trim()
-                ?: "Episódio $episodeNumText"
-
             return SEpisode.create().apply {
                 setUrlWithoutDomain(anchor.attr("href"))
-                name = episodeName
+                name = "Episódio $episodeNumText"
                 episode_number = episodeNumber ?: 0f
                 date_upload = element.selectFirst(".lancaster_episodio_info_data")?.text().let(dateFormatter::tryParse)
             }
@@ -171,6 +191,7 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
         val seenUrls = mutableSetOf<String>()
 
         val baseAnimeUrl = response.request.url.toString()
+            .getRealAnimeUrl()
             .substringBefore("/page/")
             .removeSuffix("/")
 
@@ -268,5 +289,27 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
             emptyList()
         }
             .sortedByDescending { it.videoTitle }
+    }
+
+    // Utilities
+    private val animeMenuSelector = ".controlesBoxItem a[href] i.iconLista"
+
+    private fun getRealAnimeDoc(doc: Document): Document {
+        val menu = doc.selectFirst(animeMenuSelector)
+        return if (menu != null) {
+            val originalUrl = menu.parent()!!.attr("href")
+            val req = client.newCall(GET(originalUrl, headers)).execute()
+            req.asJsoup()
+        } else {
+            doc
+        }
+    }
+
+    private fun String.getRealAnimeUrl(): String = if ("videos" in this) {
+        val doc = client.newCall(GET(this, headers)).execute().asJsoup()
+        val menu = doc.selectFirst(animeMenuSelector)!!
+        menu.parent()!!.attr("href")
+    } else {
+        this
     }
 }
