@@ -4,10 +4,12 @@ import eu.kanade.tachiyomi.animeextension.pt.smartanimes.extractors.SmartAnimesE
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.animestream.AnimeStream
+import eu.kanade.tachiyomi.network.GET
 import keiyoushi.annotation.Source
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Request
 import okhttp3.Response
 
 @Source
@@ -21,6 +23,9 @@ abstract class SmartAnimes : AnimeStream() {
     override val prefQualityValues = listOf("1080p", "720p", "480p", "360p", "240p")
 
     override val animeDescriptionSelector = ".entry-content[itemprop=description]"
+
+    // ============================ Latest ==================================
+    override fun latestUpdatesRequest(page: Int): Request = GET("$animeListUrl/?page=$page&order=update&status=ongoing")
 
     // ============================ Video Links =============================
     override fun videoListSelector() = ".dlbox li:not(.head)"

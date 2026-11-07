@@ -4,16 +4,15 @@ import android.util.Log
 import aniyomi.lib.googledriveplayerextractor.GoogleDrivePlayerExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.await
-import eu.kanade.tachiyomi.network.awaitSuccess
+import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.network.rateLimit
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parseAs
 import kotlinx.serialization.Serializable
-import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
+import kotlin.time.Duration.Companion.seconds
 
 class SmartAnimesExtractor(private val client: OkHttpClient, private val headers: Headers) {
     private val tag by lazy { javaClass.simpleName }
@@ -26,42 +25,39 @@ class SmartAnimesExtractor(private val client: OkHttpClient, private val headers
     private val sendNowExtractor by lazy { SendNowExtractor(client, headers) }
 
     suspend fun videosFromUrl(url: String, name: String): List<Video> {
-        Log.d(tag, "videosFromUrl: ${url.toHttpUrlOrNull()?.host ?: "unknown"}")
-        val content = client.newCall(GET(url, headers)).awaitSuccess().bodyString()
+        val httpUrl = url.toHttpUrlOrNull()
+        Log.d(tag, "videosFromUrl: ${httpUrl?.host ?: "unknown"}")
 
-        val item = content.substringAfter("var item = ", "")
-            .substringBefore(";")
-            .parseAs<ItemDto>()
-        Log.d(tag, "Parsed item (id=${item.id}, post=${item.post})")
+        val response = client.newCall(GET(url, headers)).execute()
+        val newUrl = response.asJsoup()
+            .selectFirst(".btn--principal")
+            ?.attr("href")
+            ?: return emptyList()
 
-        val options = content.substringAfter("var options = ", "")
-            .substringBefore(";")
-            .parseAs<OptionsDto>()
-        Log.d(tag, "Parsed options (ajaxurl=${options.soralink_ajaxurl})")
+        val token = noRedirectClient.newCall(GET(newUrl, headers)).execute()
+            .headers["location"]
+            ?.toHttpUrlOrNull()
+            ?.queryParameter("utm_content")
+            ?: return emptyList()
 
-        val newHeaders = headers.newBuilder()
-            .set("Referer", item.post)
-            .build()
+        val apiHost = response.request.url.host
 
-        val formBody = FormBody.Builder()
-            .add("token", item.token)
-            .add("id", item.id.toString())
-            .add("time", item.time.toString())
-            .add("post", item.post)
-            .add("redirect", item.redirect)
-            .add("cacha", item.cacha)
-            .add("new", "false")
-            .add("link", item.link)
-            .add("action", options.soralink_z)
-            .build()
+        val json = client.newCall(GET("https://$apiHost/api/end?code=$token", headers)).execute()
+            .parseAs<ApiResponse>()
 
-        val sourceUrl =
-            noRedirectClient.newCall(POST(options.soralink_ajaxurl, newHeaders, formBody))
-                .await().use { it.header("location") }
-                ?: run {
-                    Log.e(tag, "No redirect location from soralink POST")
-                    return emptyList()
-                }
+        val rateLimitClient = client.newBuilder().rateLimit(1, interval = 5.seconds).build()
+
+        val finalUrl = rateLimitClient.newCall(GET(json.url, headers)).execute().asJsoup()
+            .selectFirst(".btn--principal")
+            ?.attr("href")
+            ?: return emptyList()
+
+        val sourceUrl = rateLimitClient.newCall(GET(finalUrl, headers)).execute()
+            .bodyString()
+            .substringAfter("location.href=\"")
+            .substringBefore("\"")
+            .replace("\\", "")
+
         Log.d(tag, "Resolved source host: ${sourceUrl.toHttpUrlOrNull()?.host ?: "unknown"}")
 
         return when {
@@ -82,20 +78,7 @@ class SmartAnimesExtractor(private val client: OkHttpClient, private val headers
     }
 
     @Serializable
-    data class ItemDto(
-        val token: String,
-        val id: Int,
-        val time: Int,
-        val post: String,
-        val redirect: String,
-        val cacha: String,
-        val new: Boolean,
-        val link: String,
-    )
-
-    @Serializable
-    data class OptionsDto(
-        val soralink_z: String,
-        val soralink_ajaxurl: String,
+    class ApiResponse(
+        val url: String,
     )
 }
