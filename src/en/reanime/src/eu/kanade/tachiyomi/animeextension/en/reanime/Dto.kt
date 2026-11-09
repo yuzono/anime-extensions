@@ -113,6 +113,7 @@ class VideoServerDto(
     val dataLink: String? = null,
     val dataType: String? = null,
     val softsub: Boolean = false,
+    val hardsub: Boolean = false,
 )
 
 // ============================ Anime Detail DTOs ===========================
