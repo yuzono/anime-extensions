@@ -31,6 +31,7 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.Jsoup
 import java.text.SimpleDateFormat
+import java.util.Collections
 import java.util.Locale
 import kotlin.collections.associate
 import kotlin.collections.isNotEmpty
@@ -293,35 +294,53 @@ abstract class Anikage :
         val preferredSource = if (isDubPreferred) preferences.dubSource else preferences.subSource
         val otherSource = if (isDubPreferred) preferences.subSource else preferences.dubSource
 
-        val primaryProviders = SUB_PROVIDER.sortedByDescending { it.contains(preferredSource) }
-        val secondaryProviders = DUB_PROVIDER.sortedByDescending { it.contains(otherSource) }
+        // The site reports which servers exist for this episode; the static list is
+        // only a fallback for when that call fails.
+        val servers = getEpisodeServers(episode)
+        val availability = servers.associate { it.providerId to it.subTypes }
+        val knownProviders = servers.map { it.providerId }
+            .filterNot { it in UNSUPPORTED_PROVIDERS }
+            .ifEmpty { PROVIDERS }
 
-        val providers = getEpisodeServers(episode)
-            .takeIf { it.isNotEmpty() }
-            ?.associate { it.providerId to it.subTypes }
-            ?.let { availability ->
-                primaryProviders.filter { availability[it].orEmpty().contains(primaryLabel.lowercase()) }
-                    .map { primaryLabel to it } +
-                    secondaryProviders.filter { availability[it].orEmpty().contains(secondaryLabel.lowercase()) }
-                        .map { secondaryLabel to it }
-            }
-            ?: (primaryProviders.map(primaryLabel::to) + secondaryProviders.map(secondaryLabel::to))
+        val primaryProviders = knownProviders.sortedByDescending { it == preferredSource }
+        val secondaryProviders = knownProviders.sortedByDescending { it == otherSource }
+
+        fun List<String>.offering(type: String) = if (availability.isEmpty()) {
+            this
+        } else {
+            filter { availability[it].orEmpty().contains(type) }
+        }
+
+        val providers = primaryProviders.offering(primaryLabel.lowercase()).map { primaryLabel to it } +
+            secondaryProviders.offering(secondaryLabel.lowercase()).map { secondaryLabel to it }
 
         val excludedServers = preferences.excludedServers
         val excludedTypes = preferences.excludedTypes
         val activeProviders = providers.filter { it.second !in excludedServers }
+        if (activeProviders.isEmpty()) {
+            throw Exception("All available servers are excluded in the extension settings")
+        }
 
         val playlistUtils = PlaylistUtils(client, headers)
+        val failures = Collections.synchronizedList(mutableListOf<String>())
 
-        return activeProviders.parallelCatchingFlatMap { (type, provider) ->
-            val episodeData = client.newCall(
-                GET(videoListRequestUrl(episode, type.lowercase(), provider), headers),
-            )
-                .awaitSuccess()
-                .parseAs<EpisodeSource>()
+        val videoList = activeProviders.parallelCatchingFlatMap { (type, provider) ->
+            val episodeData = try {
+                client.newCall(
+                    GET(videoListRequestUrl(episode, type.lowercase(), provider), headers),
+                )
+                    .awaitSuccess()
+                    .parseAs<EpisodeSource>()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                failures += "$provider ($type): ${e.message ?: e.javaClass.simpleName}"
+                return@parallelCatchingFlatMap emptyList()
+            }
 
-            val tracks = episodeData.subtitles.map {
-                Track("https://og.bakayaro.live/stream/${it.file}", it.label ?: it.kind ?: "Subtitle")
+            val tracks = episodeData.subtitles.mapIndexed { index, subtitle ->
+                val name = subtitle.label ?: "${subtitle.kind ?: "Subtitle"} ${index + 1}"
+                Track("https://og.bakayaro.live/stream/${subtitle.file}", name)
             }
 
             val videos = episodeData.sources.parallelCatchingFlatMap { source ->
@@ -356,6 +375,16 @@ abstract class Anikage :
                 val videoType = video.videoTitle.substringBefore(" - ")
                 excludedTypes.any { videoType.equals(it, ignoreCase = true) }
             }
+
+        if (videoList.isEmpty()) {
+            val detail = if (failures.isEmpty()) {
+                "no playable streams on ${activeProviders.joinToString { it.second }.ifEmpty { "any server" }}"
+            } else {
+                failures.joinToString("; ")
+            }
+            throw Exception("No videos found: $detail")
+        }
+        return videoList
     }
 
     override fun List<Video>.sortVideos(): List<Video> {
@@ -553,17 +582,18 @@ abstract class Anikage :
         private const val PREF_ADULT_KEY = "nsfw"
         private const val PREF_ADULT_DEFAULT = false
 
-        private val provider = listOf(
+        private val PROVIDERS = listOf(
             "koto",
-            "neko",
-            "uwu",
-            "kiwi",
-            "megg",
-            "dib",
+            "ken",
             "wave",
+            "megg",
         )
-        private val SUB_PROVIDER = provider
-        private val DUB_PROVIDER = provider
+
+        // The stream host answers 403 for kite tokens, and that 403 makes the app
+        // attempt a Cloudflare bypass that stalls every episode start.
+        private val UNSUPPORTED_PROVIDERS = setOf("kite")
+        private val SUB_PROVIDER = PROVIDERS
+        private val DUB_PROVIDER = PROVIDERS
 
         private const val PREF_SUB_SOURCE = "preferred_sub_source"
         private const val PREF_SUB_DEFAULT = "koto"
