@@ -555,7 +555,7 @@ abstract class ReAnime :
         if (visibleEpisodes.isEmpty()) throw Exception("Could not find any episodes. Check if there are any in WebView.")
 
         val thumbnails = coroutineScope {
-            meta?.takeIf { it.anilistId > 0 || it.malId > 0 || it.tmdbId > 0 }?.let { m ->
+            meta?.takeIf { it.anilistId > 0 || it.malId > 0 }?.let { m ->
                 async {
                     fetchThumbnails(m, "$baseUrl/watch/${anime.url}")
                 }
@@ -742,20 +742,21 @@ abstract class ReAnime :
             val n = name?.takeIf { it.isNotBlank() } ?: return false
             return (n + suffix) in excluded
         }
-        fun isAudioExcluded(dataType: String?): Boolean = excludedAudio.isNotEmpty() && audioTagOf(dataType) in excludedAudio
+        fun isAudioExcluded(dataType: String?, hardsub: Boolean = false): Boolean = excludedAudio.isNotEmpty() && audioTagOf(dataType, hardsub) in excludedAudio
 
         val hosters = mutableListOf<Hoster>()
 
         parsed.servers.forEach { server ->
-            if (isAudioExcluded(server.dataType)) return@forEach
+            if (isAudioExcluded(server.dataType, server.hardsub)) return@forEach
             val dataLink = server.dataLink ?: return@forEach
+            val serverName = if (server.hardsub) "H-SUB" else server.serverName
             val label = buildString {
-                append(audioTagOf(server.dataType))
-                server.serverName?.let { append(" $it") }
+                append(audioTagOf(server.dataType, server.hardsub))
+                serverName?.let { append(" $it") }
                 if (server.softsub) append(" [Softsub]")
             }.trim()
 
-            if (!isExcluded(server.serverName)) {
+            if (!isExcluded(serverName)) {
                 hosters.add(
                     Hoster(
                         hosterName = label,
@@ -768,7 +769,8 @@ abstract class ReAnime :
         if (includeDirectDownloads) {
             hosters.addAll(
                 parsed.servers.parallelCatchingFlatMap { server ->
-                    if (isAudioExcluded(server.dataType) || isExcluded(server.serverName, " Download")) return@parallelCatchingFlatMap emptyList()
+                    val serverName = if (server.hardsub) "H-SUB" else server.serverName
+                    if (isAudioExcluded(server.dataType, server.hardsub) || isExcluded(serverName, " Download")) return@parallelCatchingFlatMap emptyList()
                     val dataLink = server.dataLink ?: return@parallelCatchingFlatMap emptyList()
                     val aid = EMBED_AID_REGEX.find(dataLink)?.groupValues?.get(1) ?: return@parallelCatchingFlatMap emptyList()
 
@@ -780,8 +782,8 @@ abstract class ReAnime :
                     val ddlData = FlixCloudDdl.fetchMetadata(client, dlHeaders, aid, dataLink) ?: return@parallelCatchingFlatMap emptyList()
 
                     val label = buildString {
-                        append(audioTagOf(server.dataType))
-                        server.serverName?.let { append(" $it") }
+                        append(audioTagOf(server.dataType, server.hardsub))
+                        serverName?.let { append(" $it") }
                         if (server.softsub) append(" [Softsub]")
                     }.trim()
 
@@ -858,9 +860,10 @@ abstract class ReAnime :
         }
     }
 
-    private fun audioTagOf(dataType: String?): String = when (dataType) {
-        "sub" -> "[Sub]"
-        "dub" -> "[Dub]"
+    private fun audioTagOf(dataType: String?, hardsub: Boolean = false): String = when {
+        hardsub -> "[Hard Sub]"
+        dataType == "sub" -> "[Sub]"
+        dataType == "dub" -> "[Dub]"
         else -> dataType?.takeIf { it.isNotBlank() }?.let { "[$it]" } ?: ""
     }
 
@@ -1228,8 +1231,8 @@ abstract class ReAnime :
         private const val PREF_SERVER_DEFAULT = "HD-1"
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
-        private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "360p")
-        private val PREF_QUALITY_VALUES = listOf("1080", "720", "360")
+        private val PREF_QUALITY_ENTRIES = listOf("1080p", "720p", "480p", "360p")
+        private val PREF_QUALITY_VALUES = listOf("1080", "720", "480", "360")
         private const val PREF_QUALITY_DEFAULT = "1080"
 
         private const val PREF_TITLE_LANG_KEY = "preferred_title_lang"
@@ -1246,8 +1249,8 @@ abstract class ReAnime :
         private val SERVER_NAME_REGEX = Regex("""(HD-\d+|H-SUB)""")
 
         private const val PREF_AUDIO_EXCLUDE_KEY = "excluded_audio_types"
-        private val AUDIO_EXCLUDE_ENTRIES = listOf("Sub", "Dub")
-        private val AUDIO_EXCLUDE_VALUES = listOf("[Sub]", "[Dub]")
+        private val AUDIO_EXCLUDE_ENTRIES = listOf("Sub", "Dub", "Hard Sub")
+        private val AUDIO_EXCLUDE_VALUES = listOf("[Sub]", "[Dub]", "[Hard Sub]")
         private val PREF_AUDIO_EXCLUDE_DEFAULT = emptySet<String>()
 
         private val MONTHS = arrayOf("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
