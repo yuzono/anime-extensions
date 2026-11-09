@@ -839,27 +839,23 @@ abstract class ReAnime :
                 extractFromServer(dataLink, hoster.hosterName)
             }
             hoster.internalData.startsWith("mkv_flixcloud_res::") -> {
-                val resolution = hoster.internalData.substringAfterLast("|||")
+                val rawResolution = hoster.internalData.substringAfterLast("|||").takeIf { it != "null" && it.isNotBlank() }
+                val videoTitle = if (rawResolution != null) "$rawResolution MKV" else "MKV"
 
                 val video = Video(
                     videoUrl = "",
-                    videoTitle = "$resolution MKV",
+                    videoTitle = videoTitle,
                     internalData = hoster.internalData,
                     initialized = false,
                 )
 
-                val preferredServerExcluded = preferredServer in excludedServers
                 val isPreferredAudio = hoster.hosterName.matchesAudio(preferredAudio)
-                val isExactServer = getServerKey(hoster.hosterName) == preferredServer
-                val hasPreferredQuality = resolution.contains(preferredQuality, true)
+                val isPreferredBaseServer = getBaseServer(hoster.hosterName) == getBaseServer(preferredServer)
+                val hasPreferredQuality = rawResolution?.contains(preferredQuality, true) ?: true
 
-                val isPreferred = if (preferredServerExcluded) {
-                    isPreferredAudio && hasPreferredQuality
-                } else {
-                    isPreferredAudio && isExactServer && hasPreferredQuality
-                }
+                val isPreferred = isPreferredAudio && isPreferredBaseServer && hasPreferredQuality
 
-                listOf(if (isPreferred) video.copy(preferred = true) else video)
+                listOf(video.copy(preferred = isPreferred))
             }
             else -> emptyList()
         }
@@ -1044,23 +1040,20 @@ abstract class ReAnime :
                     .thenByDescending { video -> qualitiesList.indexOfLast { video.videoTitle.contains(it) } },
             )
 
-            val preferredServerExcluded = preferredServer in excludedServers
             val isPreferredAudioHoster = label.matchesAudio(preferredAudio)
             val preferredBase = SERVER_NAME_REGEX.find(preferredServer)?.groupValues?.get(1) ?: ""
             val isPreferredBaseServer = getBaseServer(label) == preferredBase
 
-            val shouldBePreferred = if (preferredServerExcluded) {
-                isPreferredAudioHoster
+            val preferredIndex = if (isPreferredBaseServer && isPreferredAudioHoster) {
+                sortedVideos.indexOfFirst { video ->
+                    video.videoTitle.contains(preferredQuality, true)
+                }.takeIf { it != -1 } ?: 0
             } else {
-                isPreferredAudioHoster && isPreferredBaseServer
+                -1
             }
 
             return sortedVideos.mapIndexed { index, video ->
-                if (index == 0 && shouldBePreferred) {
-                    video.copy(preferred = true)
-                } else {
-                    video.copy(preferred = false)
-                }
+                video.copy(preferred = index == preferredIndex)
             }
         } catch (_: Exception) {
             emptyList()
