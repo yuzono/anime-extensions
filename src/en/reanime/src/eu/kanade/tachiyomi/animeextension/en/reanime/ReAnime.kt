@@ -110,6 +110,7 @@ abstract class ReAnime :
 
     private data class AnimeMeta(
         val anilistId: Int,
+        val malId: Int,
         val tmdbId: Int,
         val seasonNumber: Int,
         val subbed: Int,
@@ -135,6 +136,7 @@ abstract class ReAnime :
                     }
                     AnimeMeta(
                         anilistId = dto.anilistId ?: 0,
+                        malId = dto.malId ?: 0,
                         tmdbId = dto.tmdbId ?: 0,
                         seasonNumber = sNum,
                         subbed = dto.subbed ?: 0,
@@ -262,8 +264,9 @@ abstract class ReAnime :
 
         // Cache metadata for episode/video logic
         val anilistId = dto.anilistId ?: 0
+        val malId = dto.malId ?: 0
         val tmdbId = dto.tmdbId ?: 0
-        if (anilistId > 0 || tmdbId > 0) {
+        if (anilistId > 0 || tmdbId > 0 || malId > 0) {
             val sNum = if (dto.format?.equals("MOVIE", true) == true) {
                 0
             } else {
@@ -273,6 +276,7 @@ abstract class ReAnime :
                 dto.animeId,
                 AnimeMeta(
                     anilistId = anilistId,
+                    malId = malId,
                     tmdbId = tmdbId,
                     seasonNumber = sNum,
                     subbed = dto.subbed ?: 0,
@@ -551,9 +555,9 @@ abstract class ReAnime :
         if (visibleEpisodes.isEmpty()) throw Exception("Could not find any episodes. Check if there are any in WebView.")
 
         val thumbnails = coroutineScope {
-            meta?.anilistId?.takeIf { it > 0 }?.let { anilistId ->
+            meta?.takeIf { it.anilistId > 0 || it.malId > 0 || it.tmdbId > 0 }?.let { m ->
                 async {
-                    fetchThumbnails(anilistId.toString(), "$baseUrl/watch/${anime.url}")
+                    fetchThumbnails(m, "$baseUrl/watch/${anime.url}")
                 }
             }?.await()
         }
@@ -603,12 +607,21 @@ abstract class ReAnime :
         }.reversed()
     }
 
-    private suspend fun fetchThumbnails(animeId: String, episodeUrl: String): Map<String, String>? = try {
-        client.get("$baseUrl/api/thumbnails/$animeId", apiHeaders(episodeUrl)).use { res ->
-            res.parseAs<ThumbnailsResponseDto>().thumbnails
+    private suspend fun fetchThumbnails(meta: AnimeMeta, episodeUrl: String): Map<String, String>? {
+        val anilistId = if (meta.anilistId > 0) meta.anilistId.toString() else "0"
+        val url = "$baseUrl/api/thumbnails/$anilistId".toHttpUrl().newBuilder().apply {
+            if (meta.malId > 0) {
+                addQueryParameter("mal", meta.malId.toString())
+            }
+        }.build()
+
+        return try {
+            client.get(url, apiHeaders(episodeUrl)).use { res ->
+                res.parseAs<ThumbnailsResponseDto>().thumbnails
+            }
+        } catch (_: Exception) {
+            null
         }
-    } catch (_: Exception) {
-        null
     }
 
     override fun getEpisodeUrl(episode: SEpisode): String {
@@ -632,15 +645,23 @@ abstract class ReAnime :
         val meta = animeMetaCache.get(slug) ?: fetchAnimeMeta(slug)
         val referer = "$baseUrl/watch/$slug?ep=$epNumber"
 
+        val anilistId = meta?.anilistId ?: 0
+        val malId = meta?.malId ?: 0
+        val tmdbId = meta?.tmdbId ?: 0
+        val seasonNum = meta?.seasonNumber ?: 1
+
         val response = when {
-            meta != null && meta.anilistId > 0 -> {
-                client.get("$flixUrl/${meta.anilistId}/$epNumber", apiHeaders(referer))
-            }
-            meta != null && meta.tmdbId > 0 -> {
-                val url = "$flixUrl/0/$epNumber".toHttpUrl().newBuilder()
-                    .addQueryParameter("tmdb", meta.tmdbId.toString())
-                    .addQueryParameter("season", meta.seasonNumber.toString())
-                    .build()
+            meta != null && (meta.anilistId > 0 || meta.tmdbId > 0 || meta.malId > 0) -> {
+                val pathId = if (anilistId > 0) anilistId.toString() else "0"
+                val url = "$flixUrl/$pathId/$epNumber".toHttpUrl().newBuilder().apply {
+                    if (malId > 0) {
+                        addQueryParameter("mal", malId.toString())
+                    }
+                    if (anilistId <= 0 && tmdbId > 0) {
+                        addQueryParameter("tmdb", tmdbId.toString())
+                        addQueryParameter("season", seasonNum.toString())
+                    }
+                }.build()
                 client.get(url, apiHeaders(referer))
             }
             else -> {
@@ -658,6 +679,7 @@ abstract class ReAnime :
         if (!requestUrl.contains("/api/flix/")) {
             val html = response.body.string()
             val anilistId = ANILIST_ID_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            val malId = MAL_ID_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             val tmdbId = TMDB_ID_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             val isMovie = isMovieRecord(html, slug)
             val seasonNum = if (isMovie) {
@@ -670,24 +692,22 @@ abstract class ReAnime :
 
             val subbed = SUBBED_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
             val dubbed = DUBBED_REGEX.find(html)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-            if (anilistId > 0 || tmdbId > 0) {
-                animeMetaCache.put(slug, AnimeMeta(anilistId, tmdbId, seasonNum, subbed, dubbed))
+            if (anilistId > 0 || tmdbId > 0 || malId > 0) {
+                animeMetaCache.put(slug, AnimeMeta(anilistId, malId, tmdbId, seasonNum, subbed, dubbed))
             }
 
             val referer = "$baseUrl/watch/$slug?ep=$epNumber"
-            val flixRes = when {
-                anilistId > 0 -> {
-                    client.get("$flixUrl/$anilistId/$epNumber", apiHeaders(referer))
+            val pathId = if (anilistId > 0) anilistId.toString() else "0"
+            val flixUrlReq = "$flixUrl/$pathId/$epNumber".toHttpUrl().newBuilder().apply {
+                if (malId > 0) {
+                    addQueryParameter("mal", malId.toString())
                 }
-                tmdbId > 0 -> {
-                    val url = "$flixUrl/0/$epNumber".toHttpUrl().newBuilder()
-                        .addQueryParameter("tmdb", tmdbId.toString())
-                        .addQueryParameter("season", seasonNum.toString())
-                        .build()
-                    client.get(url, apiHeaders(referer))
+                if (anilistId <= 0 && tmdbId > 0) {
+                    addQueryParameter("tmdb", tmdbId.toString())
+                    addQueryParameter("season", seasonNum.toString())
                 }
-                else -> return emptyList()
-            }
+            }.build()
+            val flixRes = client.get(flixUrlReq, apiHeaders(referer))
             return parseFlixServersResponse(flixRes)
         }
 
@@ -757,7 +777,7 @@ abstract class ReAnime :
                         .set("Referer", "$flixCloudUrl/")
                         .build()
 
-                    val ddlData = FlixCloudDdl.fetchMetadata(client, dlHeaders, aid) ?: return@parallelCatchingFlatMap emptyList()
+                    val ddlData = FlixCloudDdl.fetchMetadata(client, dlHeaders, aid, dataLink) ?: return@parallelCatchingFlatMap emptyList()
 
                     val label = buildString {
                         append(audioTagOf(server.dataType))
@@ -1203,8 +1223,8 @@ abstract class ReAnime :
         private const val PREF_AUDIO_DEFAULT = "sub"
 
         private const val PREF_SERVER_KEY = "preferred_server"
-        private val PREF_SERVER_ENTRIES = listOf("HD-1", "HD-1 Download", "HD-2", "HD-2 Download")
-        private val PREF_SERVER_VALUES = listOf("HD-1", "HD-1 Download", "HD-2", "HD-2 Download")
+        private val PREF_SERVER_ENTRIES = listOf("HD-1", "HD-1 Download", "HD-2", "HD-2 Download", "H-SUB", "H-SUB Download")
+        private val PREF_SERVER_VALUES = listOf("HD-1", "HD-1 Download", "HD-2", "HD-2 Download", "H-SUB", "H-SUB Download")
         private const val PREF_SERVER_DEFAULT = "HD-1"
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
@@ -1221,9 +1241,9 @@ abstract class ReAnime :
         private const val PREF_DOWNLOAD_DEFAULT = true
 
         private const val PREF_SERVER_EXCLUDE_KEY = "excluded_servers"
-        private val SERVER_EXCLUDE_ENTRIES = listOf("HD-1", "HD-1 Download", "HD-2", "HD-2 Download")
+        private val SERVER_EXCLUDE_ENTRIES = listOf("HD-1", "HD-1 Download", "HD-2", "HD-2 Download", "H-SUB", "H-SUB Download")
         private val PREF_SERVER_EXCLUDE_DEFAULT = emptySet<String>()
-        private val SERVER_NAME_REGEX = Regex("""(HD-\d+)""")
+        private val SERVER_NAME_REGEX = Regex("""(HD-\d+|H-SUB)""")
 
         private const val PREF_AUDIO_EXCLUDE_KEY = "excluded_audio_types"
         private val AUDIO_EXCLUDE_ENTRIES = listOf("Sub", "Dub")
@@ -1235,6 +1255,7 @@ abstract class ReAnime :
         private val BR_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
         private val HTML_TAG_REGEX = Regex("""</?(i|b|em)>""", RegexOption.IGNORE_CASE)
         private val ANILIST_ID_REGEX = Regex("""(?<!\w)"?anilist_id"?\s*:\s*(\d+)""")
+        private val MAL_ID_REGEX = Regex("""(?<!\w)"?mal_id"?\s*:\s*(\d+)""")
         private val TMDB_ID_REGEX = Regex("""(?<!\w)"?themoviedb_id"?\s*:\s*(\d+)""")
         private val TMDB_SEASON_REGEX = Regex("""(?<!\w)"?tmdb"?\s*:\s*(\d+)""")
         private val SEASON_REGEX = Regex("""(?<!\w)"?season"?\s*:\s*(\d+)""")
