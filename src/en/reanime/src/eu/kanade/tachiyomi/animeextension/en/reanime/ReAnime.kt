@@ -848,11 +848,18 @@ abstract class ReAnime :
                     initialized = false,
                 )
 
+                val preferredServerExcluded = preferredServer in excludedServers
                 val isPreferredAudio = hoster.hosterName.matchesAudio(preferredAudio)
                 val isExactServer = getServerKey(hoster.hosterName) == preferredServer
                 val hasPreferredQuality = resolution.contains(preferredQuality, true)
 
-                listOf(if (isPreferredAudio && isExactServer && hasPreferredQuality) video.copy(preferred = true) else video)
+                val isPreferred = if (preferredServerExcluded) {
+                    isPreferredAudio && hasPreferredQuality
+                } else {
+                    isPreferredAudio && isExactServer && hasPreferredQuality
+                }
+
+                listOf(if (isPreferred) video.copy(preferred = true) else video)
             }
             else -> emptyList()
         }
@@ -1037,12 +1044,19 @@ abstract class ReAnime :
                     .thenByDescending { video -> qualitiesList.indexOfLast { video.videoTitle.contains(it) } },
             )
 
+            val preferredServerExcluded = preferredServer in excludedServers
             val isPreferredAudioHoster = label.matchesAudio(preferredAudio)
             val preferredBase = SERVER_NAME_REGEX.find(preferredServer)?.groupValues?.get(1) ?: ""
             val isPreferredBaseServer = getBaseServer(label) == preferredBase
 
+            val shouldBePreferred = if (preferredServerExcluded) {
+                isPreferredAudioHoster
+            } else {
+                isPreferredAudioHoster && isPreferredBaseServer
+            }
+
             return sortedVideos.mapIndexed { index, video ->
-                if (index == 0 && isPreferredAudioHoster && isPreferredBaseServer) {
+                if (index == 0 && shouldBePreferred) {
                     video.copy(preferred = true)
                 } else {
                     video.copy(preferred = false)
