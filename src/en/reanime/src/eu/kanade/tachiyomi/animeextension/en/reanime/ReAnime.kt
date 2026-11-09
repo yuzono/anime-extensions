@@ -813,7 +813,6 @@ abstract class ReAnime :
 
     // ========================== Hoster Sorting ============================
     override fun List<Hoster>.sortHosters(): List<Hoster> {
-        val audioTag = if (preferredAudio == "dub") "[Dub]" else "[Sub]"
         val preferredBase = SERVER_NAME_REGEX.find(preferredServer)?.groupValues?.get(1) ?: ""
 
         return this.sortedWith(
@@ -826,7 +825,7 @@ abstract class ReAnime :
                     }
                 }
                 .thenByDescending { getServerKey(it.hosterName) == preferredServer }
-                .thenByDescending { it.hosterName.contains(audioTag) },
+                .thenByDescending { it.hosterName.matchesAudio(preferredAudio) },
         )
     }
 
@@ -849,8 +848,7 @@ abstract class ReAnime :
                     initialized = false,
                 )
 
-                val audioTag = if (preferredAudio == "dub") "[Dub]" else "[Sub]"
-                val isPreferredAudio = hoster.hosterName.contains(audioTag, true)
+                val isPreferredAudio = hoster.hosterName.matchesAudio(preferredAudio)
                 val isExactServer = getServerKey(hoster.hosterName) == preferredServer
                 val hasPreferredQuality = resolution.contains(preferredQuality, true)
 
@@ -858,6 +856,12 @@ abstract class ReAnime :
             }
             else -> emptyList()
         }
+    }
+
+    private fun String.matchesAudio(preferredAudio: String): Boolean = if (preferredAudio == "dub") {
+        this.contains("[Dub]", true)
+    } else {
+        this.contains("[Sub]", true) || this.contains("[Hard Sub]", true)
     }
 
     private fun audioTagOf(dataType: String?, hardsub: Boolean = false): String = when {
@@ -1033,8 +1037,7 @@ abstract class ReAnime :
                     .thenByDescending { video -> qualitiesList.indexOfLast { video.videoTitle.contains(it) } },
             )
 
-            val audioTag = if (preferredAudio == "dub") "[Dub]" else "[Sub]"
-            val isPreferredAudioHoster = label.contains(audioTag, ignoreCase = true)
+            val isPreferredAudioHoster = label.matchesAudio(preferredAudio)
             val preferredBase = SERVER_NAME_REGEX.find(preferredServer)?.groupValues?.get(1) ?: ""
             val isPreferredBaseServer = getBaseServer(label) == preferredBase
 
