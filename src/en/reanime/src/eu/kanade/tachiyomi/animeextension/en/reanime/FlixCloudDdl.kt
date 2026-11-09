@@ -31,7 +31,7 @@ object FlixCloudDdl {
      */
     suspend fun fetchMetadata(client: OkHttpClient, headers: Headers, aid: String, dataLink: String = ""): DdlData? {
         return try {
-            val jsonUrl = if (dataLink.isNotBlank()) {
+            val jsonUrl = if (dataLink.isNotBlank() && dataLink.startsWith("https://")) {
                 try {
                     val httpUrl = dataLink.toHttpUrl()
                     val pathSegments = httpUrl.pathSegments.toMutableList()
