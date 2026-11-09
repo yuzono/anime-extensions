@@ -16,6 +16,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.annotation.Source
+import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
@@ -52,7 +53,7 @@ abstract class Anikage :
         .set("Referer", "$baseUrl/")
 
     override val client = network.client.newBuilder()
-        .rateLimit(3)
+        .rateLimit(3) { it.host == baseUrl.toHttpUrl().host }
         .build()
 
     private val preferences by getPreferencesLazy()
@@ -332,10 +333,13 @@ abstract class Anikage :
 
         val playlistUtils = PlaylistUtils(client, headers)
         val failures = Collections.synchronizedList(mutableListOf<String>())
+        val extractionFailures = Collections.synchronizedList(mutableListOf<String>())
         val emptyProviders = Collections.synchronizedList(mutableListOf<String>())
-        fun recordFailure(label: String, e: Exception) {
+        fun recordFailure(label: String, e: Exception, extraction: Boolean = false) {
             Log.e(name, "$label failed", e)
-            failures += "$label: ${e.message ?: e.javaClass.simpleName}"
+            val detail = "$label: ${e.message ?: e.javaClass.simpleName}"
+            failures += detail
+            if (extraction) extractionFailures += detail
         }
 
         val allVideos = activeProviders.parallelCatchingFlatMap { (type, provider) ->
@@ -365,7 +369,7 @@ abstract class Anikage :
             episodeData.sources.parallelCatchingFlatMap { source ->
                 try {
                     val videoUrl = source.episodeSourceUrl()
-                    if (source.isM3U8 == true) {
+                    if (source.isM3U8 == true && isHlsPlaylist(videoUrl)) {
                         val effectiveUrl = if (provider == "neko") {
                             localProxy.getProxyUrl(videoUrl, headers)
                         } else {
@@ -390,7 +394,7 @@ abstract class Anikage :
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    recordFailure("$label ${source.quality}", e)
+                    recordFailure("$label ${source.quality}", e, extraction = true)
                     emptyList()
                 }
             }
@@ -405,6 +409,8 @@ abstract class Anikage :
             videoList.isNotEmpty() -> videoList
             allVideos.isNotEmpty() ->
                 throw Exception("All videos were removed by the excluded audio types in the extension settings")
+            // A server offered a stream that could not be fetched: that is breakage, report it.
+            extractionFailures.isNotEmpty() -> throw Exception("No videos found: ${failures.joinToString("; ")}")
             // Every server that answered had no stream: a legitimately empty episode.
             failures.isEmpty() || emptyProviders.isNotEmpty() -> emptyList()
             // Every server failed: say how, so the breakage can be reported.
@@ -438,6 +444,16 @@ abstract class Anikage :
     }
 
     private fun serversListUrl(episode: SEpisode): String = "$baseUrl${episode.url}".substringBefore("/sources") + "/servers"
+
+    /**
+     * True when [url] serves an HLS playlist. Reads only the first bytes: the site marks
+     * some direct MP4 files as m3u8, and PlaylistUtils would otherwise download the whole
+     * file to find out. A non-2xx answer is an error for this source.
+     */
+    private suspend fun isHlsPlaylist(url: String): Boolean = client.get(url, headers, ensureSuccess = false).use { response ->
+        if (!response.isSuccessful) throw Exception("HTTP error ${response.code}")
+        response.body.source().peek().readUtf8(HLS_HEADER.length.toLong()) == HLS_HEADER
+    }
 
     /** Servers the site reports for the episode, or null when the request fails. */
     private suspend fun getEpisodeServers(episode: SEpisode): List<ServerInfo>? = try {
@@ -605,6 +621,8 @@ abstract class Anikage :
     companion object {
         private val DATE_FORMAT by lazy { SimpleDateFormat("yyyy-MM-dd", Locale.US) }
         private val DESCRIPTION_BR_REGEX = Regex("<br\\s*/?>", RegexOption.IGNORE_CASE)
+
+        private const val HLS_HEADER = "#EXTM3U"
 
         private const val PREF_ADULT_KEY = "nsfw"
         private const val PREF_ADULT_DEFAULT = false
