@@ -321,7 +321,7 @@ abstract class Anikage :
                 .parseAs<EpisodeSource>()
 
             val tracks = episodeData.subtitles.map {
-                Track("https://og.bakayaro.live/stream/${it.file}", it.label)
+                Track("https://og.bakayaro.live/stream/${it.file}", it.label ?: it.kind ?: "Subtitle")
             }
 
             val videos = episodeData.sources.parallelCatchingFlatMap { source ->
