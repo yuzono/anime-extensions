@@ -588,8 +588,8 @@ abstract class ReAnime :
                     if (ep.isRecap) append(" [Recap]")
                 }
 
-                val hasSub = epNum <= maxSub
-                val hasDub = epNum <= maxDub
+                val hasSub = ep.subbed || (maxSub > 0 && epNum <= maxSub)
+                val hasDub = ep.dubbed || (maxDub > 0 && epNum <= maxDub)
 
                 scanlator = when {
                     hasSub && hasDub -> "Sub & Dub"
@@ -599,6 +599,7 @@ abstract class ReAnime :
                 }
 
                 fillermark = ep.isFiller
+                summary = ep.description?.takeIf { it.isNotBlank() }
 
                 date_upload = dateFormat.tryParse(ep.aired)
 
