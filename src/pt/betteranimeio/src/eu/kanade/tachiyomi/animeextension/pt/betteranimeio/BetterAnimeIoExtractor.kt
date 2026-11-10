@@ -1,33 +1,27 @@
 package eu.kanade.tachiyomi.animeextension.pt.betteranimeio
 
+import android.util.Base64
+import aniyomi.lib.bloggerextractor.BloggerExtractor
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.awaitSuccess
-import keiyoushi.utils.parseAs
+import okhttp3.Headers
 import okhttp3.OkHttpClient
 
 class BetterAnimeIoExtractor(
     private val client: OkHttpClient,
+    private val headers: Headers,
 ) {
-    suspend fun extractVideosFromApi(encodedSource: String): List<Video> {
-        val apiUrl = "$API_URL$encodedSource"
-        return try {
-            val videoResponse = client.newCall(GET(apiUrl)).awaitSuccess()
-                .parseAs<VideoApiResponse>()
+    private val bloggerExtractor by lazy { BloggerExtractor(client) }
+    suspend fun extractVideosFromApi(encodedSource: String): List<Video> = try {
+        val decodedSource = Base64.decode(encodedSource, Base64.DEFAULT)
+        val token = String(decodedSource).reversed()
+        val url = "$BLOGGER_URL$token"
 
-            if (videoResponse.status == "success") {
-                videoResponse.play.map { video ->
-                    Video(video.src, video.sizeText, video.src)
-                }
-            } else {
-                emptyList()
-            }
-        } catch (_: Exception) {
-            emptyList()
-        }
+        bloggerExtractor.videosFromUrl(url, headers)
+    } catch (_: Exception) {
+        emptyList()
     }
 
     companion object {
-        private const val API_URL = "https://api.myblogapi.site/api/v1/decode/blogg/"
+        private const val BLOGGER_URL = "https://www.blogger.com/video.g?token="
     }
 }
