@@ -152,7 +152,7 @@ abstract class Tuktukcinema :
         "krakenfiles" in server -> {
             val page = client.newCall(GET(url, headers)).awaitSuccess().useAsJsoup()
             page.select("source").map {
-                Video(it.attr("src"), "Kraken" + customQuality?.let { q -> ": $q" }.orEmpty(), it.attr("src"))
+                Video(videoUrl = it.attr("src"), videoTitle = "Kraken" + customQuality?.let { q -> ": $q" }.orEmpty())
             }
         }
 

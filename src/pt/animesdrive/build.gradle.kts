@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "AnimesDrive"
-    versionCode = 7
+    versionCode = 8
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
     theme = "dooplay"

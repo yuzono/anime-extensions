@@ -152,7 +152,7 @@ abstract class AnimeGG :
             val jsonString = fixJsonString(scriptData.substringAfter("var videoSources = ").substringBefore(";"))
             jsonString.parseAs<Array<GgVideo>>().map { video ->
                 val videoUrl = if (video.file.startsWith("http")) video.file else "https://$host${video.file}"
-                Video(videoUrl, "$mode AnimeGG:${video.label}", videoUrl, headers = videoHeaders)
+                Video(videoUrl = videoUrl, videoTitle = "$mode AnimeGG:${video.label}", headers = videoHeaders)
             }
         }
     }

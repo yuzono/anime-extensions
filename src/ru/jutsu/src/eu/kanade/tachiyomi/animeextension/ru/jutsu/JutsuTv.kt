@@ -585,10 +585,10 @@ abstract class JutsuTv :
                         if (qualityName == "720" && kodikData.links.full.isEmpty()) {
                             val hlsUrl1080 = hlsUrl.replace("/720.mp4", "/1080.mp4")
                             if (hlsUrl1080 != hlsUrl && isUrlAvailable(hlsUrl1080, hlsHeaders)) {
-                                add(Video(hlsUrl1080, "$dubbing (1080p Kodik)", hlsUrl1080, headers = hlsHeaders))
+                                add(Video(videoUrl = hlsUrl1080, videoTitle = "$dubbing (1080p Kodik)", headers = hlsHeaders))
                             }
                         }
-                        add(Video(hlsUrl, "$dubbing (${qualityName}p Kodik)", hlsUrl, headers = hlsHeaders))
+                        add(Video(videoUrl = hlsUrl, videoTitle = "$dubbing (${qualityName}p Kodik)", headers = hlsHeaders))
                     }
                 }
             }

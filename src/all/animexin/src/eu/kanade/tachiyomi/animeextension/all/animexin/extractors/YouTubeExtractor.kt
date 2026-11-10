@@ -97,9 +97,8 @@ class YouTubeExtractor(private val client: OkHttpClient) {
         return formats.filter { it.mimeType.startsWith("video/mp4") }.map {
             val codecs = it.mimeType.substringAfter("codecs=\"").substringBefore("\"")
             Video(
-                it.url,
-                prefix + it.qualityLabel.orEmpty() + " ($codecs)",
-                it.url,
+                videoUrl = it.url,
+                videoTitle = prefix + it.qualityLabel.orEmpty() + " ($codecs)",
                 subtitleTracks = subs,
                 audioTracks = audioTracks,
             )

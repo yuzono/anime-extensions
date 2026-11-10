@@ -33,9 +33,8 @@ class AnimekuExtractor(private val client: OkHttpClient) {
         val srcs = json.decodeFromString<List<Source>>(decryped.substringAfter("var srcs = ").substringBefore(";"))
         return srcs.map { src ->
             Video(
-                src.file,
-                "${src.label} - $name",
-                src.file,
+                videoUrl = src.file,
+                videoTitle = "${src.label} - $name",
             )
         }
     }

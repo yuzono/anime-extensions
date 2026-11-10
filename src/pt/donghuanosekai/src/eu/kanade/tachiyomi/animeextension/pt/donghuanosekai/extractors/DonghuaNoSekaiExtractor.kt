@@ -23,7 +23,7 @@ class DonghuaNoSekaiExtractor(
                 val source = document.selectFirst("video > source") ?: return emptyList()
                 val quality = source.attr("size") + "p"
                 val url = source.attr("src")
-                listOf(Video(url, "$playerName - $quality", url, headers))
+                listOf(Video(videoUrl = url, videoTitle = "$playerName - $quality", headers = headers))
             }
 
             else -> {
@@ -35,7 +35,7 @@ class DonghuaNoSekaiExtractor(
                         } ?: return emptyList()
 
                         val quality = url.substringAfter("_").substringBefore("_")
-                        listOf(Video(url, "$playerName - $quality", url, headers))
+                        listOf(Video(videoUrl = url, videoTitle = "$playerName - $quality", headers = headers))
                     }
 
                     else -> getVideosFromIframeUrl(iframeUrl, playerName)
@@ -63,7 +63,7 @@ class DonghuaNoSekaiExtractor(
                                 else -> this
                             }
                         }
-                    Video(url, "$playerName - $quality", url, headers)
+                    Video(videoUrl = url, videoTitle = "$playerName - $quality", headers = headers)
                 }
         }
 

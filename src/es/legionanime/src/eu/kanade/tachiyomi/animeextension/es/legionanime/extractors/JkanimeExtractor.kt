@@ -32,7 +32,7 @@ class JkanimeExtractor(
             .awaitSuccess().bodyString()
         val nozomiUrl = JSONObject(nozomiResponse).getString("file")
         if (nozomiUrl.isNotBlank()) {
-            return Video(nozomiUrl, "${prefix}Nozomi", nozomiUrl)
+            return Video(videoUrl = nozomiUrl, videoTitle = "${prefix}Nozomi")
         }
         return null
     }
@@ -42,7 +42,7 @@ class JkanimeExtractor(
         val script = document.selectFirst("script:containsData(var parts = {)")!!.data()
         val streamUrl = script.substringAfter("url: '").substringBefore("'")
         if (streamUrl.isNotBlank()) {
-            return Video(streamUrl, "${prefix}Desu", streamUrl)
+            return Video(videoUrl = streamUrl, videoTitle = "${prefix}Desu")
         }
         return null
     }

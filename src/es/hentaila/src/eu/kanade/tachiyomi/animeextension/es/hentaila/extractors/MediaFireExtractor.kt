@@ -13,7 +13,7 @@ class MediaFireExtractor(
         val document = client.newCall(GET(url)).awaitSuccess().useAsJsoup()
         val downloadUrl = document.selectFirst("a#downloadButton")?.attr("href")
         if (!downloadUrl.isNullOrBlank()) {
-            return listOf(Video(downloadUrl, "MediaFire", downloadUrl))
+            return listOf(Video(videoUrl = downloadUrl, videoTitle = "MediaFire"))
         }
         return emptyList()
     }

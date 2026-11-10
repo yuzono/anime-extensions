@@ -91,10 +91,9 @@ class UniversalExtractor(private val client: OkHttpClient) {
             "mp4" in resultUrl -> {
                 Log.d(tag, "mp4 URL: $resultUrl")
                 Video(
-                    resultUrl,
-                    "$prefix: MP4",
-                    resultUrl,
-                    Headers.headersOf("referer", origRequestUrl),
+                    videoUrl = resultUrl,
+                    videoTitle = "$prefix: MP4",
+                    headers = Headers.headersOf("referer", origRequestUrl),
                 ).let(::listOf)
             }
             else -> emptyList()

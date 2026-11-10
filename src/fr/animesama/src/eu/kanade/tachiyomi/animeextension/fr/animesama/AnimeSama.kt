@@ -257,7 +257,7 @@ abstract class AnimeSama :
 
                     contains("yourupload") -> yourUploadExtractor.videoFromUrl(playerUrl, headers, prefix = prefix)
 
-                    contains(".mp4") -> listOf(Video(playerUrl, "$prefix Direct", playerUrl, headers))
+                    contains(".mp4") -> listOf(Video(videoUrl = playerUrl, videoTitle = "$prefix Direct", headers = headers))
 
                     contains("embed4me") -> try {
                         embed4MeExtractor.videosFromUrl(playerUrl, prefix)

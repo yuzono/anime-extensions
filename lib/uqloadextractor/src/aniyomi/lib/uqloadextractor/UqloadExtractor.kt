@@ -69,7 +69,7 @@ class UqloadExtractor(private val client: OkHttpClient) {
         videoHeaders: Headers,
     ): List<Video> {
         if (!videoUrl.contains(".m3u8")) {
-            return listOf(Video(videoUrl, quality, videoUrl, videoHeaders))
+            return listOf(Video(videoUrl = videoUrl, videoTitle = quality, headers = videoHeaders))
         }
 
         return playlistUtils.extractFromHls(
@@ -78,6 +78,6 @@ class UqloadExtractor(private val client: OkHttpClient) {
             // A single-stream playlist has no resolution to report and is named "Video";
             // keep the plain label there so those entries read as they did before.
             videoNameGen = { variant -> if (variant == "Video") quality else "$quality - $variant" },
-        ).ifEmpty { listOf(Video(videoUrl, quality, videoUrl, videoHeaders)) }
+        ).ifEmpty { listOf(Video(videoUrl = videoUrl, videoTitle = quality, headers = videoHeaders)) }
     }
 }

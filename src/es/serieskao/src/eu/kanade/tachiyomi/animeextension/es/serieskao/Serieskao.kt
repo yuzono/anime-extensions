@@ -364,7 +364,7 @@ abstract class Serieskao :
                     client.newCall(GET("https://www.amazon.com/drive/v1/nodes/$epId/children?resourceVersion=V2&ContentType=JSON&limit=200&sort=%5B%22kind+DESC%22%2C+%22modifiedDate+DESC%22%5D&asset=ALL&tempLink=true&shareId=$shareId"))
                         .awaitSuccess().useAsJsoup()
                 val videoUrl = amazonApi.toString().substringAfter("\"FOLDER\":").substringAfter("tempLink\":\"").substringBefore("\"")
-                listOf(Video(videoUrl, "$prefix Amazon", videoUrl))
+                listOf(Video(videoUrl = videoUrl, videoTitle = "$prefix Amazon"))
             } else {
                 emptyList()
             }

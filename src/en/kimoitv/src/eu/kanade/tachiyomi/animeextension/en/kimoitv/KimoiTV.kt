@@ -143,7 +143,7 @@ abstract class KimoiTV : ParsedAnimeHttpLegacySource() {
                 .add("Referer", "$baseUrl/")
                 .build()
 
-            Video(videoUrl, "Video", videoUrl, headers = videoHeaders)
+            Video(videoUrl = videoUrl, videoTitle = "Video", headers = videoHeaders)
         }
 
         require(videoList.isNotEmpty()) { "Failed to fetch video" }

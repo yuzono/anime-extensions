@@ -23,11 +23,12 @@ class LinkBoxExtractor(private val client: OkHttpClient) {
         val data = responseJson["data"]?.jsonObject
         val resolutions = data!!.jsonObject["rList"]!!.jsonArray
         resolutions.map {
+            val videoUrl = it.jsonObject["url"].toString().replace("\"", "")
+            val resolution = it.jsonObject["resolution"].toString().replace("\"", "")
             videoList.add(
                 Video(
-                    it.jsonObject["url"].toString().replace("\"", ""),
-                    "${it.jsonObject["resolution"].toString().replace("\"", "")} - $name",
-                    it.jsonObject["url"].toString().replace("\"", ""),
+                    videoUrl = videoUrl,
+                    videoTitle = "$resolution - $name",
                 ),
             )
         }

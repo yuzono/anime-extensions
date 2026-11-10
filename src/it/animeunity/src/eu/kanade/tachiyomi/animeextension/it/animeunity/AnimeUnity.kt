@@ -391,7 +391,7 @@ abstract class AnimeUnity :
                 videoUrl = videoUrl.replace(filename, "$filename.m3u8")
             }
             val quality = match.groupValues[2]
-            videoList.add(Video(videoUrl, quality, videoUrl))
+            videoList.add(Video(videoUrl = videoUrl, videoTitle = quality))
         }
 
         require(videoList.isNotEmpty()) { "Failed to fetch videos" }

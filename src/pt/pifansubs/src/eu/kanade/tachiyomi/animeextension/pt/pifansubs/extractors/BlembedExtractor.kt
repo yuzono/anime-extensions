@@ -29,7 +29,7 @@ class BlembedExtractor(private val client: OkHttpClient, private val headers: He
         val res = client.newCall(GET(reqUrl, reqHeaders)).execute()
             .parseAs<ResponseData>()
 
-        return res.sources.map { Video(it.file, "Blembed - ${it.label}", it.file, headers) }
+        return res.sources.map { Video(videoUrl = it.file, videoTitle = "Blembed - ${it.label}", headers = headers) }
     }
 }
 

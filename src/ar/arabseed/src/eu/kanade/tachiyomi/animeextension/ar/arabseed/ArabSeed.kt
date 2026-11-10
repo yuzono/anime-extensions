@@ -100,7 +100,7 @@ abstract class ArabSeed :
             val iframeResponse = client.newCall(GET(url)).awaitSuccess()
                 .useAsJsoup()
             val videoUrl = iframeResponse.selectFirst("source")!!.attr("abs:src")
-            listOf(Video(videoUrl, quality + "p", videoUrl))
+            listOf(Video(videoUrl = videoUrl, videoTitle = quality + "p"))
         }
 
         "dood" in url -> doodExtractor.videosFromUrl(url)

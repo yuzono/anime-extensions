@@ -102,7 +102,7 @@ abstract class FilmPalast :
                             ?: return@runCatching null
                         val videoUrl = "https:" + script.substringBefore("'") +
                             script.substringAfter("+ ('xcd").substringBefore("'")
-                        listOf(Video(videoUrl, "Streamtape", videoUrl))
+                        listOf(Video(videoUrl = videoUrl, videoTitle = "Streamtape"))
                     }.getOrNull()
                 }
 
@@ -110,7 +110,7 @@ abstract class FilmPalast :
                     val quality = "Evoload"
                     document.selectFirst("#EvoVid_html5_api")?.attr("src")?.let { videoUrl ->
                         if (videoUrl.contains("EvoStreams")) {
-                            listOf(Video(videoUrl, quality, videoUrl))
+                            listOf(Video(videoUrl = videoUrl, videoTitle = quality))
                         } else {
                             EvoloadExtractor(client).videoFromUrl(url, quality)
                         }
@@ -124,7 +124,7 @@ abstract class FilmPalast :
                         ?.data()
                         ?.let { jsData ->
                             val videoUrl = jsData.substringAfter("{file:\"").substringBefore("\"")
-                            listOf(Video(videoUrl, "WolfStream", videoUrl, headers = headers))
+                            listOf(Video(videoUrl = videoUrl, videoTitle = "WolfStream", headers = headers))
                         }
                 }
 

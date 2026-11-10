@@ -16,7 +16,7 @@ class SoraPlayExtractor(private val client: OkHttpClient) {
         return data.split("\"file\":\"").drop(1).map { source ->
             val src = source.substringBefore("\"")
             val quality = "Soraplay: " + source.substringAfter("\"label\":\"").substringBefore("\"")
-            Video(src, quality, src, headers = newHeaders)
+            Video(videoUrl = src, videoTitle = quality, headers = newHeaders)
         }
     }
 }

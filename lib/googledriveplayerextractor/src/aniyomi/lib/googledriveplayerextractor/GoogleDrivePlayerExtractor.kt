@@ -130,7 +130,7 @@ class GoogleDrivePlayerExtractor(private val client: OkHttpClient, private val h
             // Process progressive transcodes
             streamingData.mediaStreamingData.formatStreamingData.progressiveTranscodes.forEach { transcode ->
                 val quality = getQualityFromItag(transcode.itag, transcode.transcodeMetadata.height)
-                videos.add(Video(transcode.url, "$prefix: $quality", transcode.url, requestHeaders))
+                videos.add(Video(videoUrl = transcode.url, videoTitle = "$prefix: $quality", headers = requestHeaders))
             }
 
             // Process adaptive transcodes (separated video + audio)
@@ -148,10 +148,9 @@ class GoogleDrivePlayerExtractor(private val client: OkHttpClient, private val h
                         getQualityFromItag(transcode.itag, transcode.transcodeMetadata.height)
                     videos.add(
                         Video(
-                            transcode.url,
-                            "$prefix Adaptive: $quality",
-                            transcode.url,
-                            requestHeaders,
+                            videoUrl = transcode.url,
+                            videoTitle = "$prefix Adaptive: $quality",
+                            headers = requestHeaders,
                             audioTracks = audioTracks,
                         ),
                     )

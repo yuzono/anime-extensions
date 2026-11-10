@@ -488,10 +488,10 @@ abstract class Kayoanime :
 
         val script = doc.selectFirst("script:containsData(videodomain)")?.data()
             ?: doc.selectFirst("script:containsData(downloaddomain)")?.data()
-            ?: return listOf(Video(url, "Video", url))
+            ?: return listOf(Video(videoUrl = url, videoTitle = "Video"))
 
         if (script.contains("\"second_domain_for_dl\":false")) {
-            return listOf(Video(url, "Video", url))
+            return listOf(Video(videoUrl = url, videoTitle = "Video"))
         }
 
         val domainUrl = if (script.contains("videodomain", true)) {
@@ -510,7 +510,7 @@ abstract class Kayoanime :
             domainUrl + url.toHttpUrl().encodedPath
         }
 
-        return listOf(Video(videoUrl, "Video", videoUrl))
+        return listOf(Video(videoUrl = videoUrl, videoTitle = "Video"))
     }
 
     @Serializable

@@ -243,7 +243,7 @@ abstract class Samehadaku :
             "mega.nz" in link -> emptyList()
 
             link.contains(".mp4") || link.contains(".webm") || link.contains(".m3u8") -> {
-                listOf(Video(link, server, link, videoHeaders))
+                listOf(Video(videoUrl = link, videoTitle = server, headers = videoHeaders))
             }
 
             "filedon" in link || "uservideo" in link || "userdrive" in link || "samevideo" in link -> {
@@ -252,14 +252,14 @@ abstract class Samehadaku :
                 val json = JSONObject(dataPage)
                 val props = json.getJSONObject("props")
                 val videoUrl = props.getString("url")
-                listOf(Video(videoUrl, server, videoUrl, videoHeaders))
+                listOf(Video(videoUrl = videoUrl, videoTitle = server, headers = videoHeaders))
             }
 
             "krakenfiles" in link -> {
                 val doc = client.newCall(GET(link, videoHeaders)).awaitSuccess().useAsJsoup()
                 val getUrl = doc.selectFirst("source")?.attr("src") ?: return emptyList()
                 val videoUrl = UrlUtils.fixUrl(getUrl)?.replace("&amp;", "&") ?: return emptyList()
-                listOf(Video(videoUrl, server, videoUrl, videoHeaders))
+                listOf(Video(videoUrl = videoUrl, videoTitle = server, headers = videoHeaders))
             }
 
             // Blogger — now delegates entirely to BloggerExtractor
@@ -269,7 +269,7 @@ abstract class Samehadaku :
                 val doc = client.newCall(GET(link, videoHeaders)).awaitSuccess().useAsJsoup()
                 val videoUrl = doc.selectFirst("video source")?.attr("src") ?: return emptyList()
                 val finalUrl = UrlUtils.fixUrl(videoUrl) ?: return emptyList()
-                listOf(Video(finalUrl, server, finalUrl, videoHeaders))
+                listOf(Video(videoUrl = finalUrl, videoTitle = server, headers = videoHeaders))
             }
         }
     }

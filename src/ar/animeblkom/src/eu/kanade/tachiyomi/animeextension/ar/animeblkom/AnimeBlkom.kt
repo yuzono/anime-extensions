@@ -161,7 +161,7 @@ abstract class AnimeBlkom :
 
     override fun videoFromElement(element: Element): Video {
         val videoUrl = element.attr("src")
-        return Video(videoUrl, "Blkom - " + element.attr("label"), videoUrl, headers)
+        return Video(videoUrl = videoUrl, videoTitle = "Blkom - " + element.attr("label"), headers = headers)
     }
 
     // ============================== Filters ===============================

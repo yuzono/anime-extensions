@@ -182,7 +182,7 @@ abstract class FlixLatam : DooPlay() {
             .awaitSuccess().useAsJsoup()
 
         val videoUrl = amazonApi.toString().substringAfter("\"FOLDER\":").substringAfter("tempLink\":\"").substringBefore("\"")
-        return listOf(Video(videoUrl, "$prefix Amazon", videoUrl))
+        return listOf(Video(videoUrl = videoUrl, videoTitle = "$prefix Amazon"))
     }
 
     private fun extractNewExtractorLinks(doc: Document, htmlContent: String): List<Pair<String, String>>? {

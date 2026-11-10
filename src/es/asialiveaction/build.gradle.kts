@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "AsiaLiveAction"
-    versionCode = 53
+    versionCode = 54
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 

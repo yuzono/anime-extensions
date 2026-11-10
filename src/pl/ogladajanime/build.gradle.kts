@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "OgladajAnime"
-    versionCode = 5
+    versionCode = 6
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
 

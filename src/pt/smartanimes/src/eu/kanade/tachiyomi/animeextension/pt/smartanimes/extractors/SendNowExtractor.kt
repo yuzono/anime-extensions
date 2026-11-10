@@ -136,7 +136,7 @@ class SendNowExtractor(private val client: OkHttpClient, private val headers: He
         val videoHeaders = Headers.headersOf("Referer", "https://$host/")
 
         return listOf(
-            Video(videoUrl, name, videoUrl, videoHeaders),
+            Video(videoUrl = videoUrl, videoTitle = name, headers = videoHeaders),
         )
     }
 

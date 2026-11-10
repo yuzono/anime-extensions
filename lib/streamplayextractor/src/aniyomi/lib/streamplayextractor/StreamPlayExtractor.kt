@@ -92,9 +92,8 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
             } else {
                 listOf(
                     Video(
-                        sourceUrl,
-                        "$prefix (StreamPlay) Original",
-                        sourceUrl,
+                        videoUrl = sourceUrl,
+                        videoTitle = "$prefix (StreamPlay) Original",
                         headers = headers.newBuilder()
                             .set("Referer", url)
                             .build(),

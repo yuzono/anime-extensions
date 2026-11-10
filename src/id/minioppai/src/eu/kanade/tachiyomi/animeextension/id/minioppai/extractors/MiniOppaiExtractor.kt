@@ -25,7 +25,7 @@ class MiniOppaiExtractor(private val client: OkHttpClient) {
 
         return scriptData.getItems("sources", baseUrl) { videoUrl, quality ->
             val videoQuality = "MiniOppai - $quality"
-            Video(videoUrl, videoQuality, videoUrl, headers, subtitleTracks = subs)
+            Video(videoUrl = videoUrl, videoTitle = videoQuality, headers = headers, subtitleTracks = subs)
         }.filterNot { it.videoUrl.contains("/uploads/unavailable.mp4") }
     }
 

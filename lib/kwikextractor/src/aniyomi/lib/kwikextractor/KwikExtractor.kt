@@ -61,7 +61,7 @@ class KwikExtractor(
                     )
                 }
                 else -> listOf(
-                    Video(videoUrl, "${qualityLabel}Kwik", videoUrl, videoHeaders, subtitleTracks = subtitleList),
+                    Video(videoUrl = videoUrl, videoTitle = "${qualityLabel}Kwik", headers = videoHeaders, subtitleTracks = subtitleList),
                 )
             }
         } catch (e: Exception) {

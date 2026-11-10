@@ -93,7 +93,7 @@ abstract class Kinoking : DooPlay() {
         }
 
         link.contains("filehosted") && hosterSelection.contains("filehosted") -> {
-            listOf(Video(link, "Filehosted", link))
+            listOf(Video(videoUrl = link, videoTitle = "Filehosted"))
         }
 
         else -> null

@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "Wcofun"
-    versionCode = 16
+    versionCode = 17
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "wcotheme"

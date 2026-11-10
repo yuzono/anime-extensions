@@ -98,7 +98,7 @@ abstract class AnimePlayer : DooPlay() {
     private suspend fun getVideosFromURL(url: String, quality: String): List<Video> = when {
         "cdn.animeson.com.br" in url -> {
             listOf(
-                Video(url, quality, url, headers),
+                Video(videoUrl = url, videoTitle = quality, headers = headers),
             )
         }
 

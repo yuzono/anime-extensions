@@ -195,7 +195,7 @@ abstract class VerAnime :
             val videos = serverVideoResolver(src)
             if (language.isNotBlank()) {
                 videos.map {
-                    Video(it.videoUrl, "[$language] ${it.videoTitle}", it.videoUrl, it.headers, it.subtitleTracks, it.audioTracks)
+                    Video(videoUrl = it.videoUrl, videoTitle = "[$language] ${it.videoTitle}", headers = it.headers, subtitleTracks = it.subtitleTracks, audioTracks = it.audioTracks)
                 }
             } else {
                 videos
@@ -258,7 +258,7 @@ abstract class VerAnime :
                 val headers = headers.newBuilder()
                     .set("Referer", "$base/")
                     .build()
-                listOf(Video(m3u8Url, "Zilla-Networks", m3u8Url, headers = headers))
+                listOf(Video(videoUrl = m3u8Url, videoTitle = "Zilla-Networks", headers = headers))
             } else {
                 vidGuardExtractor.videosFromUrl(url)
             }

@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "AnimeToki"
-    versionCode = 1
+    versionCode = 2
     contentWarning = ContentWarning.NSFW
     libVersion = "16"
 

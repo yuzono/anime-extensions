@@ -115,13 +115,13 @@ abstract class Hanime1 :
         return sourceList.map {
             val quality = it.attr("size")
             val url = it.attr("src")
-            Video(url, "${quality}P", videoUrl = url)
+            Video(videoUrl = url, videoTitle = "${quality}P")
         }.sortedByDescending { preferQuality == it.videoTitle }
             .ifEmpty {
                 // Try to find the source from the script content.
                 val videoUrl = doc.select("script:containsData(source)").first()!!.data()
                     .substringAfter("source = '").substringBefore("'")
-                listOf(Video(videoUrl, "Raw", videoUrl = videoUrl))
+                listOf(Video(videoUrl = videoUrl, videoTitle = "Raw"))
             }
     }
 
