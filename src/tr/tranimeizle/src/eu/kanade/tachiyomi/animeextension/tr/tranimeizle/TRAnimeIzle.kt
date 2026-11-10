@@ -216,8 +216,8 @@ abstract class TRAnimeIzle :
                             videoUrl = it.videoUrl,
                             videoTitle = "[$fansubName] ${it.videoTitle}",
                             headers = it.headers,
-                            it.subtitleTracks,
-                            it.audioTracks,
+                            subtitleTracks = it.subtitleTracks,
+                            audioTracks = it.audioTracks,
                         )
                     }
             }
