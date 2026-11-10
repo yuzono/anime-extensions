@@ -121,7 +121,7 @@ class KodikExtractor(
                                         videoTitle = "$label(1080p Kodik)",
                                         headers = streamHeaders,
                                         subtitleTracks = subtitleList,
-),
+                                    ),
                                 )
                             }
                         }
@@ -131,7 +131,7 @@ class KodikExtractor(
                                 videoTitle = plainTitle,
                                 headers = streamHeaders,
                                 subtitleTracks = subtitleList,
-),
+                            ),
                         )
                     }
                 }

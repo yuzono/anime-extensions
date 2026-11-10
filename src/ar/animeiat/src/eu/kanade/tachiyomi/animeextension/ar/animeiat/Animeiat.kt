@@ -94,7 +94,7 @@ abstract class Animeiat :
             Video(
                 videoUrl = it.file,
                 videoTitle = "${it.label} ${it.quality}",
-)
+            )
         }
     }
 

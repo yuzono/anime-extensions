@@ -199,7 +199,7 @@ abstract class AnimeBase :
                             headers = video.headers,
                             video.subtitleTracks,
                             video.audioTracks,
-)
+                        )
                     }
             }
     }

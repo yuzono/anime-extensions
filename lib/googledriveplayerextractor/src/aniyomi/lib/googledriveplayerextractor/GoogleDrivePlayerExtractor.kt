@@ -152,7 +152,7 @@ class GoogleDrivePlayerExtractor(private val client: OkHttpClient, private val h
                             videoTitle = "$prefix Adaptive: $quality",
                             headers = requestHeaders,
                             audioTracks = audioTracks,
-),
+                        ),
                     )
                 }
             }

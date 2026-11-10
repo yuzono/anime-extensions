@@ -98,7 +98,7 @@ class StreamPlayExtractor(private val client: OkHttpClient, private val headers:
                             .set("Referer", url)
                             .build(),
                         subtitleTracks = subtitleList,
-),
+                    ),
                 )
             }
         }

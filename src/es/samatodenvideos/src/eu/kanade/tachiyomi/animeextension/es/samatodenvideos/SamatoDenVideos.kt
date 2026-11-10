@@ -67,7 +67,7 @@ abstract class SamatoDenVideos : AnimeHttpLegacySource() {
                 videoUrl = payload.videoUrl,
                 videoTitle = episode.name,
                 headers = videoHeaders,
-),
+            ),
         )
     }
 

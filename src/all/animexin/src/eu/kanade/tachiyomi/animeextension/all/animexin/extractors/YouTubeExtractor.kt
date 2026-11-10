@@ -101,7 +101,7 @@ class YouTubeExtractor(private val client: OkHttpClient) {
                 videoTitle = prefix + it.qualityLabel.orEmpty() + " ($codecs)",
                 subtitleTracks = subs,
                 audioTracks = audioTracks,
-)
+            )
         }
     }
 

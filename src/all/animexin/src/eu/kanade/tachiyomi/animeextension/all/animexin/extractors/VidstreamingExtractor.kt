@@ -89,7 +89,7 @@ class VidstreamingExtractor(private val client: OkHttpClient) {
                                 videoUrl = fileURL,
                                 videoTitle = label + qualitySuffix,
                                 headers = videoHeaders,
-),
+                            ),
                         )
                     } else {
                         videoList.add(Video(videoUrl = fileURL, videoTitle = label + qualitySuffix, headers = videoHeaders))
