@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.anv
 
+import android.webkit.CookieManager
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -27,8 +28,14 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okhttp3.CacheControl
+import okhttp3.Cookie
+import okhttp3.CookieJar
 import okhttp3.Headers
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -38,6 +45,7 @@ import org.jsoup.parser.Parser
 import java.io.IOException
 import java.util.Collections
 import java.util.LinkedHashMap
+import java.util.concurrent.atomic.AtomicReference
 import keiyoushi.utils.Source as BaseSource
 
 /**
@@ -52,8 +60,59 @@ abstract class Anv : BaseSource() {
 
     override val disableRelatedAnimesBySearch = true
 
+    private class WatchCookieTag(val cookiePair: String)
+
     override val client: OkHttpClient by lazy {
         network.client.newBuilder()
+            .addInterceptor { chain ->
+                val req = chain.request()
+                val explicitWatch = extractWatchCookiePair(req.header("Cookie"))
+                if (explicitWatch == null) {
+                    chain.proceed(req)
+                } else {
+                    chain.proceed(
+                        req.newBuilder()
+                            .tag(WatchCookieTag::class.java, WatchCookieTag(explicitWatch))
+                            .build(),
+                    )
+                }
+            }
+            .addNetworkInterceptor { chain ->
+                val req = chain.request()
+                val taggedWatch = req.tag(WatchCookieTag::class.java)?.cookiePair
+                if (taggedWatch == null) {
+                    chain.proceed(req)
+                } else {
+                    val merged = mergeCookieHeaderWithWatch(req.header("Cookie"), taggedWatch)
+                    chain.proceed(req.newBuilder().header("Cookie", merged).build())
+                }
+            }
+            .rateLimit(6)
+            .build()
+    }
+
+    private val jarMintedCookie = AtomicReference<String?>(null)
+
+    private val cookieMintClient: OkHttpClient by lazy {
+        network.client.newBuilder()
+            .cache(null)
+            .cookieJar(
+                object : CookieJar {
+                    override fun loadForRequest(url: HttpUrl): List<Cookie> = runCatching {
+                        network.cookieJar.loadForRequest(url)
+                            .filterNot { it.name.equals(WATCH_COOKIE_NAME, ignoreCase = true) }
+                    }.getOrDefault(emptyList())
+
+                    override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+                        cookies.lastOrNull {
+                            it.name.equals(WATCH_COOKIE_NAME, ignoreCase = true) && it.value.isNotBlank()
+                        }?.let { minted ->
+                            jarMintedCookie.set("$WATCH_COOKIE_NAME=${minted.value}")
+                        }
+                        runCatching { network.cookieJar.saveFromResponse(url, cookies) }
+                    }
+                },
+            )
             .rateLimit(6)
             .build()
     }
@@ -107,6 +166,7 @@ abstract class Anv : BaseSource() {
     )
 
     private val cookieLock = Any()
+    private val cookieMintMutex = Mutex()
     private val homePagingLock = Any()
 
     @Volatile
@@ -255,7 +315,7 @@ abstract class Anv : BaseSource() {
         if (page > 1) return@withContext AnimesPage(emptyList(), false)
 
         val recent = suspendRunCatching {
-            val request = GET("$baseUrl/api/recent-episodes", apiHeaders())
+            val request = GET("$baseUrl/api/recent-episodes", apiHeaders(), CacheControl.FORCE_NETWORK)
             executeWithRetry(request).use { response ->
                 if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
                 response.parseAs<RecentEpisodesResponse>(json)
@@ -285,7 +345,8 @@ abstract class Anv : BaseSource() {
      */
     private suspend fun fetchRecentsRssFallback(): List<SAnime> = suspendRunCatching {
         val docHeaders = headers.newBuilder().set("Referer", "$baseUrl/").build()
-        client.newCall(GET("$baseUrl/recents.xml", docHeaders)).await().use { response ->
+        val request = GET("$baseUrl/recents.xml", docHeaders, CacheControl.FORCE_NETWORK)
+        client.newCall(request).await().use { response ->
             if (!response.isSuccessful) return emptyList()
             val doc = Jsoup.parse(response.body.string(), baseUrl, Parser.xmlParser())
             val seenSlugs = HashSet<String>()
@@ -559,7 +620,8 @@ abstract class Anv : BaseSource() {
         val fallbackBannerId = target.bannerAnilistId ?: resolvedMedia?.bannerAnilistId()
         val malId = target.malId ?: resolvedMedia?.idMal
         val durationSec = ((target.durationMin ?: resolvedMedia?.duration ?: 24).coerceAtLeast(1)) * 60
-        val watchUrl = "$baseUrl/anime/${target.slug}-episode-${target.episode}"
+        val canonicalSlug = resolvedMedia?.resolveSlug()?.takeIf { it.isNotBlank() } ?: target.slug
+        val watchUrl = "$baseUrl/anime/$canonicalSlug-episode-${target.episode}"
 
         val skipDeferred = async(Dispatchers.IO) {
             if (prefSkipTimes && malId != null && malId > 0L) {
@@ -719,7 +781,7 @@ abstract class Anv : BaseSource() {
         }.distinctBy { it.lang }
 
         val parsedMaster = suspendRunCatching {
-            executeWithRetry(GET(masterUrl, streamHeaders)).use { resp ->
+            executeWithRetry(GET(masterUrl, streamHeaders, CacheControl.FORCE_NETWORK)).use { resp ->
                 if (!resp.isSuccessful) return@suspendRunCatching null
                 val text = resp.body.string()
                 if (!text.trimStart('\uFEFF', ' ', '\t', '\r', '\n').startsWith("#EXTM3U")) {
@@ -878,7 +940,7 @@ abstract class Anv : BaseSource() {
         for (idCandidate in candidateIds) {
             poll@ for (pollAttempt in 0 until 3) {
                 var (code, payload) = postEpisodeRequest(idCandidate, malId, episode, watchUrl, cookie)
-                if (code == 401 || code == 403) {
+                if (isEpisodeAuthFailure(code, payload)) {
                     cookie = ensureWatchCookie(watchUrl, forceRefresh = true)
                     val retried = postEpisodeRequest(idCandidate, malId, episode, watchUrl, cookie)
                     code = retried.first
@@ -927,7 +989,7 @@ abstract class Anv : BaseSource() {
         val (code, firstPayload) = postEpisodeRequest(primaryId, malId, episode, watchUrl, freshCookie)
         var payload = firstPayload
         var cookieToUse = freshCookie
-        if (code == 401 || code == 403 || !payload?.status.equals("ready", ignoreCase = true)) {
+        if (isEpisodeAuthFailure(code, payload) || !payload?.status.equals("ready", ignoreCase = true)) {
             cookieToUse = suspendRunCatching { ensureWatchCookie(watchUrl, forceRefresh = true) }.getOrNull()
                 ?: return null
             payload = postEpisodeRequest(primaryId, malId, episode, watchUrl, cookieToUse).second
@@ -956,6 +1018,21 @@ abstract class Anv : BaseSource() {
     }
 
     /**
+     * Checks whether `/api/episode` rejected the `shiro_watch` session cookie.
+     */
+    private fun isEpisodeAuthFailure(code: Int, payload: EpisodeApiResponse?): Boolean {
+        if (code == 401 || code == 403) return true
+        val status = payload?.status?.lowercase().orEmpty()
+        val reason = payload?.reason?.lowercase().orEmpty()
+        return status == "unauthorized" ||
+            status == "forbidden" ||
+            reason.contains("cookie") ||
+            reason.contains("session") ||
+            reason.contains("unauthorized") ||
+            reason.contains("forbidden")
+    }
+
+    /**
      * Posts an [EpisodeRequest] to `/api/episode` and streams the JSON response into [EpisodeApiResponse].
      */
     private suspend fun postEpisodeRequest(
@@ -978,10 +1055,10 @@ abstract class Anv : BaseSource() {
             .set("Content-Type", "application/json")
             .set("Origin", baseUrl)
             .set("Referer", watchUrl)
-            .set("Cookie", cookie)
+            .set("Cookie", buildMergedCookieHeader(baseUrl, cookie))
             .build()
 
-        val request = POST("$baseUrl/api/episode", reqHeaders, body)
+        val request = POST("$baseUrl/api/episode", reqHeaders, body, CacheControl.FORCE_NETWORK)
         return executeWithRetry(request).use { response ->
             val dto = suspendRunCatching { response.parseAs<EpisodeApiResponse>(json) }.getOrNull()
             response.code to dto
@@ -989,64 +1066,298 @@ abstract class Anv : BaseSource() {
     }
 
     /**
-     * Obtains and caches the `shiro_watch` session cookie from an anime watch page.
+     * Resolves a valid `shiro_watch` cookie from memory, persistent storage, or a clean uncached mint request.
      */
     private suspend fun ensureWatchCookie(watchUrl: String, forceRefresh: Boolean): String {
         val origin = baseUrl
-        val now = System.currentTimeMillis()
-        if (!forceRefresh && cachedCookieOrigin == origin) {
-            cachedWatchCookie?.let { existing ->
-                if (now < cookieExpiresAtMs) return existing
-            }
+        if (!forceRefresh) {
+            loadPersistedWatchCookie(origin)?.let { return it }
         }
 
-        extractCookieFromPage(watchUrl)?.let { minted ->
-            synchronized(cookieLock) {
-                cachedWatchCookie = minted
-                cachedCookieOrigin = origin
-                cookieExpiresAtMs = System.currentTimeMillis() + COOKIE_TTL_MS
-            }
-            return minted
-        }
-
-        val fallbackAnimeUrl = suspendRunCatching {
-            val docHeaders = headers.newBuilder().set("Referer", "$origin/").build()
-            client.newCall(GET("$origin/", docHeaders)).await().use { resp ->
-                val html = resp.body.string()
-                HOME_ANIME_HREF_REGEX.find(html)?.groupValues?.getOrNull(1)?.let { "$origin$it" }
-            }
-        }.getOrNull()
-
-        if (fallbackAnimeUrl != null) {
-            extractCookieFromPage(fallbackAnimeUrl)?.let { minted ->
-                synchronized(cookieLock) {
-                    cachedWatchCookie = minted
-                    cachedCookieOrigin = origin
-                    cookieExpiresAtMs = System.currentTimeMillis() + COOKIE_TTL_MS
+        val staleBeforeWait = synchronized(cookieLock) { cachedWatchCookie }
+        return cookieMintMutex.withLock {
+            if (!forceRefresh) {
+                loadPersistedWatchCookie(origin)?.let { return@withLock it }
+            } else {
+                val refreshedByPeer = synchronized(cookieLock) {
+                    cachedWatchCookie?.takeIf {
+                        cachedCookieOrigin == origin &&
+                            System.currentTimeMillis() < cookieExpiresAtMs &&
+                            it != staleBeforeWait
+                    }
                 }
-                return minted
+                if (refreshedByPeer != null) {
+                    return@withLock refreshedByPeer
+                }
+                clearPersistedWatchCookie(origin)
             }
-        }
 
-        throw IOException("Failed to obtain $WATCH_COOKIE_NAME session cookie from $origin")
+            mintCookieFromWatchPage(watchUrl)?.let { minted ->
+                return@withLock persistWatchCookie(origin, minted)
+            }
+
+            for (fallbackWatchUrl in resolveFallbackWatchUrls(origin)) {
+                if (fallbackWatchUrl == watchUrl) continue
+                mintCookieFromWatchPage(fallbackWatchUrl)?.let { minted ->
+                    return@withLock persistWatchCookie(origin, minted)
+                }
+            }
+
+            throw IOException("Failed to obtain $WATCH_COOKIE_NAME session cookie from $origin")
+        }
     }
 
     /**
-     * Extracts `Set-Cookie: shiro_watch=...` from an HTML page response.
+     * Loads an existing non-expired `shiro_watch` cookie from memory, `SharedPreferences`, or `CookieJar`.
      */
-    private suspend fun extractCookieFromPage(url: String): String? {
+    private fun loadPersistedWatchCookie(origin: String): String? {
+        val now = System.currentTimeMillis()
+        synchronized(cookieLock) {
+            val mem = cachedWatchCookie
+            if (mem != null && cachedCookieOrigin == origin && now < cookieExpiresAtMs) {
+                return mem
+            }
+        }
+
+        val prefOrigin = preferences.getString(PREF_WATCH_COOKIE_ORIGIN_KEY, null)
+        val prefExpires = preferences.getLong(PREF_WATCH_COOKIE_EXPIRES_KEY, 0L)
+        val prefCookie = preferences.getString(PREF_WATCH_COOKIE_VALUE_KEY, null)
+            ?.let(::extractWatchCookiePair)
+        if (prefCookie != null && prefOrigin == origin && now < prefExpires) {
+            synchronized(cookieLock) {
+                cachedWatchCookie = prefCookie
+                cachedCookieOrigin = origin
+                cookieExpiresAtMs = prefExpires
+            }
+            return prefCookie
+        }
+
+        val jarCookie = origin.toHttpUrlOrNull()?.let { httpUrl ->
+            runCatching {
+                network.cookieJar.loadForRequest(httpUrl)
+                    .lastOrNull {
+                        it.name.equals(WATCH_COOKIE_NAME, ignoreCase = true) &&
+                            it.value.isNotBlank() &&
+                            it.expiresAt > now
+                    }
+                    ?.let { "$WATCH_COOKIE_NAME=${it.value}" }
+            }.getOrNull()
+        } ?: runCatching {
+            CookieManager.getInstance()
+                .getCookie("$origin/")
+                ?.let(::extractWatchCookiePair)
+        }.getOrNull()
+
+        return jarCookie?.let { persistWatchCookie(origin, it) }
+    }
+
+    /**
+     * Persists a freshly minted `shiro_watch` cookie across RAM, `SharedPreferences`, and `CookieJar`.
+     */
+    private fun persistWatchCookie(origin: String, cookiePair: String): String {
+        val normalized = extractWatchCookiePair(cookiePair) ?: cookiePair
+        val cookieValue = normalized.substringAfter('=')
+        val expiresAt = System.currentTimeMillis() + COOKIE_TTL_MS
+
+        synchronized(cookieLock) {
+            cachedWatchCookie = normalized
+            cachedCookieOrigin = origin
+            cookieExpiresAtMs = expiresAt
+        }
+
+        preferences.edit()
+            .putString(PREF_WATCH_COOKIE_VALUE_KEY, normalized)
+            .putString(PREF_WATCH_COOKIE_ORIGIN_KEY, origin)
+            .putLong(PREF_WATCH_COOKIE_EXPIRES_KEY, expiresAt)
+            .apply()
+
+        origin.toHttpUrlOrNull()?.let { httpUrl ->
+            val okCookie = Cookie.Builder()
+                .name(WATCH_COOKIE_NAME)
+                .value(cookieValue)
+                .domain(httpUrl.host)
+                .path("/")
+                .expiresAt(expiresAt)
+                .apply { if (httpUrl.isHttps) secure() }
+                .httpOnly()
+                .build()
+            runCatching { network.cookieJar.saveFromResponse(httpUrl, listOf(okCookie)) }
+            runCatching {
+                val cm = CookieManager.getInstance()
+                val maxAgeSec = COOKIE_TTL_MS / 1_000L
+                cm.setCookie("$origin/", "$WATCH_COOKIE_NAME=$cookieValue; Path=/; Max-Age=$maxAgeSec")
+                cm.flush()
+            }
+        }
+
+        return normalized
+    }
+
+    /**
+     * Clears expired `shiro_watch` state from RAM, `SharedPreferences`, and `CookieManager`.
+     */
+    private fun clearPersistedWatchCookie(origin: String) {
+        synchronized(cookieLock) {
+            cachedWatchCookie = null
+            cachedCookieOrigin = null
+            cookieExpiresAtMs = 0L
+        }
+        preferences.edit()
+            .remove(PREF_WATCH_COOKIE_VALUE_KEY)
+            .remove(PREF_WATCH_COOKIE_ORIGIN_KEY)
+            .remove(PREF_WATCH_COOKIE_EXPIRES_KEY)
+            .apply()
+        origin.toHttpUrlOrNull()?.let { httpUrl ->
+            val expiredCookie = Cookie.Builder()
+                .name(WATCH_COOKIE_NAME)
+                .value("")
+                .domain(httpUrl.host)
+                .path("/")
+                .expiresAt(0L)
+                .build()
+            runCatching { network.cookieJar.saveFromResponse(httpUrl, listOf(expiredCookie)) }
+        }
+        runCatching {
+            val cm = CookieManager.getInstance()
+            val host = origin.toHttpUrlOrNull()?.host
+            cm.setCookie("$origin/", "$WATCH_COOKIE_NAME=; Path=/; Max-Age=0")
+            if (!host.isNullOrBlank()) {
+                cm.setCookie("$origin/", "$WATCH_COOKIE_NAME=; Domain=$host; Path=/; Max-Age=0")
+                cm.setCookie("$origin/", "$WATCH_COOKIE_NAME=; Domain=.$host; Path=/; Max-Age=0")
+            }
+            cm.flush()
+        }
+    }
+
+    /**
+     * Mints a fresh `shiro_watch` cookie via [cookieMintClient] without sending stale `shiro_watch` or hitting disk cache.
+     */
+    private suspend fun mintCookieFromWatchPage(url: String): String? {
         val reqHeaders = headers.newBuilder()
+            .removeAll("Cookie")
             .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .set("Referer", "$baseUrl/")
             .build()
+        jarMintedCookie.set(null)
         return suspendRunCatching {
-            executeWithRetry(GET(url, reqHeaders)).use { response ->
-                response.headers.values("Set-Cookie")
-                    .firstOrNull { it.startsWith("$WATCH_COOKIE_NAME=") }
-                    ?.substringBefore(';')
-                    ?.takeIf { it.contains('=') }
+            val request = GET(url, reqHeaders, CacheControl.FORCE_NETWORK)
+            executeWithRetry(request, cookieMintClient).use { response ->
+                val fromChain = extractSetCookieFromResponseChain(response)
+                val fromJar = jarMintedCookie.getAndSet(null)
+                fromChain ?: fromJar
             }
         }.getOrNull()
+    }
+
+    /**
+     * Extracts `Set-Cookie: shiro_watch=...` across [response] and any prior redirect responses.
+     */
+    private fun extractSetCookieFromResponseChain(response: Response): String? = generateSequence(response) { it.priorResponse }
+        .flatMap { hop -> hop.headers.values("Set-Cookie").asSequence() }
+        .mapNotNull(::extractWatchCookiePair)
+        .firstOrNull()
+
+    /**
+     * Resolves live episode watch-page URLs (`/anime/<slug>-episode-<N>`) when the primary watch URL cannot mint a cookie.
+     */
+    private suspend fun resolveFallbackWatchUrls(origin: String): List<String> {
+        val results = LinkedHashSet<String>()
+
+        suspendRunCatching {
+            val req = GET("$origin/api/recent-episodes", apiHeaders(), CacheControl.FORCE_NETWORK)
+            executeWithRetry(req, cookieMintClient).use { resp ->
+                if (!resp.isSuccessful) return@use
+                val dto = resp.parseAs<RecentEpisodesResponse>(json)
+                dto.schedules.asSequence()
+                    .filter { it.episode > 0 && it.media != null && !it.media.isAdult }
+                    .mapNotNull { item ->
+                        val slug = item.media?.slug?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+                        "$origin/anime/$slug-episode-${item.episode}"
+                    }
+                    .take(2)
+                    .forEach(results::add)
+            }
+        }
+        if (results.isNotEmpty()) return results.toList()
+
+        suspendRunCatching {
+            val docHeaders = headers.newBuilder().removeAll("Cookie").set("Referer", "$origin/").build()
+            val req = GET("$origin/", docHeaders, CacheControl.FORCE_NETWORK)
+            executeWithRetry(req, cookieMintClient).use { resp ->
+                if (!resp.isSuccessful) return@use
+                val html = resp.body.string()
+                HOME_WATCH_HREF_REGEX.findAll(html)
+                    .map { "$origin${it.groupValues[1]}" }
+                    .take(2)
+                    .forEach(results::add)
+            }
+        }
+        if (results.isNotEmpty()) return results.toList()
+
+        suspendRunCatching {
+            val docHeaders = headers.newBuilder().removeAll("Cookie").set("Referer", "$origin/").build()
+            val req = GET("$origin/recents.xml", docHeaders, CacheControl.FORCE_NETWORK)
+            executeWithRetry(req, cookieMintClient).use { resp ->
+                if (!resp.isSuccessful) return@use
+                val doc = Jsoup.parse(resp.body.string(), origin, Parser.xmlParser())
+                doc.select("item > link")
+                    .map { it.text().trim() }
+                    .filter { EPISODE_PATH_REGEX.containsMatchIn(it) }
+                    .take(2)
+                    .forEach(results::add)
+            }
+        }
+
+        return results.toList()
+    }
+
+    /**
+     * Parses a `shiro_watch=<value>` pair from a `Cookie` or `Set-Cookie` header string.
+     */
+    private fun extractWatchCookiePair(rawHeader: String?): String? {
+        if (rawHeader.isNullOrBlank()) return null
+        return rawHeader.split(';')
+            .map { it.trim() }
+            .firstOrNull { token ->
+                val eq = token.indexOf('=')
+                eq > 0 &&
+                    token.substring(0, eq).trim().equals(WATCH_COOKIE_NAME, ignoreCase = true) &&
+                    token.substring(eq + 1).trim().isNotEmpty()
+            }
+            ?.let { token ->
+                val value = token.substringAfter('=').trim()
+                "$WATCH_COOKIE_NAME=$value"
+            }
+    }
+
+    /**
+     * Merges [watchCookiePair] into an existing `Cookie` header while replacing any stale `shiro_watch` value.
+     */
+    private fun mergeCookieHeaderWithWatch(existingHeader: String?, watchCookiePair: String): String {
+        val normalizedWatch = extractWatchCookiePair(watchCookiePair) ?: watchCookiePair
+        val kept = existingHeader.orEmpty()
+            .split(';')
+            .map { it.trim() }
+            .filter { token ->
+                val eq = token.indexOf('=')
+                eq > 0 && !token.substring(0, eq).trim().equals(WATCH_COOKIE_NAME, ignoreCase = true)
+            }
+        return (kept + normalizedWatch).joinToString("; ")
+    }
+
+    /**
+     * Builds a complete `Cookie` header combining site cookies (such as `cf_clearance`) with [watchCookiePair].
+     */
+    private fun buildMergedCookieHeader(origin: String, watchCookiePair: String): String {
+        val normalizedWatch = extractWatchCookiePair(watchCookiePair) ?: watchCookiePair
+        val jarCookies = origin.toHttpUrlOrNull()?.let { httpUrl ->
+            runCatching {
+                network.cookieJar.loadForRequest(httpUrl)
+                    .filterNot { it.name.equals(WATCH_COOKIE_NAME, ignoreCase = true) }
+                    .map { "${it.name}=${it.value}" }
+            }.getOrNull()
+        }.orEmpty()
+        return (jarCookies + normalizedWatch).joinToString("; ")
     }
 
     /**
@@ -1054,7 +1365,7 @@ abstract class Anv : BaseSource() {
      */
     private suspend fun fetchSkipTimestamps(malId: Long, episode: Int, durationSec: Int): List<TimeStamp> = suspendRunCatching {
         val url = "$baseUrl/api/skip-times?malId=$malId&episode=$episode&duration=$durationSec"
-        client.newCall(GET(url, apiHeaders())).await().use { response ->
+        client.newCall(GET(url, apiHeaders(), CacheControl.FORCE_NETWORK)).await().use { response ->
             if (!response.isSuccessful) return emptyList()
             val dto = response.parseAs<SkipTimesResponse>(json)
             buildList {
@@ -1083,13 +1394,13 @@ abstract class Anv : BaseSource() {
     }.getOrDefault(emptyList())
 
     /**
-     * Builds stream request headers carrying `Origin`, `Referer`, and `shiro_watch` cookie.
+     * Builds stream request headers carrying `Origin`, `Referer`, and merged site + `shiro_watch` cookies.
      */
     private fun buildStreamHeaders(watchUrl: String, cookie: String): Headers = headers.newBuilder()
         .set("Accept", "*/*")
         .set("Origin", baseUrl)
         .set("Referer", watchUrl)
-        .set("Cookie", cookie)
+        .set("Cookie", buildMergedCookieHeader(baseUrl, cookie))
         .build()
 
     // ========================== Catalog & Cache ===========================
@@ -1182,12 +1493,15 @@ abstract class Anv : BaseSource() {
     }
 
     /**
-     * Executes an HTTP [request] with automatic backoff on HTTP 429 responses.
+     * Executes an HTTP [request] on [httpClient] with automatic backoff on HTTP 429 responses.
      */
-    private suspend fun executeWithRetry(request: Request): Response {
+    private suspend fun executeWithRetry(
+        request: Request,
+        httpClient: OkHttpClient = client,
+    ): Response {
         var attempt = 0
         while (true) {
-            val response = client.newCall(request).await()
+            val response = httpClient.newCall(request).await()
             if (response.code != 429 || attempt >= 2) {
                 return response
             }
@@ -1421,6 +1735,10 @@ abstract class Anv : BaseSource() {
         private const val DETAIL_CACHE_TTL_MS = 5 * 60 * 1_000L
         private const val MAX_DETAIL_CACHE = 64
 
+        private const val PREF_WATCH_COOKIE_VALUE_KEY = "anv_watch_cookie_val"
+        private const val PREF_WATCH_COOKIE_ORIGIN_KEY = "anv_watch_cookie_origin"
+        private const val PREF_WATCH_COOKIE_EXPIRES_KEY = "anv_watch_cookie_exp"
+
         private val FORCE_MPEGTS_MPV_ARGS = listOf("demuxer-lavf-o" to "force_mpegts=1")
         private val FORCE_MPEGTS_FFMPEG_ARGS = listOf("force_mpegts" to "1")
 
@@ -1430,7 +1748,7 @@ abstract class Anv : BaseSource() {
         private val EPISODE_TITLE_NUM_REGEX = Regex("""\b(?:episode|ep\.?)\s*(\d+)""", RegexOption.IGNORE_CASE)
         private val LEADING_EPISODE_LABEL_REGEX = Regex("""^episode\s*\d+\s*[—–:-]\s*""", RegexOption.IGNORE_CASE)
         private val RSS_EPISODE_SUFFIX_REGEX = Regex("""\s*[-—–]\s*Episode\s*\d+.*$""", RegexOption.IGNORE_CASE)
-        private val HOME_ANIME_HREF_REGEX = Regex("""href="(/anime/[a-zA-Z0-9-]{2,120})"""")
+        private val HOME_WATCH_HREF_REGEX = Regex("""href="(/anime/[a-zA-Z0-9-]+-episode-\d+)"""")
 
         private const val PREF_TITLE_LANG_KEY = "anv_title_lang"
         private const val PREF_TITLE_LANG_DEFAULT = "English"

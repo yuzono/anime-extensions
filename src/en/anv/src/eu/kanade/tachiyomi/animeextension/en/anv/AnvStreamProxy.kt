@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.en.anv
 import aniyomi.lib.m3u8server.AutoDetector
 import keiyoushi.network.rateLimit
 import okhttp3.Call
+import okhttp3.CookieJar
 import okhttp3.Dns
 import okhttp3.Headers
 import okhttp3.HttpUrl
@@ -98,6 +99,7 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
 
     private val client: OkHttpClient = baseClient.newBuilder()
         .cache(null)
+        .cookieJar(CookieJar.NO_COOKIES)
         .dns(publicOnlyDns)
         .addInterceptor(redirectGuardInterceptor)
         .protocols(listOf(Protocol.HTTP_1_1))
