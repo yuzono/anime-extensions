@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "Hanime1.me"
-    versionCode = 7
+    versionCode = 8
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
 

@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "Donghua no Sekai"
-    versionCode = 4
+    versionCode = 5
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 

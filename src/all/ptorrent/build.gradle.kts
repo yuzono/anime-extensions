@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "PTorrent (Torrent)"
-    versionCode = 5
+    versionCode = 6
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
     torrent = true

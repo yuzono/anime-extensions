@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "AnimeUnity"
-    versionCode = 9
+    versionCode = 10
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 

@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "GoogleDriveIndex"
-    versionCode = 7
+    versionCode = 8
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 

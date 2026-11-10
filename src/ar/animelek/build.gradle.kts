@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "AnimeLek"
-    versionCode = 41
+    versionCode = 42
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 

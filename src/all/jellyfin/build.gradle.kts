@@ -9,7 +9,7 @@ yuzono {
     // Remove when moving to a @Source class: with className set, KSP gets no source { } blocks and fails with
     // "@Source found but no source {} blocks"
     className = "JellyfinFactory"
-    versionCode = 32
+    versionCode = 33
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
 

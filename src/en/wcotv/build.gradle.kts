@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "WcoTv"
-    versionCode = 2
+    versionCode = 3
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "wcotheme"

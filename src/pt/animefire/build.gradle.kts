@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "Anime Fire"
-    versionCode = 10
+    versionCode = 11
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
 

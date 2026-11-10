@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "ShuttleTV"
-    versionCode = 1
+    versionCode = 2
     contentWarning = ContentWarning.MIXED
     libVersion = "16"
 
