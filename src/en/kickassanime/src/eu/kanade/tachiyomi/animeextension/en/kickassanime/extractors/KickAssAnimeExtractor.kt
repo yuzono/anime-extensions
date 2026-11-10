@@ -168,7 +168,7 @@ class KickAssAnimeExtractor(
         }
 
         return rawVideos.map {
-            Video(videoUrl = it.videoUrl, videoTitle = it.videoTitle, headers = videoHeaders, it.subtitleTracks, it.audioTracks)
+            Video(videoUrl = it.videoUrl, videoTitle = it.videoTitle, headers = videoHeaders, subtitleTracks = it.subtitleTracks, audioTracks = it.audioTracks)
         }
     }
 
@@ -220,7 +220,7 @@ class KickAssAnimeExtractor(
         }
 
         return rawVideos.map {
-            Video(videoUrl = it.videoUrl, videoTitle = it.videoTitle, headers = videoHeaders, it.subtitleTracks, it.audioTracks)
+            Video(videoUrl = it.videoUrl, videoTitle = it.videoTitle, headers = videoHeaders, subtitleTracks =  it.subtitleTracks, audioTracks = it.audioTracks)
         }
     }
 
