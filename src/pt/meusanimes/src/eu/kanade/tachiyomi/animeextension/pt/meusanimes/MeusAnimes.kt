@@ -283,11 +283,10 @@ abstract class MeusAnimes : AnimeHttpLegacySource() {
                     .forEach { video ->
                         videoList.add(
                             Video(
-                                video.videoUrl,
-                                "$prefix: ${video.videoTitle}",
-                                video.videoUrl,
-                                googleHeaders,
-                            ),
+                                videoUrl = video.videoUrl,
+                                videoTitle = "$prefix: ${video.videoTitle}",
+                                headers = googleHeaders,
+),
                         )
                     }
             }

@@ -366,7 +366,7 @@ abstract class MyReadingManga :
             set("Cookie", cookies)
         }.build()
 
-        return listOf(Video(videoUrl, "Default", videoUrl, customHeaders))
+        return listOf(Video(videoUrl = videoUrl, videoTitle = "Default", headers = customHeaders))
     }
 
     /*

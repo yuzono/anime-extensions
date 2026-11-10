@@ -57,7 +57,7 @@ abstract class Jable : AnimeHttpLegacySource() {
         val doc = response.asJsoup()
         val videoUrl = doc.selectFirst("script:containsData(var hlsUrl)")!!.data()
             .substringAfter("var hlsUrl = '").substringBefore("'")
-        return listOf(Video(videoUrl, "Default", videoUrl))
+        return listOf(Video(videoUrl = videoUrl, videoTitle = "Default"))
     }
 
     override fun latestUpdatesParse(response: Response): AnimesPage {

@@ -45,13 +45,13 @@ class LycorisExtractor(private val client: OkHttpClient) {
         val linkList = fetchAndDecodeVideo(client, headers, data.episodeInfo.id.toString())
 
         linkList.FHD?.takeIf { checkLinks(client, it) }?.let {
-            videos.add(Video(it, "${prefix}lycoris.cafe - 1080p", it))
+            videos.add(Video(videoUrl = it, videoTitle = "${prefix}lycoris.cafe - 1080p"))
         }
         linkList.HD?.takeIf { checkLinks(client, it) }?.let {
-            videos.add(Video(it, "${prefix}lycoris.cafe - 720p", it))
+            videos.add(Video(videoUrl = it, videoTitle = "${prefix}lycoris.cafe - 720p"))
         }
         linkList.SD?.takeIf { checkLinks(client, it) }?.let {
-            videos.add(Video(it, "${prefix}lycoris.cafe - 480p", it))
+            videos.add(Video(videoUrl = it, videoTitle = "${prefix}lycoris.cafe - 480p"))
         }
         return videos
     }

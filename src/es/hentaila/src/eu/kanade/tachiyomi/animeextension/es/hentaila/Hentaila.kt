@@ -286,7 +286,7 @@ abstract class Hentaila :
 
                         "voe" -> voeExtractor.videosFromUrl(each.url)
 
-                        "arc" -> listOf(Video(each.url.substringAfter("#"), "Arc", each.url.substringAfter("#")))
+                        "arc" -> listOf(Video(videoUrl = each.url.substringAfter("#"), videoTitle = "Arc"))
 
                         "yupi", "yourupload" -> yourUploadExtractor.videoFromUrl(each.url, headers = headers)
 

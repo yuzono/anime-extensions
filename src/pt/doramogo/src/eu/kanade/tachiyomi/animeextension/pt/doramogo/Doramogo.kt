@@ -178,7 +178,7 @@ abstract class Doramogo : ParsedAnimeHttpLegacySource() {
                 }
                 ?: return emptyList()
             listOf(
-                Video(mp4Url, "Streamable", mp4Url, headers),
+                Video(videoUrl = mp4Url, videoTitle = "Streamable", headers = headers),
             )
         }
 

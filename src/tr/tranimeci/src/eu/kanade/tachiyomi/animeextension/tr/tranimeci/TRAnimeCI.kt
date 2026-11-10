@@ -130,7 +130,7 @@ abstract class TRAnimeCI : AnimeStream() {
             .map {
                 val quality = it.substringAfter("name\":\"").substringBefore('"')
                 val url = it.substringAfter("url\":\"").substringBefore('"')
-                Video(url, quality, url, headers)
+                Video(videoUrl = url, videoTitle = quality, headers = headers)
             }
     }
 

@@ -32,7 +32,7 @@ class BloggerExtractor(private val client: OkHttpClient) {
                     .takeIf(String::isNotBlank)
                     ?: return@mapNotNull null
                 val format = it.substringAfter("\"format_id\":").substringBefore('}')
-                Video(videoUrl, "Blogger - ${qualityFromFormat(format)} $suffix".trimEnd(), videoUrl, headers)
+                Video(videoUrl = videoUrl, videoTitle = "Blogger - ${qualityFromFormat(format)} $suffix".trimEnd(), headers = headers)
             }
     }
 
@@ -98,7 +98,7 @@ class BloggerExtractor(private val client: OkHttpClient) {
 
                 val format = it.substringAfter("[").substringBefore("]")
                 val quality = qualityFromFormat(format)
-                Video(videoUrl, "Blogger - $quality $suffix".trimEnd(), videoUrl, headers)
+                Video(videoUrl = videoUrl, videoTitle = "Blogger - $quality $suffix".trimEnd(), headers = headers)
             }
     }
 

@@ -40,7 +40,7 @@ class CloseloadExtractor(private val client: OkHttpClient, private val headers: 
         }
 
         return listOf(
-            Video(playlistUrl, name, playlistUrl, videoHeaders, subtitleTracks = subtitles),
+            Video(videoUrl = playlistUrl, videoTitle = name, headers = videoHeaders, subtitleTracks = subtitles),
         )
     }
 

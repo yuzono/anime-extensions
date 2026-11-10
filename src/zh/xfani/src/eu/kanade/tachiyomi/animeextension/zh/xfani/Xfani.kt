@@ -167,9 +167,9 @@ abstract class Xfani :
             if (source == null) {
                 Video(url = "", quality = "", videoUrl = null)
             } else if (source.second.endsWith(currentPath)) {
-                Video("$baseUrl${source.second}", "$name-${source.first}", videoUrl = videoUrl)
+                Video(videoUrl = "$baseUrl${source.second}", videoTitle = "$name-${source.first}", videoUrl = videoUrl)
             } else {
-                Video("$baseUrl${source.second}", "$name-${source.first}", videoUrl = null)
+                Video(videoUrl = "$baseUrl${source.second}", videoTitle = "$name-${source.first}", videoUrl = null)
             }
         }.filter { it.videoTitle.isNotEmpty() }.sortedByDescending { it.videoUrl.isNotEmpty() }
     }

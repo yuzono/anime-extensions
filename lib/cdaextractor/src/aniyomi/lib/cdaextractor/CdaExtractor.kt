@@ -41,7 +41,7 @@ class CdaExtractor(private val client: OkHttpClient) {
         return data.video.qualities.map { quality ->
             if (quality.value == data.video.quality && quality.value != "lq") {
                 val videoUrl = decryptFile(data.video.file)
-                Video(videoUrl, "${prefix}cda.pl - ${quality.key}", videoUrl)
+                Video(videoUrl = videoUrl, videoTitle = "${prefix}cda.pl - ${quality.key}")
             } else {
                 val jsonBody = """
                     {
@@ -69,7 +69,7 @@ class CdaExtractor(private val client: OkHttpClient) {
                 val parsed = json.decodeFromString<PostResponse>(
                     response.body.string(),
                 )
-                Video(parsed.result.resp, "${prefix}cda.pl - ${quality.key}", parsed.result.resp)
+                Video(videoUrl = parsed.result.resp, videoTitle = "${prefix}cda.pl - ${quality.key}")
             }
         }
     }

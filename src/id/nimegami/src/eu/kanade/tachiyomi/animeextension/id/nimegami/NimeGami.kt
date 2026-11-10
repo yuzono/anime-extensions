@@ -178,7 +178,7 @@ abstract class NimeGami : ParsedAnimeHttpLegacySource() {
                     .selectFirst("source[src]")
                     ?.attr("src")
                     ?.let {
-                        listOf(Video(it, "Berkasdrive - $quality", it, headers))
+                        listOf(Video(videoUrl = it, videoTitle = "Berkasdrive - $quality", headers = headers))
                     } ?: emptyList()
             }
 
@@ -197,7 +197,7 @@ abstract class NimeGami : ParsedAnimeHttpLegacySource() {
                     ?.substringAfter("file\":\"", "")
                     ?.substringBefore('"')
                     ?.takeIf(String::isNotBlank)
-                    ?.let { listOf(Video(it, "HXFile - $quality", it, headers)) }
+                    ?.let { listOf(Video(videoUrl = it, videoTitle = "HXFile - $quality", headers = headers)) }
                     ?: emptyList()
             }
 
@@ -231,7 +231,7 @@ abstract class NimeGami : ParsedAnimeHttpLegacySource() {
             ?.let(urlPartRegex::findAll)
             ?.map { it.groupValues[1] }
             ?.chunkedPairs()
-            ?.map { (part, videoUrl) -> Video(videoUrl, "$quality - $part", videoUrl, headers) }
+            ?.map { (part, videoUrl) -> Video(videoUrl = videoUrl, videoTitle = "$quality - $part", headers = headers) }
             ?.toList()
             ?: emptyList()
     }

@@ -274,15 +274,15 @@ abstract class FunAnimeTV :
 
         if (json.videoUrlSd.startsWith("http")) {
             val videoUrl = json.videoUrl
-            videos.add(Video(videoUrl, "360p", videoUrl))
+            videos.add(Video(videoUrl = videoUrl, videoTitle = "360p"))
         }
         if (json.videoUrl.startsWith("http")) {
             val videoUrl = json.videoUrl
-            videos.add(Video(videoUrl, "720p", videoUrl))
+            videos.add(Video(videoUrl = videoUrl, videoTitle = "720p"))
         }
         if (json.videoUrlFhd.startsWith("http")) {
             val videoUrl = json.videoUrl
-            videos.add(Video(videoUrl, "1080p", videoUrl))
+            videos.add(Video(videoUrl = videoUrl, videoTitle = "1080p"))
         }
 
         return videos

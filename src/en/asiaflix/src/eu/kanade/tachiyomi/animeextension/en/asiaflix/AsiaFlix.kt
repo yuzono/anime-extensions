@@ -167,7 +167,7 @@ abstract class AsiaFlix : AnimeHttpLegacySource() {
                     videoNameGen = { quality -> "${host.source} - $quality" },
                 )
             } else {
-                listOf(Video(file.url, "${host.source} - Video", file.url, headers = videoHeaders))
+                listOf(Video(videoUrl = file.url, videoTitle = "${host.source} - Video", headers = videoHeaders))
             }
         }
     }.getOrDefault(emptyList())

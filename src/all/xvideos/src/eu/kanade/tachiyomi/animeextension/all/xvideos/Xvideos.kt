@@ -66,9 +66,9 @@ abstract class Xvideos :
         val hlsQuality = sourcesJson.substringAfter("setVideoHLS('").substringBefore("')")
         val highQuality = sourcesJson.substringAfter("VideoUrlHigh('").substringBefore("')")
         return listOf(
-            Video(lowQuality, "Low", lowQuality),
-            Video(hlsQuality, "HLS", hlsQuality),
-            Video(highQuality, "High", highQuality),
+            Video(videoUrl = lowQuality, videoTitle = "Low"),
+            Video(videoUrl = hlsQuality, videoTitle = "HLS"),
+            Video(videoUrl = highQuality, videoTitle = "High"),
         )
     }
 

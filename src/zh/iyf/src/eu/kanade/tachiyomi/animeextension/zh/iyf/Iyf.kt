@@ -154,7 +154,7 @@ abstract class Iyf : AnimeHttpLegacySource() {
         return play.clarity.filter { it.path != null }.map {
             val url = it.path!!.rtmp.toHttpUrl().newBuilder().removeAllQueryParameters("us").build()
                 .toString()
-            Video(url, it.title, url)
+            Video(videoUrl = url, videoTitle = it.title)
         }
     }
 

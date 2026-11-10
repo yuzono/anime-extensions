@@ -14,7 +14,7 @@ class FireLoadExtractor(
         val downloadLinkScript = document.selectFirst("script:contains(\"dlink\")")?.data()
         val downloadUrl = downloadLinkScript?.substringAfter("dlink\" : \"")?.substringBefore("\",")
         if (downloadUrl != null) {
-            return listOf(Video(downloadUrl, "FireLoad", downloadUrl))
+            return listOf(Video(videoUrl = downloadUrl, videoTitle = "FireLoad"))
         }
         return emptyList()
     }

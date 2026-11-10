@@ -13,6 +13,6 @@ class VidozaExtractor(private val client: OkHttpClient) {
         val script = document.select("script:containsData(window.pData = {)")
             .firstOrNull()?.data() ?: return null
         val videoUrl = script.substringAfter("sourcesCode: [{ src: \"").substringBefore("\", type:")
-        return Video(videoUrl, quality, videoUrl)
+        return Video(videoUrl = videoUrl, videoTitle = quality)
     }
 }

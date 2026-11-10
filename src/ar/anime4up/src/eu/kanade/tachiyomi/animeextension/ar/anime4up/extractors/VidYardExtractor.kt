@@ -22,7 +22,7 @@ class VidYardExtractor(private val client: OkHttpClient, private val headers: He
         return sources.map { source ->
             val src = source.substringAfter("url\":\"").substringBefore("\"")
             val quality = source.substringBefore("\"")
-            Video(src, quality, src, headers = newHeaders)
+            Video(videoUrl = src, videoTitle = quality, headers = newHeaders)
         }
     }
 }

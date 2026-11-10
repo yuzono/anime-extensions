@@ -248,7 +248,7 @@ abstract class AnimeAv1 :
             "yourupload" -> yourUploadExtractor.videoFromUrl(url, headers = headers, prefix = "$prefix ")
             "player.zilla" -> {
                 val m3u = url.replace("play/", "m3u8/")
-                listOf(Video(m3u, "$prefix HLS", m3u))
+                listOf(Video(videoUrl = m3u, videoTitle = "$prefix HLS"))
             }
             else -> universalExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
         }

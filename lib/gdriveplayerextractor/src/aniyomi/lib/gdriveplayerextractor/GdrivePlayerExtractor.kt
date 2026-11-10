@@ -42,7 +42,7 @@ class GdrivePlayerExtractor(private val client: OkHttpClient) {
                 val qualityStr = it.groupValues[2]
                 val quality = "$PLAYER_NAME ${qualityStr}p - $name"
                 val videoUrl = "https:" + it.groupValues[1] + "&res=$qualityStr"
-                Video(videoUrl, quality, videoUrl, subtitleTracks = subtitleList)
+                Video(videoUrl = videoUrl, videoTitle = quality, subtitleTracks = subtitleList)
             }.toList()
     }
 

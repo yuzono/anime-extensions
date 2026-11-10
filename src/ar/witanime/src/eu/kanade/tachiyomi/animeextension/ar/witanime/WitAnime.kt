@@ -157,7 +157,7 @@ abstract class WitAnime :
         }
 
         url.contains("dropbox") -> {
-            listOf(Video(url, "Dropbox mirror", url))
+            listOf(Video(videoUrl = url, videoTitle = "Dropbox mirror"))
         }
 
         url.contains("dailymotion") -> {

@@ -117,23 +117,21 @@ class KodikExtractor(
                             if (higher != streamUrl && isAvailable(higher, streamHeaders)) {
                                 add(
                                     Video(
-                                        higher,
-                                        "$label(1080p Kodik)",
-                                        higher,
+                                        videoUrl = higher,
+                                        videoTitle = "$label(1080p Kodik)",
                                         headers = streamHeaders,
                                         subtitleTracks = subtitleList,
-                                    ),
+),
                                 )
                             }
                         }
                         add(
                             Video(
-                                streamUrl,
-                                plainTitle,
-                                streamUrl,
+                                videoUrl = streamUrl,
+                                videoTitle = plainTitle,
                                 headers = streamHeaders,
                                 subtitleTracks = subtitleList,
-                            ),
+),
                         )
                     }
                 }

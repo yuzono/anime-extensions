@@ -138,7 +138,7 @@ abstract class AnimesOnlineCloud : DooPlay() {
                     .build()
 
                 return listOf(
-                    Video(videoUrl, name, videoUrl, videoHeaders),
+                    Video(videoUrl = videoUrl, videoTitle = name, headers = videoHeaders),
                 )
             }
 

@@ -71,10 +71,9 @@ abstract class AnimeSaturn :
         if (videoUrl.contains(".mp4")) {
             return listOf(
                 Video(
-                    videoUrl,
-                    "Qualità predefinita",
-                    videoUrl,
-                ),
+                    videoUrl = videoUrl,
+                    videoTitle = "Qualità predefinita",
+),
             )
         }
 

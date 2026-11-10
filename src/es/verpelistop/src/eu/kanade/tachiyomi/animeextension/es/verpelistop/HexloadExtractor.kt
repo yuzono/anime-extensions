@@ -34,7 +34,7 @@ class HexloadExtractor(private val client: OkHttpClient, private val headers: He
             ?.let { "$prefix: $it" }
             ?: prefix
 
-        return listOf(Video(video.url, quality, video.url, headers))
+        return listOf(Video(videoUrl = video.url, videoTitle = quality, headers = headers))
     }
 
     @Serializable

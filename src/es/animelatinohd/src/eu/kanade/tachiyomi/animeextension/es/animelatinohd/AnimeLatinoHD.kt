@@ -221,11 +221,11 @@ abstract class AnimeLatinoHD :
                                 }
 
                                 embedUrl.contains("od.lk") -> {
-                                    Video(url, language + "Od.lk", url).let(::listOf)
+                                    Video(videoUrl = url, videoTitle = language + "Od.lk").let(::listOf)
                                 }
 
                                 embedUrl.contains("cldup.com") -> {
-                                    Video(url, language + "CldUp", url).let(::listOf)
+                                    Video(videoUrl = url, videoTitle = language + "CldUp").let(::listOf)
                                 }
 
                                 else -> emptyList()

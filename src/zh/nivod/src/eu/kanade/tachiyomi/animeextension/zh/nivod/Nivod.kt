@@ -63,7 +63,7 @@ abstract class Nivod : AnimeHttpLegacySource() {
     override fun videoListParse(response: Response): List<Video> {
         val playInfo = response.parseAs<PlayInfo>()
         return playInfo.pdatas.map {
-            Video(it.playUrl, it.from.substring(0, 2).uppercase() + "云", it.playUrl)
+            Video(videoUrl = it.playUrl, videoTitle = it.from.substring(0, 2).uppercase() + "云")
         }
     }
 

@@ -73,7 +73,7 @@ abstract class Xiaoxintv : AnimeHttpLegacySource() {
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
         val videoUrl = findVideoUrl(document)
-        return listOf(Video(videoUrl, "小宝影院", videoUrl))
+        return listOf(Video(videoUrl = videoUrl, videoTitle = "小宝影院"))
     }
 
     override fun latestUpdatesParse(response: Response): AnimesPage = searchFilterParse(response)

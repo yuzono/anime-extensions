@@ -57,7 +57,7 @@ class MaxStreamExtractor(private val client: OkHttpClient, private val headers: 
             .body.string()
 
         val videoUrl = docBody.substringAfter(".cast('").substringBefore("'")
-        return listOf(Video(videoUrl, "MaxStream CAST Scarica", videoUrl, newHeaders))
+        return listOf(Video(videoUrl = videoUrl, videoTitle = "MaxStream CAST Scarica", headers = newHeaders))
     }
 
     companion object {

@@ -215,7 +215,7 @@ abstract class AnimeOnsen :
             Track(subUrl, language)
         }
 
-        val video = Video(videoUrl, "Default (720p)", videoUrl, headers, subtitleTracks = subs)
+        val video = Video(videoUrl = videoUrl, videoTitle = "Default (720p)", headers = headers, subtitleTracks = subs)
         return listOf(video)
     }
 

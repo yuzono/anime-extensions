@@ -25,6 +25,6 @@ class StreamZExtractor(private val client: OkHttpClient) {
             ),
         )
             .execute().request.url.toString()
-        return Video(url, quality, videoUrl)
+        return Video(videoUrl = videoUrl, videoTitle = quality)
     }
 }

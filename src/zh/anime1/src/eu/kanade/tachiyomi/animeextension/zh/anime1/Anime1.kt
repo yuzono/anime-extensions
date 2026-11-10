@@ -108,7 +108,7 @@ abstract class Anime1 :
             val newHeaders = cookieManager.getCookie(videoUrl)?.let { cookie ->
                 headers.newBuilder().add("cookie", cookie).build()
             }
-            Video(videoUrl, it.type, videoUrl, headers = newHeaders)
+            Video(videoUrl = videoUrl, videoTitle = it.type, headers = newHeaders)
         }
     }
 

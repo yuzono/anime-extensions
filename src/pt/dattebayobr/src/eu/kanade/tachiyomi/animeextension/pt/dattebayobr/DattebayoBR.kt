@@ -261,7 +261,7 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
 
                     if (assinatura.isNotBlank()) {
                         val urlFinal = urlQualidade + assinatura
-                        return@parallelCatchingFlatMapBlocking Video(urlFinal, qualityName, urlFinal, headers = adHeaders).let(::listOf)
+                        return@parallelCatchingFlatMapBlocking Video(videoUrl = urlFinal, videoTitle = qualityName, headers = adHeaders).let(::listOf)
                     }
                 }
             }

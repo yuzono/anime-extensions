@@ -11,7 +11,7 @@ class StreamDavExtractor(private val client: OkHttpClient) {
         return document.select("source").map {
             val videoUrl = it.attr("src")
             val quality = it.attr("label")
-            Video(url, "${prefix}StreamDav - ($quality)", videoUrl)
+            Video(videoUrl = videoUrl, videoTitle = "${prefix}StreamDav - ($quality)")
         }
     }
 }

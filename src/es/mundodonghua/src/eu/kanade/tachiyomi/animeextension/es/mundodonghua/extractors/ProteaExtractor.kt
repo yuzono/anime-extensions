@@ -40,7 +40,7 @@ class ProteaExtractor(private val baseUrl: String) {
                         .set("sec-gpc", "1")
                         .set("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.0.0 Safari/537.36")
                         .build()
-                    videoList.add(Video("https://$urlVideo", quality, "https://$urlVideo", headers = newHeaders))
+                    videoList.add(Video(videoUrl = "https://$urlVideo", videoTitle = quality, headers = newHeaders))
                 }
             }
         }

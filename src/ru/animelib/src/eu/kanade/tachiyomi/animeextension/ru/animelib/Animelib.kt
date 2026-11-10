@@ -517,7 +517,7 @@ abstract class Animelib :
 
             val quality = "${videoInfo.team.name} (${it.quality}p Animelib)"
 
-            Video(url, quality, url, subtitleTracks = subtitles)
+            Video(videoUrl = url, videoTitle = quality, subtitleTracks = subtitles)
         }
 
         return videoList
