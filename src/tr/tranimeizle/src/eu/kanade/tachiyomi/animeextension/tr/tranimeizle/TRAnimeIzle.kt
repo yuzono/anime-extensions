@@ -218,7 +218,7 @@ abstract class TRAnimeIzle :
                             headers = it.headers,
                             it.subtitleTracks,
                             it.audioTracks,
-)
+                        )
                     }
             }
     }

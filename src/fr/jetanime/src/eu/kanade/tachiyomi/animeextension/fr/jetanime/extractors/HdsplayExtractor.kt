@@ -37,7 +37,7 @@ class HdsplayExtractor(private val client: OkHttpClient) {
 
             else -> {
                 listOf(
-                    Video(videoUrl = videoUrl, videoTitle = "Sentinel: Video ($name)", subtitleTracks = subtitleList)titleList),
+                    Video(videoUrl = videoUrl, videoTitle = "Hdsplay: Video ($name)", subtitleTracks = subtitleList),
                 )
             }
         }

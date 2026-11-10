@@ -530,7 +530,7 @@ abstract class VVVVID :
             videoUrl = "$baseVideoUrl/$videoUrl",
             videoTitle = name,
             audioTracks = audioTracks,
-)
+        )
     }
 
     private fun getRandomIntString(): String {

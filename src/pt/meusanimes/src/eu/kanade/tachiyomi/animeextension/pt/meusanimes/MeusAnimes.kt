@@ -286,7 +286,7 @@ abstract class MeusAnimes : AnimeHttpLegacySource() {
                                 videoUrl = video.videoUrl,
                                 videoTitle = "$prefix: ${video.videoTitle}",
                                 headers = googleHeaders,
-),
+                            ),
                         )
                     }
             }

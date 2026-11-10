@@ -73,7 +73,7 @@ abstract class AnimeSaturn :
                 Video(
                     videoUrl = videoUrl,
                     videoTitle = "Qualità predefinita",
-),
+                ),
             )
         }
 

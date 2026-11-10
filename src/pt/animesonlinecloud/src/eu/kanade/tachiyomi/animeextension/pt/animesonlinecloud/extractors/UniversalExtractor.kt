@@ -94,7 +94,7 @@ class UniversalExtractor(private val client: OkHttpClient) {
                     videoUrl = resultUrl,
                     videoTitle = "$prefix: MP4",
                     headers = Headers.headersOf("referer", origRequestUrl),
-).let(::listOf)
+                ).let(::listOf)
             }
             else -> emptyList()
         }

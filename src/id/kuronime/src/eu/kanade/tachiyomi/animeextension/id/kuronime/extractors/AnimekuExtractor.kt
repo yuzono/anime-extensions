@@ -35,7 +35,7 @@ class AnimekuExtractor(private val client: OkHttpClient) {
             Video(
                 videoUrl = src.file,
                 videoTitle = "${src.label} - $name",
-)
+            )
         }
     }
 }

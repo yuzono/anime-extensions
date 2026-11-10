@@ -104,7 +104,7 @@ abstract class HentaiSaturn :
                 Video(
                     videoUrl = link,
                     videoTitle = qualities[i],
-)
+                )
             }
         } else {
             listOf(
@@ -112,7 +112,7 @@ abstract class HentaiSaturn :
                     videoUrl = url,
                     videoTitle = "Qualità predefinita",
                     headers = Headers.headersOf("Referer", referer),
-),
+                ),
             )
         }
     }
