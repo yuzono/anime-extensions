@@ -111,12 +111,17 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
         .build()
 
     private val totalCachedSegmentBytes = AtomicLong(0L)
+    private val activeBatchId = AtomicLong(0L)
+    private val activePlayingEntryId = AtomicReference<String?>(null)
 
     private class SegmentTask(
         val callRef: AtomicReference<Call?> = AtomicReference(null),
         val accountedBytes: AtomicLong = AtomicLong(0L),
         @Volatile var future: Future<ByteArray>? = null,
     ) {
+        /**
+         * Cancels both the underlying OkHttp [Call] and worker [Future].
+         */
         fun cancel() {
             callRef.getAndSet(null)?.cancel()
             future?.cancel(true)
@@ -136,6 +141,7 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
 
     private inner class HlsEntry(
         val id: String,
+        val batchId: Long,
         val originHost: String?,
         @Volatile var masterUrl: String,
         @Volatile var activeVariantUrl: String?,
@@ -184,6 +190,9 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
             },
         )
 
+        /**
+         * Records a validated HTTP(S) URL in this entry's per-stream allowlist.
+         */
         fun allowUrl(url: String): Boolean {
             val validated = validatePublicHttpUrl(url) ?: return false
             allowedUrls[validated.toString()] = true
@@ -193,11 +202,17 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
             return true
         }
 
+        /**
+         * Returns `true` if [url] was previously emitted by a rewritten playlist for this entry.
+         */
         fun isAllowedUrl(url: String): Boolean {
             val validated = validatePublicHttpUrl(url) ?: return false
             return allowedUrls.containsKey(url) || allowedUrls.containsKey(validated.toString())
         }
 
+        /**
+         * Removes a served segment task from [segmentCache] and releases its byte accounting.
+         */
         fun evictCompletedSegment(url: String, task: SegmentTask) {
             synchronized(segmentCache) {
                 if (segmentCache[url] === task) {
@@ -207,6 +222,9 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
             }
         }
 
+        /**
+         * Cancels a failed or timed-out segment task and removes it from [segmentCache].
+         */
         fun cancelAndRemoveSegment(url: String, task: SegmentTask) {
             synchronized(segmentCache) {
                 if (segmentCache[url] === task) {
@@ -217,7 +235,10 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
             releaseTaskBytes(task)
         }
 
-        fun dispose() {
+        /**
+         * Cancels in-flight segment tasks and releases cached segment/key buffers while keeping route metadata.
+         */
+        fun clearMediaBuffers() {
             val tasks = synchronized(segmentCache) {
                 val copy = segmentCache.values.toList()
                 segmentCache.clear()
@@ -228,6 +249,13 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
                 releaseTaskBytes(task)
             }
             keyCache.clear()
+        }
+
+        /**
+         * Releases all buffered data and URL tables when this entry is permanently evicted.
+         */
+        fun dispose() {
+            clearMediaBuffers()
             segmentRemap.clear()
             allowedUrls.clear()
         }
@@ -242,6 +270,7 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
 
     private class SubEntry(
         val id: String,
+        val batchId: Long,
         val originHost: String?,
         val trackLookupKey: String,
         @Volatile var url: String,
@@ -256,25 +285,11 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
     }
 
     private val hlsEntries: MutableMap<String, HlsEntry> = Collections.synchronizedMap(
-        object : LinkedHashMap<String, HlsEntry>(16, 0.75f, true) {
-            override fun removeEldestEntry(
-                eldest: MutableMap.MutableEntry<String, HlsEntry>?,
-            ): Boolean {
-                val evict = size > MAX_HLS_ENTRIES
-                if (evict) {
-                    eldest?.value?.dispose()
-                }
-                return evict
-            }
-        },
+        LinkedHashMap(64, 0.75f, true),
     )
 
     private val subEntries: MutableMap<String, SubEntry> = Collections.synchronizedMap(
-        object : LinkedHashMap<String, SubEntry>(64, 0.75f, true) {
-            override fun removeEldestEntry(
-                eldest: MutableMap.MutableEntry<String, SubEntry>?,
-            ): Boolean = size > MAX_SUB_ENTRIES
-        },
+        LinkedHashMap(64, 0.75f, true),
     )
 
     private val acceptExecutor = Executors.newSingleThreadExecutor(daemonFactory("anv-proxy-accept"))
@@ -292,9 +307,67 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
     private var server: ServerSocket? = null
 
     /**
-     * Registers an HLS master or variant stream and returns a local loopback `.m3u8` URL.
+     * Begins a new `getHosterList` registration batch and disposes stale entries from older episodes.
+     */
+    fun startBatch(): Long {
+        val nextBatch = activeBatchId.incrementAndGet()
+        pruneStaleEntries(nextBatch)
+        return nextBatch
+    }
+
+    /**
+     * Evicts entries older than the previous episode batch and enforces hard capacity on non-active batches.
+     */
+    private fun pruneStaleEntries(currentBatch: Long) {
+        val minRetainedBatch = currentBatch - 1L
+        val evictedHls = mutableListOf<HlsEntry>()
+        synchronized(hlsEntries) {
+            val iter = hlsEntries.entries.iterator()
+            while (iter.hasNext()) {
+                val candidate = iter.next().value
+                if (candidate.batchId < minRetainedBatch && candidate.id != activePlayingEntryId.get()) {
+                    evictedHls.add(candidate)
+                    iter.remove()
+                }
+            }
+            if (hlsEntries.size > MAX_HLS_ENTRIES) {
+                val overflowIter = hlsEntries.entries.iterator()
+                while (hlsEntries.size > MAX_HLS_ENTRIES && overflowIter.hasNext()) {
+                    val candidate = overflowIter.next().value
+                    if (candidate.batchId < currentBatch) {
+                        evictedHls.add(candidate)
+                        overflowIter.remove()
+                    }
+                }
+            }
+        }
+        evictedHls.forEach(HlsEntry::dispose)
+
+        synchronized(subEntries) {
+            val iter = subEntries.entries.iterator()
+            while (iter.hasNext()) {
+                val candidate = iter.next().value
+                if (candidate.batchId < minRetainedBatch) {
+                    iter.remove()
+                }
+            }
+            if (subEntries.size > MAX_SUB_ENTRIES) {
+                val overflowIter = subEntries.entries.iterator()
+                while (subEntries.size > MAX_SUB_ENTRIES && overflowIter.hasNext()) {
+                    val candidate = overflowIter.next().value
+                    if (candidate.batchId < currentBatch) {
+                        overflowIter.remove()
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Registers an HLS master or variant stream in [batchId] and returns a local loopback `.m3u8` URL.
      */
     fun registerHls(
+        batchId: Long,
         masterUrl: String,
         variantUrl: String?,
         targetHeight: Int?,
@@ -307,6 +380,7 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
         val originHost = extractOriginHost(headers, masterUrl)
         val entry = HlsEntry(
             id = token,
+            batchId = batchId,
             originHost = originHost,
             masterUrl = masterUrl,
             activeVariantUrl = variantUrl,
@@ -318,7 +392,10 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
         entry.allowUrl(masterUrl)
         variantUrl?.let(entry::allowUrl)
         registerSessionKeyUrls(entry, initialSessionKeys)
-        hlsEntries[token] = entry
+        synchronized(hlsEntries) {
+            hlsEntries[token] = entry
+        }
+        pruneStaleEntries(activeBatchId.get())
         return if (variantUrl != null) {
             "http://127.0.0.1:$port/hls/$token/variant.m3u8"
         } else {
@@ -327,9 +404,10 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
     }
 
     /**
-     * Registers an external subtitle track and returns a local loopback `.vtt` URL.
+     * Registers an external subtitle track in [batchId] and returns a local loopback `.vtt` URL.
      */
     fun registerSubtitle(
+        batchId: Long,
         trackLookupKey: String,
         url: String,
         headers: Headers,
@@ -338,15 +416,29 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
         val port = ensureServer()
         val token = generateCapabilityToken("s")
         val originHost = extractOriginHost(headers, url)
-        subEntries[token] = SubEntry(
-            id = token,
-            originHost = originHost,
-            trackLookupKey = trackLookupKey,
-            url = url,
-            headers = headers,
-            refresh = refresh,
-        )
+        synchronized(subEntries) {
+            subEntries[token] = SubEntry(
+                id = token,
+                batchId = batchId,
+                originHost = originHost,
+                trackLookupKey = trackLookupKey,
+                url = url,
+                headers = headers,
+                refresh = refresh,
+            )
+        }
+        pruneStaleEntries(activeBatchId.get())
         return "http://127.0.0.1:$port/sub/$token.vtt"
+    }
+
+    /**
+     * Marks [entry] as the active playback stream and releases segment buffers held by any prior stream.
+     */
+    private fun markActivePlayingEntry(entry: HlsEntry) {
+        val prevId = activePlayingEntryId.getAndSet(entry.id)
+        if (prevId != null && prevId != entry.id) {
+            hlsEntries[prevId]?.clearMediaBuffers()
+        }
     }
 
     /**
@@ -483,6 +575,7 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
             }
             "init", "init.mp4" -> {
                 val url = requireAllowedTarget(entry, targetParam, headOnly, out) ?: return
+                markActivePlayingEntry(entry)
                 if (rangeHeader != null) {
                     val ranged = fetchRangedBinaryWithRefresh(entry, url, rangeHeader, isSegment = false)
                     writeResponse(out, ranged.statusCode, "video/mp4", ranged.bytes, headOnly, ranged.contentRange)
@@ -493,6 +586,7 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
             }
             "seg", "seg.ts", "seg.m4s" -> {
                 val url = requireAllowedTarget(entry, targetParam, headOnly, out) ?: return
+                markActivePlayingEntry(entry)
                 if (rangeHeader != null && (entry.isEncrypted || entry.isFmp4 || entry.hasByteRange)) {
                     val ranged = fetchRangedBinaryWithRefresh(entry, url, rangeHeader, isSegment = true)
                     val contentType = detectMediaContentType(ranged.bytes, url)
@@ -1258,8 +1352,8 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
         private const val MAX_CONN_THREADS = 16
         private const val PREFETCH_COUNT = 2
         private const val SEGMENT_CACHE_SIZE = 3
-        private const val MAX_HLS_ENTRIES = 12
-        private const val MAX_SUB_ENTRIES = 96
+        private const val MAX_HLS_ENTRIES = 256
+        private const val MAX_SUB_ENTRIES = 256
         private const val MAX_KEYS_PER_ENTRY = 32
         private const val MAX_ALLOWED_URLS_PER_ENTRY = 4_096
         private const val MAX_REMAP_ENTRIES_PER_STREAM = 2_048
@@ -1526,6 +1620,9 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
             return sb.toString()
         }
 
+        /**
+         * Detects `GIF87a`/`GIF89a` magic headers whose `0x47` byte mimics MPEG-TS sync.
+         */
         private fun startsWithGifSignature(bytes: ByteArray): Boolean = bytes.size >= 6 &&
             bytes[0] == 0x47.toByte() &&
             bytes[1] == 0x49.toByte() &&
@@ -1534,12 +1631,18 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
             (bytes[4] == 0x37.toByte() || bytes[4] == 0x39.toByte()) &&
             bytes[5] == 0x61.toByte()
 
+        /**
+         * Checks whether [bytes] begins with an ISO BMFF / fMP4 box header.
+         */
         private fun isFmp4Segment(bytes: ByteArray): Boolean {
             if (bytes.size < 8) return false
             val boxType = String(bytes, 4, 4, Charsets.ISO_8859_1)
             return boxType in FMP4_BOX_TYPES
         }
 
+        /**
+         * Selects the MIME content type for a media segment based on magic bytes or extension.
+         */
         private fun detectMediaContentType(bytes: ByteArray, url: String): String = when {
             bytes.isNotEmpty() && bytes[0] == MPEG_TS_SYNC_BYTE && !startsWithGifSignature(bytes) -> "video/mp2t"
             isFmp4Segment(bytes) -> "video/mp4"
@@ -1562,6 +1665,9 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
             return 2_000L
         }
 
+        /**
+         * Creates a daemon [ThreadFactory] for background proxy worker pools.
+         */
         private fun daemonFactory(prefix: String): ThreadFactory = ThreadFactory { runnable ->
             Thread(runnable, prefix).apply { isDaemon = true }
         }

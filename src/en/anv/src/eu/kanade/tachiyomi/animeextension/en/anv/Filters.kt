@@ -2,20 +2,10 @@ package eu.kanade.tachiyomi.animeextension.en.anv
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
-import kotlinx.serialization.Serializable
 import java.util.Calendar
 
 /**
- * Response payload for the `CatalogFilters` operation returning available genres and years.
- */
-@Serializable
-class CatalogFiltersData(
-    val genres: List<String> = emptyList(),
-    val years: List<Int> = emptyList(),
-)
-
-/**
- * Builds and parses catalog search filters for the Anv source.
+ * Builds and parses static catalog search filters for the Anv source.
  */
 object Filters {
 
@@ -55,7 +45,7 @@ object Filters {
         "Fall" to "FALL",
     )
 
-    private val DEFAULT_GENRES = listOf(
+    private val GENRES = listOf(
         "Action",
         "Adventure",
         "Cars",
@@ -72,6 +62,7 @@ object Filters {
         "Josei",
         "Kids",
         "Magic",
+        "Mahou Shoujo",
         "Martial Arts",
         "Mecha",
         "Military",
@@ -96,54 +87,31 @@ object Filters {
         "Vampire",
     )
 
-    @Volatile
-    private var cachedGenres: List<String> = DEFAULT_GENRES
-
-    @Volatile
-    private var cachedYears: List<String> = buildDefaultYears()
-
     /**
-     * Generates a descending list of release years from next year down to 1960.
+     * Generates descending release year options from next year down to 1940.
      */
-    private fun buildDefaultYears(): List<String> {
+    private fun buildYearOptions(): Array<Pair<String, String>> {
         val maxYear = Calendar.getInstance().get(Calendar.YEAR) + 1
-        return (maxYear downTo 1960).map { it.toString() }
-    }
-
-    /**
-     * Replaces cached genre and year lists with live values fetched from ANV's catalog API.
-     */
-    fun updateDynamicFilters(genres: List<String>, years: List<Int>) {
-        val cleanGenres = genres.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
-        if (cleanGenres.isNotEmpty()) {
-            cachedGenres = cleanGenres
-        }
-        val cleanYears = years.filter { it in 1940..2100 }.sortedDescending().map { it.toString() }
-        if (cleanYears.isNotEmpty()) {
-            cachedYears = cleanYears
-        }
-    }
-
-    /**
-     * Constructs a fresh [AnimeFilterList] populated with the latest genres and years.
-     */
-    fun buildFilterList(): AnimeFilterList {
-        val yearPairs = buildList {
+        return buildList {
             add("Any" to "")
-            cachedYears.forEach { add(it to it) }
+            for (year in maxYear downTo 1940) {
+                val label = year.toString()
+                add(label to label)
+            }
         }.toTypedArray()
-
-        val genreCheckboxes = cachedGenres.map { GenreCheckBox(it) }
-
-        return AnimeFilterList(
-            SortFilter(),
-            FormatFilter(),
-            StatusFilter(),
-            SeasonFilter(),
-            YearFilter(yearPairs),
-            GenreFilter(genreCheckboxes),
-        )
     }
+
+    /**
+     * Constructs a fresh [AnimeFilterList] with all supported sort, format, status, season, year, and genre filters.
+     */
+    fun buildFilterList(): AnimeFilterList = AnimeFilterList(
+        SortFilter(),
+        FormatFilter(),
+        StatusFilter(),
+        SeasonFilter(),
+        YearFilter(buildYearOptions()),
+        GenreFilter(GENRES.map { GenreCheckBox(it) }),
+    )
 
     /**
      * Parsed filter selections ready to pass to `BrowseAnime`.
@@ -216,12 +184,24 @@ object Filters {
             get() = vals.getOrNull(state)?.second.orEmpty()
     }
 
+    /** Sort order dropdown filter. */
     class SortFilter : UriPartFilter("Sort By", SORT_OPTIONS)
+
+    /** Media format dropdown filter. */
     class FormatFilter : UriPartFilter("Format", FORMAT_OPTIONS)
+
+    /** Airing status dropdown filter. */
     class StatusFilter : UriPartFilter("Airing Status", STATUS_OPTIONS)
+
+    /** Release season dropdown filter. */
     class SeasonFilter : UriPartFilter("Season", SEASON_OPTIONS)
+
+    /** Release year dropdown filter. */
     class YearFilter(options: Array<Pair<String, String>>) : UriPartFilter("Year", options)
 
+    /** Individual genre checkbox item. */
     class GenreCheckBox(name: String) : AnimeFilter.CheckBox(name, false)
+
+    /** Multi-select genre checkbox group. */
     class GenreFilter(genres: List<GenreCheckBox>) : AnimeFilter.Group<GenreCheckBox>("Genres & Demographics", genres)
 }

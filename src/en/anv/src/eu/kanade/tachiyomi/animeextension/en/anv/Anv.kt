@@ -21,19 +21,13 @@ import keiyoushi.utils.addSwitchPreference
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -44,7 +38,6 @@ import org.jsoup.parser.Parser
 import java.io.IOException
 import java.util.Collections
 import java.util.LinkedHashMap
-import java.util.concurrent.atomic.AtomicBoolean
 import keiyoushi.utils.Source as BaseSource
 
 /**
@@ -100,8 +93,6 @@ abstract class Anv : BaseSource() {
 
     private val streamProxy by lazy { AnvStreamProxy(network.client) }
 
-    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
     private class CachedMedia(
         val media: MediaDto,
         val expiresAtMs: Long,
@@ -116,6 +107,7 @@ abstract class Anv : BaseSource() {
     )
 
     private val cookieLock = Any()
+    private val homePagingLock = Any()
 
     @Volatile
     private var cachedWatchCookie: String? = null
@@ -126,15 +118,13 @@ abstract class Anv : BaseSource() {
     @Volatile
     private var cookieExpiresAtMs: Long = 0L
 
-    @Volatile
     private var homePageUsed: Boolean = false
+    private var homeNextBrowsePage: Int = 1
+    private val homeSeenIds: MutableSet<Long> = HashSet()
 
-    @Volatile
-    private var homeSeenIds: Set<Long> = emptySet()
-
-    private val catalogFiltersLoaded = AtomicBoolean(false)
-    private val catalogFiltersMutex = Mutex()
-
+    /**
+     * Adds the default `Referer` header pointing to the configured ANV base URL.
+     */
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .set("Referer", "$baseUrl/")
 
@@ -153,11 +143,39 @@ abstract class Anv : BaseSource() {
      * Fetches popular, trending, top-rated, or home-featured anime pages.
      */
     override suspend fun getPopularAnime(page: Int): AnimesPage = withContext(Dispatchers.IO) {
-        ensureCatalogFiltersAsync()
+        if (prefPopularMode == "HOME") {
+            return@withContext fetchHomePopularPage(page)
+        }
 
-        if (prefPopularMode == "HOME" && page == 1) {
-            homePageUsed = false
-            homeSeenIds = emptySet()
+        val sortOrder = when (prefPopularMode) {
+            "TRENDING_DESC" -> "TRENDING_DESC"
+            "SCORE_DESC" -> "SCORE_DESC"
+            else -> "POPULARITY_DESC"
+        }
+        val variables = BrowseVariables(
+            page = page.coerceAtLeast(1),
+            perPage = PAGE_SIZE,
+            sort = listOf(sortOrder),
+            isAdult = false,
+        )
+        val pageData = executeCatalog<BrowseVariables, CatalogPageData>("BrowseAnime", variables)
+        val mediaPage = pageData?.page
+        val items = mediaPage?.media.orEmpty()
+            .filter { !it.isAdult }
+            .map { it.toSAnime(prefTitleLang) }
+        AnimesPage(items, mediaPage?.pageInfo?.hasNextPage == true)
+    }
+
+    /**
+     * Serves `HomeAnime` on page 1 and deduplicated `BrowseAnime` batches on subsequent or fallback pages.
+     */
+    private suspend fun fetchHomePopularPage(page: Int): AnimesPage {
+        if (page <= 1) {
+            synchronized(homePagingLock) {
+                homePageUsed = false
+                homeNextBrowsePage = 1
+                homeSeenIds.clear()
+            }
             val homeData = suspendRunCatching {
                 executeCatalog<EmptyVariables, CatalogHomeData>("HomeAnime", EmptyVariables())
             }.getOrNull()
@@ -167,44 +185,65 @@ abstract class Anv : BaseSource() {
             }.distinctBy { it.id }.filter { !it.isAdult }
 
             if (combined.isNotEmpty()) {
-                homePageUsed = true
-                homeSeenIds = combined.mapNotNullTo(HashSet()) { it.id.takeIf { id -> id > 0L } }
-                return@withContext AnimesPage(
+                synchronized(homePagingLock) {
+                    homePageUsed = true
+                    homeNextBrowsePage = 1
+                    combined.forEach { media ->
+                        if (media.id > 0L) homeSeenIds.add(media.id)
+                    }
+                }
+                return AnimesPage(
                     combined.map { it.toSAnime(prefTitleLang) },
                     true,
                 )
             }
         }
 
-        val sortOrder = when (prefPopularMode) {
-            "TRENDING_DESC" -> "TRENDING_DESC"
-            "SCORE_DESC" -> "SCORE_DESC"
-            else -> "POPULARITY_DESC"
+        val (startCatalogPage, filterSeen) = synchronized(homePagingLock) {
+            if (homePageUsed) {
+                homeNextBrowsePage to HashSet(homeSeenIds)
+            } else {
+                page.coerceAtLeast(1) to emptySet<Long>()
+            }
         }
-        val effectivePage = if (prefPopularMode == "HOME" && homePageUsed) {
-            (page - 1).coerceAtLeast(1)
-        } else {
-            page.coerceAtLeast(1)
+
+        var currentCatalogPage = startCatalogPage
+        repeat(3) {
+            val variables = BrowseVariables(
+                page = currentCatalogPage,
+                perPage = PAGE_SIZE,
+                sort = listOf("POPULARITY_DESC"),
+                isAdult = false,
+            )
+            val pageData = executeCatalog<BrowseVariables, CatalogPageData>("BrowseAnime", variables)
+            val mediaPage = pageData?.page
+            val hasNext = mediaPage?.pageInfo?.hasNextPage == true
+            val unseen = mediaPage?.media.orEmpty()
+                .filter { !it.isAdult && (it.id <= 0L || it.id !in filterSeen) }
+
+            currentCatalogPage++
+            if (unseen.isNotEmpty() || !hasNext) {
+                synchronized(homePagingLock) {
+                    if (homePageUsed) {
+                        homeNextBrowsePage = currentCatalogPage
+                        unseen.forEach { media ->
+                            if (media.id > 0L) homeSeenIds.add(media.id)
+                        }
+                    }
+                }
+                return AnimesPage(
+                    unseen.map { it.toSAnime(prefTitleLang) },
+                    hasNext,
+                )
+            }
         }
-        val variables = BrowseVariables(
-            page = effectivePage,
-            perPage = PAGE_SIZE,
-            sort = listOf(sortOrder),
-            isAdult = false,
-        )
-        val pageData = executeCatalog<BrowseVariables, CatalogPageData>("BrowseAnime", variables)
-        val mediaPage = pageData?.page
-        val safeMedia = mediaPage?.media.orEmpty().filter { !it.isAdult }
-        val dedupedMedia = if (prefPopularMode == "HOME" && homePageUsed && effectivePage == 1) {
-            val filtered = safeMedia.filter { it.id !in homeSeenIds }
-            filtered.ifEmpty { if (mediaPage?.pageInfo?.hasNextPage == true) emptyList() else safeMedia }
-        } else {
-            safeMedia
+
+        synchronized(homePagingLock) {
+            if (homePageUsed) {
+                homeNextBrowsePage = currentCatalogPage
+            }
         }
-        AnimesPage(
-            dedupedMedia.map { it.toSAnime(prefTitleLang) },
-            mediaPage?.pageInfo?.hasNextPage == true,
-        )
+        return AnimesPage(emptyList(), false)
     }
 
     // =============================== Latest ===============================
@@ -267,18 +306,9 @@ abstract class Anv : BaseSource() {
     // =============================== Search ===============================
 
     /**
-     * Loads dynamic genres/years (if not yet cached) and builds the search filter list.
+     * Returns the search filter list synchronously without blocking the UI thread.
      */
-    override fun getFilterList(): AnimeFilterList {
-        if (!catalogFiltersLoaded.get()) {
-            runBlocking(Dispatchers.IO) {
-                withTimeoutOrNull(FILTER_LOAD_TIMEOUT_MS) {
-                    ensureCatalogFiltersLoaded()
-                }
-            }
-        }
-        return Filters.buildFilterList()
-    }
+    override fun getFilterList(): AnimeFilterList = Filters.buildFilterList()
 
     /**
      * Searches ANV by query, filters, `slug:` prefix, or direct `/anime/...` URL.
@@ -347,6 +377,9 @@ abstract class Anv : BaseSource() {
 
     // =========================== Anime Details ============================
 
+    /**
+     * Resolves the canonical public web URL for [anime].
+     */
     override fun getAnimeUrl(anime: SAnime): String {
         val cleanPath = anime.url.substringBefore('#').trim()
         return absolutizeUrl(cleanPath) ?: "$baseUrl/browse"
@@ -399,6 +432,9 @@ abstract class Anv : BaseSource() {
 
     // ============================== Episodes ==============================
 
+    /**
+     * Resolves the canonical public watch URL for [episode].
+     */
     override fun getEpisodeUrl(episode: SEpisode): String {
         val cleanPath = episode.url.substringBefore('#').trim()
         return absolutizeUrl(cleanPath) ?: baseUrl
@@ -555,6 +591,7 @@ abstract class Anv : BaseSource() {
 
         val streamHeaders = buildStreamHeaders(watchUrl, activeCookie)
         val useProxy = prefLocalProxy
+        val batchId = if (useProxy) streamProxy.startBatch() else 0L
 
         class SourceCandidate(
             val variantId: String,
@@ -602,6 +639,7 @@ abstract class Anv : BaseSource() {
         val hosters = candidates.map { candidate ->
             async(Dispatchers.IO) {
                 buildHosterForCandidate(
+                    batchId = batchId,
                     candidateVariantId = candidate.variantId,
                     audioLabel = candidate.audioLabel,
                     serverLabel = candidate.serverLabel,
@@ -632,12 +670,16 @@ abstract class Anv : BaseSource() {
         }.sortHosters()
     }
 
+    /**
+     * Returns the pre-resolved [Video] list attached to [hoster].
+     */
     override suspend fun getVideoList(hoster: Hoster): List<Video> = hoster.videoList.orEmpty()
 
     /**
      * Parses a candidate master HLS stream into resolution [Video] entries and subtitle [Track]s.
      */
     private suspend fun buildHosterForCandidate(
+        batchId: Long,
         candidateVariantId: String,
         audioLabel: String,
         serverLabel: String,
@@ -664,6 +706,7 @@ abstract class Anv : BaseSource() {
             val lookupKey = trackKey(track)
             val finalSubUrl = if (useProxy) {
                 streamProxy.registerSubtitle(
+                    batchId = batchId,
                     trackLookupKey = lookupKey,
                     url = absSubUrl,
                     headers = streamHeaders,
@@ -704,6 +747,7 @@ abstract class Anv : BaseSource() {
                     val qualityText = resHeight?.let { "${it}p" } ?: "Stream ${idx + 1}"
                     val playUrl = if (useProxy) {
                         streamProxy.registerHls(
+                            batchId = batchId,
                             masterUrl = parsedMaster?.finalUrl ?: masterUrl,
                             variantUrl = variant.url,
                             targetHeight = resHeight,
@@ -732,6 +776,7 @@ abstract class Anv : BaseSource() {
                 val effectiveMaster = parsedMaster?.finalUrl ?: masterUrl
                 val autoUrl = if (useProxy) {
                     streamProxy.registerHls(
+                        batchId = batchId,
                         masterUrl = effectiveMaster,
                         variantUrl = null,
                         targetHeight = null,
@@ -767,6 +812,9 @@ abstract class Anv : BaseSource() {
         )
     }
 
+    /**
+     * Sorts hosters according to the user's preferred audio variant and server order.
+     */
     override fun List<Hoster>.sortHosters(): List<Hoster> {
         val wantedAudio = prefAudio
         val wantedServer = prefServer
@@ -780,6 +828,9 @@ abstract class Anv : BaseSource() {
         )
     }
 
+    /**
+     * Sorts video qualities with the user's preferred resolution first, then descending height.
+     */
     override fun List<Video>.sortVideos(): List<Video> {
         val wantedRes = prefQuality.removeSuffix("p").toIntOrNull() ?: 1080
         return sortedWith(
@@ -788,6 +839,9 @@ abstract class Anv : BaseSource() {
         )
     }
 
+    /**
+     * Assigns a deterministic tie-breaker priority across ANV's built-in servers.
+     */
     private fun serverPriorityIndex(hosterName: String): Int {
         val lower = hosterName.lowercase()
         return when {
@@ -873,15 +927,15 @@ abstract class Anv : BaseSource() {
         val (code, firstPayload) = postEpisodeRequest(primaryId, malId, episode, watchUrl, freshCookie)
         var payload = firstPayload
         var cookieToUse = freshCookie
-        if (code == 401 || code == 403 || payload?.status != "ready") {
+        if (code == 401 || code == 403 || !payload?.status.equals("ready", ignoreCase = true)) {
             cookieToUse = suspendRunCatching { ensureWatchCookie(watchUrl, forceRefresh = true) }.getOrNull()
                 ?: return null
             payload = postEpisodeRequest(primaryId, malId, episode, watchUrl, cookieToUse).second
-            if ((payload == null || payload.status != "ready") && fallbackBannerId != null) {
+            if ((payload == null || !payload.status.equals("ready", ignoreCase = true)) && fallbackBannerId != null) {
                 payload = postEpisodeRequest(fallbackBannerId, malId, episode, watchUrl, cookieToUse).second
             }
         }
-        val ready = payload?.takeIf { it.status == "ready" } ?: return null
+        val ready = payload?.takeIf { it.status.equals("ready", ignoreCase = true) } ?: return null
         val variant = ready.variants.firstOrNull { it.id.equals(variantId, ignoreCase = true) }
             ?: ready.variants.firstOrNull()
             ?: return null
@@ -1028,6 +1082,9 @@ abstract class Anv : BaseSource() {
         }
     }.getOrDefault(emptyList())
 
+    /**
+     * Builds stream request headers carrying `Origin`, `Referer`, and `shiro_watch` cookie.
+     */
     private fun buildStreamHeaders(watchUrl: String, cookie: String): Headers = headers.newBuilder()
         .set("Accept", "*/*")
         .set("Origin", baseUrl)
@@ -1037,6 +1094,9 @@ abstract class Anv : BaseSource() {
 
     // ========================== Catalog & Cache ===========================
 
+    /**
+     * Retrieves a non-expired [MediaDto] from the in-memory detail cache.
+     */
     private fun getCachedMedia(slug: String): MediaDto? {
         val entry = detailCache[slug] ?: return null
         if (System.currentTimeMillis() > entry.expiresAtMs) {
@@ -1046,6 +1106,9 @@ abstract class Anv : BaseSource() {
         return entry.media
     }
 
+    /**
+     * Stores [media] under both the requested [slug] and its resolved canonical slug.
+     */
     private fun putCachedMedia(slug: String, media: MediaDto) {
         val expires = System.currentTimeMillis() + DETAIL_CACHE_TTL_MS
         detailCache[slug] = CachedMedia(media, expires)
@@ -1136,36 +1199,6 @@ abstract class Anv : BaseSource() {
     }
 
     /**
-     * Triggers background loading of dynamic catalog genres and years if not yet loaded.
-     */
-    private fun ensureCatalogFiltersAsync() {
-        if (catalogFiltersLoaded.get()) return
-        backgroundScope.launch {
-            ensureCatalogFiltersLoaded()
-        }
-    }
-
-    /**
-     * Fetches `CatalogFilters` once under a mutex and updates [Filters].
-     */
-    private suspend fun ensureCatalogFiltersLoaded() {
-        if (catalogFiltersLoaded.get()) return
-        catalogFiltersMutex.withLock {
-            if (catalogFiltersLoaded.get()) return
-            suspendRunCatching {
-                val data = executeCatalog<EmptyVariables, CatalogFiltersData>(
-                    operation = "CatalogFilters",
-                    variables = EmptyVariables(),
-                )
-                if (data != null) {
-                    Filters.updateDynamicFilters(data.genres, data.years)
-                    catalogFiltersLoaded.set(true)
-                }
-            }
-        }
-    }
-
-    /**
      * Wraps [block] in a `Result` while rethrowing coroutine [CancellationException]s.
      */
     private inline fun <R> suspendRunCatching(block: () -> R): Result<R> = try {
@@ -1233,6 +1266,9 @@ abstract class Anv : BaseSource() {
         )
     }
 
+    /**
+     * Resolves relative paths or protocol-relative URLs against [baseUrl].
+     */
     private fun absolutizeUrl(raw: String?): String? = when {
         raw.isNullOrBlank() -> null
         raw.startsWith("http://", ignoreCase = true) ||
@@ -1242,6 +1278,9 @@ abstract class Anv : BaseSource() {
         else -> "$baseUrl/$raw"
     }
 
+    /**
+     * Maps upstream variant codes (`sub`, `dub`, `hsub`) to display labels.
+     */
     private fun normalizeAudioLabel(id: String, label: String): String {
         val lower = id.ifBlank { label }.lowercase()
         return when (lower) {
@@ -1252,13 +1291,22 @@ abstract class Anv : BaseSource() {
         }
     }
 
+    /**
+     * Checks whether [id]/[label] is included in the user's enabled audio variants.
+     */
     private fun isAudioTypeEnabled(id: String, label: String): Boolean {
         val normalized = normalizeAudioLabel(id, label)
         return prefEnabledTypes.any { it.equals(normalized, ignoreCase = true) }
     }
 
+    /**
+     * Checks whether [serverLabel] is included in the user's enabled servers.
+     */
     private fun isServerEnabled(serverLabel: String): Boolean = prefEnabledServers.any { it.equals(serverLabel.trim(), ignoreCase = true) }
 
+    /**
+     * Produces a normalized lookup key for matching subtitle tracks across token refreshes.
+     */
     private fun trackKey(track: EpisodeTrackDto): String = listOfNotNull(
         track.language?.trim()?.lowercase()?.takeIf { it.isNotEmpty() },
         track.label?.trim()?.lowercase()?.takeIf { it.isNotEmpty() },
@@ -1368,7 +1416,6 @@ abstract class Anv : BaseSource() {
         const val PREFIX_SEARCH = "slug:"
 
         private const val PAGE_SIZE = 28
-        private const val FILTER_LOAD_TIMEOUT_MS = 2_500L
         private const val WATCH_COOKIE_NAME = "shiro_watch"
         private const val COOKIE_TTL_MS = 12 * 60 * 60 * 1_000L
         private const val DETAIL_CACHE_TTL_MS = 5 * 60 * 1_000L
