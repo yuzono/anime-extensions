@@ -5,13 +5,19 @@ import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import kotlinx.serialization.Serializable
 import java.util.Calendar
 
+/**
+ * Response payload for the `CatalogFilters` operation returning available genres and years.
+ */
 @Serializable
 class CatalogFiltersData(
     val genres: List<String> = emptyList(),
     val years: List<Int> = emptyList(),
 )
 
-object AnvFilters {
+/**
+ * Builds and parses catalog search filters for the Anv source.
+ */
+object Filters {
 
     private val SORT_OPTIONS = arrayOf(
         "Most Popular" to "POPULARITY_DESC",
@@ -96,11 +102,17 @@ object AnvFilters {
     @Volatile
     private var cachedYears: List<String> = buildDefaultYears()
 
+    /**
+     * Generates a descending list of release years from next year down to 1960.
+     */
     private fun buildDefaultYears(): List<String> {
         val maxYear = Calendar.getInstance().get(Calendar.YEAR) + 1
         return (maxYear downTo 1960).map { it.toString() }
     }
 
+    /**
+     * Replaces cached genre and year lists with live values fetched from ANV's catalog API.
+     */
     fun updateDynamicFilters(genres: List<String>, years: List<Int>) {
         val cleanGenres = genres.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
         if (cleanGenres.isNotEmpty()) {
@@ -112,6 +124,9 @@ object AnvFilters {
         }
     }
 
+    /**
+     * Constructs a fresh [AnimeFilterList] populated with the latest genres and years.
+     */
     fun buildFilterList(): AnimeFilterList {
         val yearPairs = buildList {
             add("Any" to "")
@@ -130,6 +145,9 @@ object AnvFilters {
         )
     }
 
+    /**
+     * Parsed filter selections ready to pass to `BrowseAnime`.
+     */
     data class FilterParams(
         val sort: String = "POPULARITY_DESC",
         val format: String = "",
@@ -147,6 +165,9 @@ object AnvFilters {
                 genres.isNotEmpty()
     }
 
+    /**
+     * Extracts active [FilterParams] from the user-selected [filters].
+     */
     fun parseFilters(filters: AnimeFilterList): FilterParams {
         var sort = "POPULARITY_DESC"
         var format = ""
@@ -179,6 +200,9 @@ object AnvFilters {
         )
     }
 
+    /**
+     * Base select filter mapping display labels to API parameter values.
+     */
     open class UriPartFilter(
         displayName: String,
         private val vals: Array<Pair<String, String>>,

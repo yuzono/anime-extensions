@@ -6,15 +6,24 @@ import kotlinx.serialization.Serializable
 import org.jsoup.Jsoup
 import java.text.Normalizer
 
+/**
+ * Request envelope for ANV's `/api/catalog` endpoint.
+ */
 @Serializable
 class CatalogRequest<T>(
     val operation: String,
     val variables: T,
 )
 
+/**
+ * Empty variables object for catalog operations that take no arguments.
+ */
 @Serializable
 class EmptyVariables
 
+/**
+ * Variables for the `BrowseAnime` catalog operation.
+ */
 @Serializable
 class BrowseVariables(
     val page: Int,
@@ -29,6 +38,9 @@ class BrowseVariables(
     val isAdult: Boolean = false,
 )
 
+/**
+ * Variables for the `SearchAnime` catalog operation.
+ */
 @Serializable
 class SearchVariables(
     val search: String,
@@ -36,16 +48,25 @@ class SearchVariables(
     val perPage: Int,
 )
 
+/**
+ * Variables for looking up an anime detail entry by slug.
+ */
 @Serializable
 class SlugVariables(
     val slug: String,
 )
 
+/**
+ * Variables for looking up an anime detail entry by numeric catalog ID.
+ */
 @Serializable
 class IdVariables(
     val id: Long,
 )
 
+/**
+ * Request body for ANV's `/api/episode` stream-resolution endpoint.
+ */
 @Serializable
 class EpisodeRequest(
     val anilistId: Long,
@@ -55,44 +76,68 @@ class EpisodeRequest(
     val prefer: String = "sub",
 )
 
+/**
+ * Generic response envelope returned by `/api/catalog`.
+ */
 @Serializable
 class CatalogResponse<T>(
     val data: T? = null,
     val errors: List<CatalogErrorDto>? = null,
 )
 
+/**
+ * Error item returned inside a `/api/catalog` response.
+ */
 @Serializable
 class CatalogErrorDto(
     val message: String? = null,
 )
 
+/**
+ * Paged catalog response payload.
+ */
 @Serializable
 class CatalogPageData(
     @SerialName("Page") val page: PageDto? = null,
 )
 
+/**
+ * Home catalog response payload combining featured hero and trending sections.
+ */
 @Serializable
 class CatalogHomeData(
     val hero: PageDto? = null,
     val trending: PageDto? = null,
 )
 
+/**
+ * Single media detail response payload.
+ */
 @Serializable
 class CatalogMediaData(
     @SerialName("Media") val media: MediaDto? = null,
 )
 
+/**
+ * Page container holding pagination metadata and media entries.
+ */
 @Serializable
 class PageDto(
     val pageInfo: PageInfoDto? = null,
     val media: List<MediaDto> = emptyList(),
 )
 
+/**
+ * Pagination flags for a catalog page.
+ */
 @Serializable
 class PageInfoDto(
     val hasNextPage: Boolean = false,
 )
 
+/**
+ * Media metadata model returned by ANV catalog and detail endpoints.
+ */
 @Serializable
 class MediaDto(
     val id: Long = 0L,
@@ -117,6 +162,9 @@ class MediaDto(
     val streamingEpisodes: List<StreamingEpisodeDto>? = null,
     val recommendations: RecommendationConnectionDto? = null,
 ) {
+    /**
+     * Resolves a canonical URL slug from the explicit slug, titles, or numeric ID.
+     */
     fun resolveSlug(): String {
         val raw = slug?.trim()?.trim('/')
         if (!raw.isNullOrEmpty()) return raw
@@ -140,9 +188,15 @@ class MediaDto(
         }
     }
 
+    /**
+     * Extracts a fallback AniList ID embedded in the banner image URL when present.
+     */
     fun bannerAnilistId(): Long? = bannerImage
         ?.let { BANNER_ID_REGEX.find(it)?.groupValues?.getOrNull(1)?.toLongOrNull() }
 
+    /**
+     * Selects the localized title matching [preferredLanguage] with fallbacks.
+     */
     fun displayTitle(preferredLanguage: String): String {
         val t = title ?: return resolveSlug()
         return when (preferredLanguage) {
@@ -158,10 +212,16 @@ class MediaDto(
         } ?: resolveSlug()
     }
 
+    /**
+     * Chooses the highest-resolution artwork URL available for thumbnails.
+     */
     fun bestCoverUrl(): String? = coverImage?.extraLarge?.takeIf { it.isNotBlank() }
         ?: coverImage?.large?.takeIf { it.isNotBlank() }
         ?: bannerImage?.takeIf { it.isNotBlank() }
 
+    /**
+     * Maps summary catalog fields to an [SAnime] browse entry.
+     */
     fun toSAnime(preferredLanguage: String): SAnime = SAnime.create().apply {
         val resolved = resolveSlug()
         url = "/anime/$resolved"
@@ -169,20 +229,27 @@ class MediaDto(
         thumbnail_url = bestCoverUrl()
     }
 
+    /**
+     * Maps full catalog metadata to an initialized [SAnime] details entry.
+     */
     fun toSAnimeDetails(preferredLanguage: String): SAnime = toSAnime(preferredLanguage).apply {
         status = parseAnimeStatus(this@MediaDto.status)
         val studioNames = studios?.nodes.orEmpty()
             .mapNotNull { it.name?.trim()?.takeIf(String::isNotEmpty) }
             .distinct()
         if (studioNames.isNotEmpty()) {
-            author = studioNames.joinToString(", ")
+            author = studioNames.joinToString()
         }
         if (genres.isNotEmpty()) {
-            genre = genres.joinToString(", ")
+            genre = genres.joinToString()
         }
         description = buildRichDescription(preferredLanguage)
+        initialized = true
     }
 
+    /**
+     * Formats synopsis HTML and structured metadata into a readable description block.
+     */
     private fun buildRichDescription(preferredLanguage: String): String {
         val parts = mutableListOf<String>()
 
@@ -232,8 +299,13 @@ class MediaDto(
         private val DIACRITICS_REGEX = Regex("\\p{Mn}+")
         private val NON_SLUG_REGEX = Regex("[^a-z0-9]+")
         private val BANNER_ID_REGEX = Regex("""/anime/banner/(\d+)-""")
+        private val BR_TAG_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
+        private val CLOSING_P_TAG_REGEX = Regex("""</p>""", RegexOption.IGNORE_CASE)
         private val MULTI_NEWLINE_REGEX = Regex("""\n{3,}""")
 
+        /**
+         * Maps upstream airing status strings to [SAnime] status constants.
+         */
         private fun parseAnimeStatus(raw: String?): Int = when (raw?.uppercase()) {
             "RELEASING" -> SAnime.ONGOING
             "FINISHED" -> SAnime.COMPLETED
@@ -242,6 +314,9 @@ class MediaDto(
             else -> SAnime.UNKNOWN
         }
 
+        /**
+         * Converts raw format codes into human-friendly labels.
+         */
         private fun prettifyFormat(raw: String): String = when (raw.uppercase()) {
             "TV" -> "TV"
             "TV_SHORT" -> "TV Short"
@@ -253,10 +328,13 @@ class MediaDto(
             else -> raw
         }
 
+        /**
+         * Strips HTML markup from descriptions while preserving paragraph breaks.
+         */
         private fun cleanHtmlDescription(rawHtml: String): String {
             val normalized = rawHtml
-                .replace(Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE), "\n")
-                .replace(Regex("""</p>""", RegexOption.IGNORE_CASE), "\n\n")
+                .replace(BR_TAG_REGEX, "\n")
+                .replace(CLOSING_P_TAG_REGEX, "\n\n")
             val text = Jsoup.parseBodyFragment(normalized).wholeText()
             return text
                 .lines()
@@ -267,6 +345,9 @@ class MediaDto(
     }
 }
 
+/**
+ * Localized anime title variants.
+ */
 @Serializable
 class MediaTitleDto(
     val romaji: String? = null,
@@ -274,6 +355,9 @@ class MediaTitleDto(
     val native: String? = null,
 )
 
+/**
+ * Cover artwork URLs for a media item.
+ */
 @Serializable
 class CoverImageDto(
     val extraLarge: String? = null,
@@ -281,22 +365,34 @@ class CoverImageDto(
     val color: String? = null,
 )
 
+/**
+ * GraphQL-style studio connection wrapper.
+ */
 @Serializable
 class StudioConnectionDto(
     val nodes: List<StudioNodeDto> = emptyList(),
 )
 
+/**
+ * Individual animation studio node.
+ */
 @Serializable
 class StudioNodeDto(
     val name: String? = null,
 )
 
+/**
+ * Next scheduled airing episode details.
+ */
 @Serializable
 class NextAiringDto(
     val episode: Int = 0,
     val airingAt: Long = 0L,
 )
 
+/**
+ * Per-episode streaming metadata including title, thumbnail, and filler flag.
+ */
 @Serializable
 class StreamingEpisodeDto(
     val title: String? = null,
@@ -306,21 +402,33 @@ class StreamingEpisodeDto(
     val filler: Boolean = false,
 )
 
+/**
+ * GraphQL-style recommendation connection wrapper.
+ */
 @Serializable
 class RecommendationConnectionDto(
     val nodes: List<RecommendationNodeDto> = emptyList(),
 )
 
+/**
+ * Recommendation node wrapping a recommended [MediaDto].
+ */
 @Serializable
 class RecommendationNodeDto(
     val mediaRecommendation: MediaDto? = null,
 )
 
+/**
+ * Response payload from `/api/recent-episodes`.
+ */
 @Serializable
 class RecentEpisodesResponse(
     val schedules: List<RecentScheduleDto> = emptyList(),
 )
 
+/**
+ * Scheduled airing entry inside `/api/recent-episodes`.
+ */
 @Serializable
 class RecentScheduleDto(
     val id: Long = 0L,
@@ -329,6 +437,9 @@ class RecentScheduleDto(
     val media: MediaDto? = null,
 )
 
+/**
+ * Response payload from `/api/episode`.
+ */
 @Serializable
 class EpisodeApiResponse(
     val status: String = "",
@@ -336,6 +447,9 @@ class EpisodeApiResponse(
     val variants: List<EpisodeVariantDto> = emptyList(),
 )
 
+/**
+ * Audio variant (Sub, Dub, H-Sub) containing stream server sources.
+ */
 @Serializable
 class EpisodeVariantDto(
     val id: String = "",
@@ -343,6 +457,9 @@ class EpisodeVariantDto(
     val sources: List<EpisodeSourceDto> = emptyList(),
 )
 
+/**
+ * Individual stream server source entry for an episode variant.
+ */
 @Serializable
 class EpisodeSourceDto(
     val id: String = "",
@@ -352,6 +469,9 @@ class EpisodeSourceDto(
     val tracks: List<EpisodeTrackDto> = emptyList(),
 )
 
+/**
+ * Subtitle or caption track descriptor attached to a stream source.
+ */
 @Serializable
 class EpisodeTrackDto(
     val id: String? = null,
@@ -362,12 +482,18 @@ class EpisodeTrackDto(
     val default: Boolean = false,
 )
 
+/**
+ * Response payload from `/api/skip-times` containing intro and outro timestamps.
+ */
 @Serializable
 class SkipTimesResponse(
     val intro: SkipWindowDto? = null,
     val outro: SkipWindowDto? = null,
 )
 
+/**
+ * Start and end timestamps (in seconds) for a skippable chapter window.
+ */
 @Serializable
 class SkipWindowDto(
     val start: Double = 0.0,

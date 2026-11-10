@@ -30,7 +30,10 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -42,9 +45,11 @@ import java.io.IOException
 import java.util.Collections
 import java.util.LinkedHashMap
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 import keiyoushi.utils.Source as BaseSource
 
+/**
+ * English anime source implementation for ANV (`https://anv.to`).
+ */
 @Source
 abstract class Anv : BaseSource() {
 
@@ -121,12 +126,21 @@ abstract class Anv : BaseSource() {
     @Volatile
     private var cookieExpiresAtMs: Long = 0L
 
+    @Volatile
+    private var homePageUsed: Boolean = false
+
+    @Volatile
+    private var homeSeenIds: Set<Long> = emptySet()
+
     private val catalogFiltersLoaded = AtomicBoolean(false)
-    private val proxySeq = AtomicLong(0L)
+    private val catalogFiltersMutex = Mutex()
 
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .set("Referer", "$baseUrl/")
 
+    /**
+     * Builds JSON API headers including `Origin` and `Referer`.
+     */
     private fun apiHeaders(referer: String = "$baseUrl/"): Headers = headers.newBuilder()
         .set("Accept", "application/json")
         .set("Origin", baseUrl)
@@ -135,11 +149,16 @@ abstract class Anv : BaseSource() {
 
     // ============================== Popular ===============================
 
+    /**
+     * Fetches popular, trending, top-rated, or home-featured anime pages.
+     */
     override suspend fun getPopularAnime(page: Int): AnimesPage = withContext(Dispatchers.IO) {
         ensureCatalogFiltersAsync()
 
         if (prefPopularMode == "HOME" && page == 1) {
-            val homeData = runCatching {
+            homePageUsed = false
+            homeSeenIds = emptySet()
+            val homeData = suspendRunCatching {
                 executeCatalog<EmptyVariables, CatalogHomeData>("HomeAnime", EmptyVariables())
             }.getOrNull()
             val combined = buildList {
@@ -148,6 +167,8 @@ abstract class Anv : BaseSource() {
             }.distinctBy { it.id }.filter { !it.isAdult }
 
             if (combined.isNotEmpty()) {
+                homePageUsed = true
+                homeSeenIds = combined.mapNotNullTo(HashSet()) { it.id.takeIf { id -> id > 0L } }
                 return@withContext AnimesPage(
                     combined.map { it.toSAnime(prefTitleLang) },
                     true,
@@ -160,27 +181,41 @@ abstract class Anv : BaseSource() {
             "SCORE_DESC" -> "SCORE_DESC"
             else -> "POPULARITY_DESC"
         }
-        val effectivePage = if (prefPopularMode == "HOME") page - 1 else page
+        val effectivePage = if (prefPopularMode == "HOME" && homePageUsed) {
+            (page - 1).coerceAtLeast(1)
+        } else {
+            page.coerceAtLeast(1)
+        }
         val variables = BrowseVariables(
-            page = effectivePage.coerceAtLeast(1),
+            page = effectivePage,
             perPage = PAGE_SIZE,
             sort = listOf(sortOrder),
             isAdult = false,
         )
         val pageData = executeCatalog<BrowseVariables, CatalogPageData>("BrowseAnime", variables)
         val mediaPage = pageData?.page
-        val items = mediaPage?.media.orEmpty()
-            .filter { !it.isAdult }
-            .map { it.toSAnime(prefTitleLang) }
-        AnimesPage(items, mediaPage?.pageInfo?.hasNextPage == true)
+        val safeMedia = mediaPage?.media.orEmpty().filter { !it.isAdult }
+        val dedupedMedia = if (prefPopularMode == "HOME" && homePageUsed && effectivePage == 1) {
+            val filtered = safeMedia.filter { it.id !in homeSeenIds }
+            filtered.ifEmpty { if (mediaPage?.pageInfo?.hasNextPage == true) emptyList() else safeMedia }
+        } else {
+            safeMedia
+        }
+        AnimesPage(
+            dedupedMedia.map { it.toSAnime(prefTitleLang) },
+            mediaPage?.pageInfo?.hasNextPage == true,
+        )
     }
 
     // =============================== Latest ===============================
 
+    /**
+     * Fetches recently aired episodes from `/api/recent-episodes` with an RSS fallback.
+     */
     override suspend fun getLatestUpdates(page: Int): AnimesPage = withContext(Dispatchers.IO) {
         if (page > 1) return@withContext AnimesPage(emptyList(), false)
 
-        val recent = runCatching {
+        val recent = suspendRunCatching {
             val request = GET("$baseUrl/api/recent-episodes", apiHeaders())
             executeWithRetry(request).use { response ->
                 if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
@@ -206,17 +241,20 @@ abstract class Anv : BaseSource() {
         AnimesPage(rssItems, false)
     }
 
-    private suspend fun fetchRecentsRssFallback(): List<SAnime> = runCatching {
+    /**
+     * Parses `/recents.xml` when the JSON recent-episodes endpoint is unavailable.
+     */
+    private suspend fun fetchRecentsRssFallback(): List<SAnime> = suspendRunCatching {
         val docHeaders = headers.newBuilder().set("Referer", "$baseUrl/").build()
         client.newCall(GET("$baseUrl/recents.xml", docHeaders)).await().use { response ->
             if (!response.isSuccessful) return emptyList()
             val doc = Jsoup.parse(response.body.string(), baseUrl, Parser.xmlParser())
             val seenSlugs = HashSet<String>()
             doc.select("item").mapNotNull { item ->
-                val link = item.selectFirst("link")?.text()?.trim().orEmpty()
+                val link = item.selectFirst("link")?.text().orEmpty()
                 val slug = extractAnimeSlugFromAnyUrl(link) ?: return@mapNotNull null
                 if (!seenSlugs.add(slug)) return@mapNotNull null
-                val rawTitle = item.selectFirst("title")?.text()?.trim().orEmpty()
+                val rawTitle = item.selectFirst("title")?.text().orEmpty()
                 val cleanTitle = rawTitle.replace(RSS_EPISODE_SUFFIX_REGEX, "").trim().ifEmpty { slug }
                 SAnime.create().apply {
                     url = "/anime/$slug"
@@ -228,11 +266,23 @@ abstract class Anv : BaseSource() {
 
     // =============================== Search ===============================
 
+    /**
+     * Loads dynamic genres/years (if not yet cached) and builds the search filter list.
+     */
     override fun getFilterList(): AnimeFilterList {
-        ensureCatalogFiltersAsync()
-        return AnvFilters.buildFilterList()
+        if (!catalogFiltersLoaded.get()) {
+            runBlocking(Dispatchers.IO) {
+                withTimeoutOrNull(FILTER_LOAD_TIMEOUT_MS) {
+                    ensureCatalogFiltersLoaded()
+                }
+            }
+        }
+        return Filters.buildFilterList()
     }
 
+    /**
+     * Searches ANV by query, filters, `slug:` prefix, or direct `/anime/...` URL.
+     */
     override suspend fun getSearchAnime(
         page: Int,
         query: String,
@@ -252,10 +302,13 @@ abstract class Anv : BaseSource() {
 
         if (directSlug != null) {
             val media = fetchMediaBySlug(directSlug)
+            if (media.isAdult) {
+                return@withContext AnimesPage(emptyList(), false)
+            }
             return@withContext AnimesPage(listOf(media.toSAnimeDetails(prefTitleLang)), false)
         }
 
-        val params = AnvFilters.parseFilters(filters)
+        val params = Filters.parseFilters(filters)
         val useSearchOp = trimmed.isNotEmpty() && !params.hasActiveFilters
 
         val pageData = if (useSearchOp) {
@@ -299,29 +352,44 @@ abstract class Anv : BaseSource() {
         return absolutizeUrl(cleanPath) ?: "$baseUrl/browse"
     }
 
+    /**
+     * Fetches full metadata for [anime] while enforcing SAFE content filtering.
+     */
     override suspend fun getAnimeDetails(anime: SAnime): SAnime = withContext(Dispatchers.IO) {
         val slug = extractAnimeSlugFromAnyUrl(anime.url)
             ?: throw Exception("Invalid anime URL: ${anime.url}")
         val media = fetchMediaBySlug(slug)
+        if (media.isAdult) {
+            throw Exception("Adult content is disabled")
+        }
         media.toSAnimeDetails(prefTitleLang)
     }
 
+    /**
+     * Pushes recommended non-adult anime from the detail payload and marks completion.
+     */
     override suspend fun getRelatedAnimeList(
         anime: SAnime,
         exceptionHandler: (Throwable) -> Unit,
         pushResults: suspend (relatedAnime: Pair<String, List<SAnime>>, completed: Boolean) -> Unit,
     ) {
         try {
-            val slug = extractAnimeSlugFromAnyUrl(anime.url) ?: return
-            val media = withContext(Dispatchers.IO) { fetchMediaBySlug(slug) }
-            val related = media.recommendations?.nodes.orEmpty()
-                .mapNotNull { it.mediaRecommendation }
-                .filter { !it.isAdult && (it.id > 0L || !it.slug.isNullOrBlank()) }
-                .distinctBy { it.id.takeIf { id -> id > 0L } ?: it.slug }
-                .map { it.toSAnime(prefTitleLang) }
-            if (related.isNotEmpty()) {
-                pushResults("Recommended" to related, true)
+            val slug = extractAnimeSlugFromAnyUrl(anime.url)
+            if (slug == null) {
+                pushResults("Recommended" to emptyList(), true)
+                return
             }
+            val media = withContext(Dispatchers.IO) { fetchMediaBySlug(slug) }
+            val related = if (media.isAdult) {
+                emptyList()
+            } else {
+                media.recommendations?.nodes.orEmpty()
+                    .mapNotNull { it.mediaRecommendation }
+                    .filter { !it.isAdult && (it.id > 0L || !it.slug.isNullOrBlank()) }
+                    .distinctBy { it.id.takeIf { id -> id > 0L } ?: it.slug }
+                    .map { it.toSAnime(prefTitleLang) }
+            }
+            pushResults("Recommended" to related, true)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -336,10 +404,16 @@ abstract class Anv : BaseSource() {
         return absolutizeUrl(cleanPath) ?: baseUrl
     }
 
+    /**
+     * Builds the descending episode list with titles, thumbnails, and filler metadata.
+     */
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> = withContext(Dispatchers.IO) {
         val slug = extractAnimeSlugFromAnyUrl(anime.url)
             ?: throw Exception("Invalid anime URL: ${anime.url}")
         val media = fetchMediaBySlug(slug)
+        if (media.isAdult) {
+            throw Exception("Adult content is disabled")
+        }
         val canonicalSlug = media.resolveSlug()
 
         val streamingMap = LinkedHashMap<Int, StreamingEpisodeDto>()
@@ -358,11 +432,7 @@ abstract class Anv : BaseSource() {
             0
         }
 
-        var totalEpisodes = if (media.streamingEpisodes != null && streamingMax > 0) {
-            maxOf(streamingMax, airingMax)
-        } else {
-            maxOf(airingMax, finishedMax)
-        }
+        var totalEpisodes = maxOf(streamingMax, airingMax, finishedMax)
 
         if (totalEpisodes <= 0) {
             totalEpisodes = when {
@@ -402,6 +472,9 @@ abstract class Anv : BaseSource() {
         }
     }
 
+    /**
+     * Normalizes episode titles to avoid duplicate leading `Episode N` prefixes.
+     */
     private fun formatEpisodeTitle(rawTitle: String?, number: Int): String {
         val baseName = "Episode $number"
         val cleaned = rawTitle
@@ -426,16 +499,23 @@ abstract class Anv : BaseSource() {
         val bannerAnilistId: Long?,
     )
 
+    /**
+     * Resolves playable hosters, quality variants, subtitles, and skip timestamps for [episode].
+     */
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> = coroutineScope {
         val target = parseEpisodeTarget(episode.url)
             ?: throw Exception("Unable to parse episode URL: ${episode.url}")
 
         val resolvedMedia = if (target.catalogId == null || (prefSkipTimes && target.malId == null)) {
             withContext(Dispatchers.IO) {
-                runCatching { fetchMediaBySlug(target.slug) }.getOrNull()
+                suspendRunCatching { fetchMediaBySlug(target.slug) }.getOrNull()
             }
         } else {
             getCachedMedia(target.slug)
+        }
+
+        if (resolvedMedia?.isAdult == true) {
+            throw Exception("Adult content is disabled")
         }
 
         val primaryId = target.catalogId ?: resolvedMedia?.id
@@ -467,12 +547,10 @@ abstract class Anv : BaseSource() {
 
         val activeVariants = episodePayload.variants.filter { variant ->
             variant.sources.isNotEmpty() && isAudioTypeEnabled(variant.id, variant.label)
-        }.ifEmpty {
-            episodePayload.variants.filter { it.sources.isNotEmpty() }
         }
 
         if (activeVariants.isEmpty()) {
-            throw Exception("No playable servers returned for episode ${target.episode}")
+            throw Exception("No streams matched your enabled audio preferences for episode ${target.episode}")
         }
 
         val streamHeaders = buildStreamHeaders(watchUrl, activeCookie)
@@ -496,8 +574,6 @@ abstract class Anv : BaseSource() {
 
             val filteredSources = variant.sources.filter { src ->
                 src.url.isNotBlank() && isServerEnabled(src.label)
-            }.ifEmpty {
-                variant.sources.filter { it.url.isNotBlank() }
             }
 
             val seenUrlsInVariant = HashSet<String>()
@@ -520,7 +596,7 @@ abstract class Anv : BaseSource() {
         }
 
         if (candidates.isEmpty()) {
-            throw Exception("No enabled stream sources available for episode ${target.episode}")
+            throw Exception("No streams matched your enabled server preferences for episode ${target.episode}")
         }
 
         val hosters = candidates.map { candidate ->
@@ -558,6 +634,9 @@ abstract class Anv : BaseSource() {
 
     override suspend fun getVideoList(hoster: Hoster): List<Video> = hoster.videoList.orEmpty()
 
+    /**
+     * Parses a candidate master HLS stream into resolution [Video] entries and subtitle [Track]s.
+     */
     private suspend fun buildHosterForCandidate(
         candidateVariantId: String,
         audioLabel: String,
@@ -569,8 +648,6 @@ abstract class Anv : BaseSource() {
         useProxy: Boolean,
         refreshProvider: () -> RefreshedSourceBundle?,
     ): Hoster? {
-        val seqId = proxySeq.incrementAndGet()
-
         val sortedRawTracks = rawTracks.sortedWith(
             compareByDescending<EpisodeTrackDto> { it.default }
                 .thenByDescending {
@@ -587,7 +664,6 @@ abstract class Anv : BaseSource() {
             val lookupKey = trackKey(track)
             val finalSubUrl = if (useProxy) {
                 streamProxy.registerSubtitle(
-                    id = "s_${seqId}_$idx",
                     trackLookupKey = lookupKey,
                     url = absSubUrl,
                     headers = streamHeaders,
@@ -599,36 +675,40 @@ abstract class Anv : BaseSource() {
             Track(finalSubUrl, label)
         }.distinctBy { it.lang }
 
-        val parsedVariants = runCatching {
+        val parsedMaster = suspendRunCatching {
             executeWithRetry(GET(masterUrl, streamHeaders)).use { resp ->
-                if (!resp.isSuccessful) return@runCatching emptyList()
+                if (!resp.isSuccessful) return@suspendRunCatching null
                 val text = resp.body.string()
                 if (!text.trimStart('\uFEFF', ' ', '\t', '\r', '\n').startsWith("#EXTM3U")) {
-                    emptyList()
+                    null
                 } else if (text.contains("#EXT-X-STREAM-INF")) {
-                    AnvStreamProxy.parseMasterVariants(text, resp.request.url.toString())
+                    AnvStreamProxy.parseMasterPlaylist(text, resp.request.url.toString())
                 } else {
-                    emptyList()
+                    null
                 }
             }
-        }.getOrDefault(emptyList())
+        }.getOrNull()
+
+        val parsedVariants = parsedMaster?.variants.orEmpty()
+        val masterSessionKeys = parsedMaster?.sessionKeys.orEmpty()
+        val canExposeSplitVariants = parsedVariants.isNotEmpty() && (useProxy || masterSessionKeys.isEmpty())
 
         val hosterDisplayName = "$serverLabel ($audioLabel)"
         val forceMpvArgs = if (useProxy) emptyList() else FORCE_MPEGTS_MPV_ARGS
         val forceFfmpegArgs = if (useProxy) emptyList() else FORCE_MPEGTS_FFMPEG_ARGS
 
         val videos = buildList {
-            if (parsedVariants.isNotEmpty()) {
+            if (canExposeSplitVariants) {
                 parsedVariants.forEachIndexed { idx, variant ->
                     val resHeight = variant.height
                     val qualityText = resHeight?.let { "${it}p" } ?: "Stream ${idx + 1}"
                     val playUrl = if (useProxy) {
                         streamProxy.registerHls(
-                            id = "v_${seqId}_$idx",
-                            masterUrl = masterUrl,
+                            masterUrl = parsedMaster?.finalUrl ?: masterUrl,
                             variantUrl = variant.url,
                             targetHeight = resHeight,
                             headers = streamHeaders,
+                            initialSessionKeys = masterSessionKeys,
                             refresh = refreshProvider,
                         )
                     } else {
@@ -649,17 +729,18 @@ abstract class Anv : BaseSource() {
                     )
                 }
             } else {
+                val effectiveMaster = parsedMaster?.finalUrl ?: masterUrl
                 val autoUrl = if (useProxy) {
                     streamProxy.registerHls(
-                        id = "m_$seqId",
-                        masterUrl = masterUrl,
+                        masterUrl = effectiveMaster,
                         variantUrl = null,
                         targetHeight = null,
                         headers = streamHeaders,
+                        initialSessionKeys = masterSessionKeys,
                         refresh = refreshProvider,
                     )
                 } else {
-                    masterUrl
+                    effectiveMaster
                 }
                 add(
                     Video(
@@ -720,6 +801,9 @@ abstract class Anv : BaseSource() {
 
     // ====================== Session, Episode & Skip APIs ==================
 
+    /**
+     * Polls `/api/episode` while `"loading"`, breaking immediately on terminal statuses.
+     */
     private suspend fun fetchReadyEpisodePayload(
         primaryId: Long,
         fallbackBannerId: Long?,
@@ -738,7 +822,7 @@ abstract class Anv : BaseSource() {
 
         var lastReason: String? = null
         for (idCandidate in candidateIds) {
-            repeat(3) { pollAttempt ->
+            poll@ for (pollAttempt in 0 until 3) {
                 var (code, payload) = postEpisodeRequest(idCandidate, malId, episode, watchUrl, cookie)
                 if (code == 401 || code == 403) {
                     cookie = ensureWatchCookie(watchUrl, forceRefresh = true)
@@ -748,18 +832,23 @@ abstract class Anv : BaseSource() {
                 }
                 if (payload != null) {
                     when (payload.status.lowercase()) {
-                        "ready" -> if (payload.variants.isNotEmpty()) return payload to cookie
+                        "ready" -> {
+                            if (payload.variants.isNotEmpty()) return payload to cookie
+                            lastReason = "ready without playable variants"
+                            break@poll
+                        }
                         "loading" -> {
                             lastReason = "still preparing stream"
                             if (pollAttempt < 2) delay(1_200L)
                         }
                         else -> {
                             lastReason = payload.reason ?: payload.status.ifBlank { "unavailable" }
-                            return@repeat
+                            break@poll
                         }
                     }
                 } else {
                     lastReason = "HTTP $code"
+                    break@poll
                 }
             }
         }
@@ -767,6 +856,9 @@ abstract class Anv : BaseSource() {
         throw Exception("Episode $episode is ${lastReason ?: "unavailable"}")
     }
 
+    /**
+     * Re-mints stream tokens and master playlist URLs for an active proxy entry.
+     */
     private suspend fun refreshCandidateBundle(
         primaryId: Long,
         fallbackBannerId: Long?,
@@ -776,13 +868,13 @@ abstract class Anv : BaseSource() {
         variantId: String,
         serverLabel: String,
     ): RefreshedSourceBundle? {
-        val freshCookie = runCatching { ensureWatchCookie(watchUrl, forceRefresh = false) }.getOrNull()
+        val freshCookie = suspendRunCatching { ensureWatchCookie(watchUrl, forceRefresh = false) }.getOrNull()
             ?: return null
         val (code, firstPayload) = postEpisodeRequest(primaryId, malId, episode, watchUrl, freshCookie)
         var payload = firstPayload
         var cookieToUse = freshCookie
         if (code == 401 || code == 403 || payload?.status != "ready") {
-            cookieToUse = runCatching { ensureWatchCookie(watchUrl, forceRefresh = true) }.getOrNull()
+            cookieToUse = suspendRunCatching { ensureWatchCookie(watchUrl, forceRefresh = true) }.getOrNull()
                 ?: return null
             payload = postEpisodeRequest(primaryId, malId, episode, watchUrl, cookieToUse).second
             if ((payload == null || payload.status != "ready") && fallbackBannerId != null) {
@@ -809,6 +901,9 @@ abstract class Anv : BaseSource() {
         )
     }
 
+    /**
+     * Posts an [EpisodeRequest] to `/api/episode` and streams the JSON response into [EpisodeApiResponse].
+     */
     private suspend fun postEpisodeRequest(
         anilistId: Long,
         malId: Long?,
@@ -834,12 +929,14 @@ abstract class Anv : BaseSource() {
 
         val request = POST("$baseUrl/api/episode", reqHeaders, body)
         return executeWithRetry(request).use { response ->
-            val raw = response.body.string()
-            val dto = runCatching { raw.parseAs<EpisodeApiResponse>(json) }.getOrNull()
+            val dto = suspendRunCatching { response.parseAs<EpisodeApiResponse>(json) }.getOrNull()
             response.code to dto
         }
     }
 
+    /**
+     * Obtains and caches the `shiro_watch` session cookie from an anime watch page.
+     */
     private suspend fun ensureWatchCookie(watchUrl: String, forceRefresh: Boolean): String {
         val origin = baseUrl
         val now = System.currentTimeMillis()
@@ -858,7 +955,7 @@ abstract class Anv : BaseSource() {
             return minted
         }
 
-        val fallbackAnimeUrl = runCatching {
+        val fallbackAnimeUrl = suspendRunCatching {
             val docHeaders = headers.newBuilder().set("Referer", "$origin/").build()
             client.newCall(GET("$origin/", docHeaders)).await().use { resp ->
                 val html = resp.body.string()
@@ -880,12 +977,15 @@ abstract class Anv : BaseSource() {
         throw IOException("Failed to obtain $WATCH_COOKIE_NAME session cookie from $origin")
     }
 
+    /**
+     * Extracts `Set-Cookie: shiro_watch=...` from an HTML page response.
+     */
     private suspend fun extractCookieFromPage(url: String): String? {
         val reqHeaders = headers.newBuilder()
             .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .set("Referer", "$baseUrl/")
             .build()
-        return runCatching {
+        return suspendRunCatching {
             executeWithRetry(GET(url, reqHeaders)).use { response ->
                 response.headers.values("Set-Cookie")
                     .firstOrNull { it.startsWith("$WATCH_COOKIE_NAME=") }
@@ -895,7 +995,10 @@ abstract class Anv : BaseSource() {
         }.getOrNull()
     }
 
-    private suspend fun fetchSkipTimestamps(malId: Long, episode: Int, durationSec: Int): List<TimeStamp> = runCatching {
+    /**
+     * Queries `/api/skip-times` for Opening and Ending chapter timestamps.
+     */
+    private suspend fun fetchSkipTimestamps(malId: Long, episode: Int, durationSec: Int): List<TimeStamp> = suspendRunCatching {
         val url = "$baseUrl/api/skip-times?malId=$malId&episode=$episode&duration=$durationSec"
         client.newCall(GET(url, apiHeaders())).await().use { response ->
             if (!response.isSuccessful) return emptyList()
@@ -952,10 +1055,13 @@ abstract class Anv : BaseSource() {
         }
     }
 
+    /**
+     * Fetches anime details by slug (with numeric ID fallback) and caches the result.
+     */
     private suspend fun fetchMediaBySlug(slug: String): MediaDto {
         getCachedMedia(slug)?.let { return it }
 
-        val bySlug = runCatching {
+        val bySlug = suspendRunCatching {
             executeCatalog<SlugVariables, CatalogMediaData>(
                 operation = "AnimeDetail",
                 variables = SlugVariables(slug = slug),
@@ -970,7 +1076,7 @@ abstract class Anv : BaseSource() {
 
         val leadingId = LEADING_ID_SLUG_REGEX.find(slug)?.groupValues?.getOrNull(1)?.toLongOrNull()
         if (leadingId != null) {
-            val byId = runCatching {
+            val byId = suspendRunCatching {
                 executeCatalog<IdVariables, CatalogMediaData>(
                     operation = "AnimeDetail",
                     variables = IdVariables(id = leadingId),
@@ -986,6 +1092,9 @@ abstract class Anv : BaseSource() {
         throw Exception("Anime not found: $slug")
     }
 
+    /**
+     * Executes a typed POST operation against `/api/catalog`.
+     */
     private suspend inline fun <reified V, reified T> executeCatalog(
         operation: String,
         variables: V,
@@ -1009,6 +1118,9 @@ abstract class Anv : BaseSource() {
         }
     }
 
+    /**
+     * Executes an HTTP [request] with automatic backoff on HTTP 429 responses.
+     */
     private suspend fun executeWithRetry(request: Request): Response {
         var attempt = 0
         while (true) {
@@ -1023,48 +1135,80 @@ abstract class Anv : BaseSource() {
         }
     }
 
+    /**
+     * Triggers background loading of dynamic catalog genres and years if not yet loaded.
+     */
     private fun ensureCatalogFiltersAsync() {
-        if (!catalogFiltersLoaded.compareAndSet(false, true)) return
+        if (catalogFiltersLoaded.get()) return
         backgroundScope.launch {
-            runCatching {
+            ensureCatalogFiltersLoaded()
+        }
+    }
+
+    /**
+     * Fetches `CatalogFilters` once under a mutex and updates [Filters].
+     */
+    private suspend fun ensureCatalogFiltersLoaded() {
+        if (catalogFiltersLoaded.get()) return
+        catalogFiltersMutex.withLock {
+            if (catalogFiltersLoaded.get()) return
+            suspendRunCatching {
                 val data = executeCatalog<EmptyVariables, CatalogFiltersData>(
                     operation = "CatalogFilters",
                     variables = EmptyVariables(),
                 )
                 if (data != null) {
-                    AnvFilters.updateDynamicFilters(data.genres, data.years)
+                    Filters.updateDynamicFilters(data.genres, data.years)
+                    catalogFiltersLoaded.set(true)
                 }
-            }.onFailure {
-                catalogFiltersLoaded.set(false)
             }
         }
     }
 
-    // ============================= URL Helpers ============================
-
-    private fun extractAnimeSlugFromAnyUrl(raw: String): String? {
-        val withoutFragment = raw.substringBefore('#').substringBefore('?').trim().trimEnd('/')
-        if (withoutFragment.isEmpty()) return null
-
-        val pathPart = if (withoutFragment.startsWith("http://", ignoreCase = true) ||
-            withoutFragment.startsWith("https://", ignoreCase = true)
-        ) {
-            withoutFragment.toHttpUrlOrNull()?.encodedPath ?: return null
-        } else {
-            withoutFragment
-        }
-
-        val slugCandidate = when {
-            pathPart.startsWith("/anime/", ignoreCase = true) ->
-                pathPart.substringAfter("/anime/").substringBefore('/')
-            !pathPart.contains('/') -> pathPart
-            else -> pathPart.substringAfterLast('/')
-        }.trim()
-
-        if (slugCandidate.isEmpty()) return null
-        return slugCandidate.replace(TRAILING_EPISODE_SLUG_REGEX, "")
+    /**
+     * Wraps [block] in a `Result` while rethrowing coroutine [CancellationException]s.
+     */
+    private inline fun <R> suspendRunCatching(block: () -> R): Result<R> = try {
+        Result.success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (t: Throwable) {
+        Result.failure(t)
     }
 
+    // ============================= URL Helpers ============================
+
+    /**
+     * Parses an absolute URL, `/anime/<slug>` path, or bare slug using [okhttp3.HttpUrl.pathSegments].
+     */
+    private fun extractAnimeSlugFromAnyUrl(raw: String): String? {
+        val clean = raw.substringBefore('#').substringBefore('?').trim()
+        if (clean.isEmpty()) return null
+
+        val httpUrl = if (clean.startsWith("http://", ignoreCase = true) ||
+            clean.startsWith("https://", ignoreCase = true)
+        ) {
+            clean.toHttpUrlOrNull()
+        } else {
+            baseUrl.toHttpUrlOrNull()?.resolve(clean)
+        } ?: return null
+
+        val segments = httpUrl.pathSegments.filter { it.isNotEmpty() }
+        if (segments.isEmpty()) return null
+
+        val slugCandidate = if (segments.first().equals("anime", ignoreCase = true)) {
+            segments.getOrNull(1)
+        } else {
+            segments.last()
+        }?.trim().orEmpty()
+
+        if (slugCandidate.isEmpty()) return null
+        return slugCandidate.replace(TRAILING_EPISODE_SLUG_REGEX, "").takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * Parses an internal episode URL and `#id=...&mal=...` metadata fragment into [EpisodeTarget].
+     */
     private fun parseEpisodeTarget(rawUrl: String): EpisodeTarget? {
         val pathPart = rawUrl.substringBefore('#').substringBefore('?').trim()
         val fragmentPart = rawUrl.substringAfter('#', "")
@@ -1113,10 +1257,7 @@ abstract class Anv : BaseSource() {
         return prefEnabledTypes.any { it.equals(normalized, ignoreCase = true) }
     }
 
-    private fun isServerEnabled(serverLabel: String): Boolean {
-        if (prefEnabledServers.isEmpty()) return true
-        return prefEnabledServers.any { it.equals(serverLabel.trim(), ignoreCase = true) }
-    }
+    private fun isServerEnabled(serverLabel: String): Boolean = prefEnabledServers.any { it.equals(serverLabel.trim(), ignoreCase = true) }
 
     private fun trackKey(track: EpisodeTrackDto): String = listOfNotNull(
         track.language?.trim()?.lowercase()?.takeIf { it.isNotEmpty() },
@@ -1126,6 +1267,9 @@ abstract class Anv : BaseSource() {
 
     // ============================= Preferences ============================
 
+    /**
+     * Registers user-configurable playback, language, filler, skip, and proxy preferences.
+     */
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
             key = PREF_TITLE_LANG_KEY,
@@ -1224,6 +1368,7 @@ abstract class Anv : BaseSource() {
         const val PREFIX_SEARCH = "slug:"
 
         private const val PAGE_SIZE = 28
+        private const val FILTER_LOAD_TIMEOUT_MS = 2_500L
         private const val WATCH_COOKIE_NAME = "shiro_watch"
         private const val COOKIE_TTL_MS = 12 * 60 * 60 * 1_000L
         private const val DETAIL_CACHE_TTL_MS = 5 * 60 * 1_000L
