@@ -10,7 +10,6 @@ yuzono {
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
 
-
     source {
         lang = "all"
         baseUrl = "https://torrentio.strem.fun"
