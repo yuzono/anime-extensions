@@ -562,9 +562,6 @@ abstract class ReAnime :
             }?.await()
         }
 
-        val maxSub = meta?.subbed ?: 0
-        val maxDub = meta?.dubbed ?: 0
-
         return visibleEpisodes.map { ep ->
             SEpisode.create().apply {
                 val epNum = ep.episodeNumber
@@ -588,8 +585,8 @@ abstract class ReAnime :
                     if (ep.isRecap) append(" [Recap]")
                 }
 
-                val hasSub = ep.subbed || (maxSub > 0 && epNum <= maxSub)
-                val hasDub = ep.dubbed || (maxDub > 0 && epNum <= maxDub)
+                val hasSub = ep.subbed
+                val hasDub = ep.dubbed
 
                 scanlator = when {
                     hasSub && hasDub -> "Sub & Dub"
