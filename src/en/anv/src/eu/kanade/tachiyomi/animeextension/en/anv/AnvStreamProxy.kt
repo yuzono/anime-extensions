@@ -2,8 +2,6 @@ package eu.kanade.tachiyomi.animeextension.en.anv
 
 import aniyomi.lib.m3u8server.AutoDetector
 import keiyoushi.network.rateLimit
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
 import okhttp3.Call
 import okhttp3.Dns
 import okhttp3.Headers
@@ -164,6 +162,8 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
 
         var lastRefreshSucceeded: Boolean = false
 
+        val refreshLock = Any()
+
         val keyCache = ConcurrentHashMap<String, ByteArray>()
 
         val segmentRemap = ConcurrentHashMap<String, String>()
@@ -282,6 +282,8 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
         var lastRefreshMs: Long = 0L
 
         var lastRefreshSucceeded: Boolean = false
+
+        val refreshLock = Any()
     }
 
     private val hlsEntries: MutableMap<String, HlsEntry> = Collections.synchronizedMap(
@@ -316,27 +318,38 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
     }
 
     /**
-     * Evicts entries older than the previous episode batch and enforces hard capacity on non-active batches.
+     * Evicts stale batches above [SOFT_MAX_HLS_ENTRIES] and enforces [HARD_MAX_HLS_ENTRIES] overall.
      */
     private fun pruneStaleEntries(currentBatch: Long) {
         val minRetainedBatch = currentBatch - 1L
+        val activeId = activePlayingEntryId.get()
         val evictedHls = mutableListOf<HlsEntry>()
         synchronized(hlsEntries) {
             val iter = hlsEntries.entries.iterator()
             while (iter.hasNext()) {
                 val candidate = iter.next().value
-                if (candidate.batchId < minRetainedBatch && candidate.id != activePlayingEntryId.get()) {
+                if (candidate.batchId < minRetainedBatch && candidate.id != activeId) {
                     evictedHls.add(candidate)
                     iter.remove()
                 }
             }
-            if (hlsEntries.size > MAX_HLS_ENTRIES) {
+            if (hlsEntries.size > SOFT_MAX_HLS_ENTRIES) {
                 val overflowIter = hlsEntries.entries.iterator()
-                while (hlsEntries.size > MAX_HLS_ENTRIES && overflowIter.hasNext()) {
+                while (hlsEntries.size > SOFT_MAX_HLS_ENTRIES && overflowIter.hasNext()) {
                     val candidate = overflowIter.next().value
-                    if (candidate.batchId < currentBatch) {
+                    if (candidate.batchId < currentBatch && candidate.id != activeId) {
                         evictedHls.add(candidate)
                         overflowIter.remove()
+                    }
+                }
+            }
+            if (hlsEntries.size > HARD_MAX_HLS_ENTRIES) {
+                val hardIter = hlsEntries.entries.iterator()
+                while (hlsEntries.size > HARD_MAX_HLS_ENTRIES && hardIter.hasNext()) {
+                    val candidate = hardIter.next().value
+                    if (candidate.id != activeId) {
+                        evictedHls.add(candidate)
+                        hardIter.remove()
                     }
                 }
             }
@@ -348,16 +361,26 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
             while (iter.hasNext()) {
                 val candidate = iter.next().value
                 if (candidate.batchId < minRetainedBatch) {
+                    candidate.cachedBytes = null
                     iter.remove()
                 }
             }
-            if (subEntries.size > MAX_SUB_ENTRIES) {
+            if (subEntries.size > SOFT_MAX_SUB_ENTRIES) {
                 val overflowIter = subEntries.entries.iterator()
-                while (subEntries.size > MAX_SUB_ENTRIES && overflowIter.hasNext()) {
+                while (subEntries.size > SOFT_MAX_SUB_ENTRIES && overflowIter.hasNext()) {
                     val candidate = overflowIter.next().value
                     if (candidate.batchId < currentBatch) {
+                        candidate.cachedBytes = null
                         overflowIter.remove()
                     }
+                }
+            }
+            if (subEntries.size > HARD_MAX_SUB_ENTRIES) {
+                val hardIter = subEntries.entries.iterator()
+                while (subEntries.size > HARD_MAX_SUB_ENTRIES && hardIter.hasNext()) {
+                    val candidate = hardIter.next().value
+                    candidate.cachedBytes = null
+                    hardIter.remove()
                 }
             }
         }
@@ -1117,41 +1140,54 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
     }
 
     /**
-     * Refreshes an expired [HlsEntry] atomically, ensuring active variant URLs stay consistent.
+     * Refreshes an expired [HlsEntry] without holding `synchronized(entry)` across network calls.
      */
     private fun refreshHlsEntry(entry: HlsEntry, force: Boolean = false): Boolean {
-        synchronized(entry) {
-            val now = System.currentTimeMillis()
-            val minInterval = when {
-                !entry.lastRefreshSucceeded -> FAILED_REFRESH_COOLDOWN_MS
-                force -> FORCE_REFRESH_COOLDOWN_MS
-                else -> NORMAL_REFRESH_COOLDOWN_MS
-            }
-            if (entry.lastRefreshMs > 0L && now - entry.lastRefreshMs < minInterval) {
-                return entry.lastRefreshSucceeded
+        synchronized(entry.refreshLock) {
+            val snapshotSessionKeys: List<String>
+            val needsVariant: Boolean
+            synchronized(entry) {
+                val now = System.currentTimeMillis()
+                val minInterval = when {
+                    !entry.lastRefreshSucceeded -> FAILED_REFRESH_COOLDOWN_MS
+                    force -> FORCE_REFRESH_COOLDOWN_MS
+                    else -> NORMAL_REFRESH_COOLDOWN_MS
+                }
+                if (entry.lastRefreshMs > 0L && now - entry.lastRefreshMs < minInterval) {
+                    return entry.lastRefreshSucceeded
+                }
+                snapshotSessionKeys = entry.sessionKeys
+                needsVariant = entry.targetHeight != null || entry.activeVariantUrl != null
             }
 
             val bundle = runCatching { entry.refresh() }.getOrNull()
-            entry.lastRefreshMs = System.currentTimeMillis()
             if (bundle == null || bundle.masterUrl.isBlank() || validatePublicHttpUrl(bundle.masterUrl) == null) {
-                entry.lastRefreshSucceeded = false
+                synchronized(entry) {
+                    entry.lastRefreshMs = System.currentTimeMillis()
+                    entry.lastRefreshSucceeded = false
+                }
                 return false
             }
 
             var resolvedVariantUrl: String? = null
-            var resolvedSessionKeys: List<String> = entry.sessionKeys
-            val needsVariant = entry.targetHeight != null || entry.activeVariantUrl != null
+            var resolvedSessionKeys: List<String> = snapshotSessionKeys
             if (needsVariant) {
                 val masterFetched = fetchM3u8(bundle.masterUrl, bundle.headers, entry.originHost)
                 if (masterFetched == null) {
-                    entry.lastRefreshSucceeded = false
+                    synchronized(entry) {
+                        entry.lastRefreshMs = System.currentTimeMillis()
+                        entry.lastRefreshSucceeded = false
+                    }
                     return false
                 }
                 if (masterFetched.body.contains("#EXT-X-STREAM-INF")) {
                     val parsed = parseMasterPlaylist(masterFetched.body, masterFetched.finalUrl)
                     val matched = selectBestMatchingVariant(parsed.variants, entry.targetHeight)
                     if (matched == null) {
-                        entry.lastRefreshSucceeded = false
+                        synchronized(entry) {
+                            entry.lastRefreshMs = System.currentTimeMillis()
+                            entry.lastRefreshSucceeded = false
+                        }
                         return false
                     }
                     resolvedVariantUrl = matched.url
@@ -1163,41 +1199,48 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
                 }
             }
 
-            entry.masterUrl = bundle.masterUrl
-            entry.headers = bundle.headers
-            entry.activeVariantUrl = resolvedVariantUrl
-            entry.sessionKeys = resolvedSessionKeys
-            entry.allowUrl(bundle.masterUrl)
-            resolvedVariantUrl?.let(entry::allowUrl)
-            registerSessionKeyUrls(entry, resolvedSessionKeys)
-            entry.generation++
-            entry.lastRefreshSucceeded = true
+            synchronized(entry) {
+                entry.lastRefreshMs = System.currentTimeMillis()
+                entry.masterUrl = bundle.masterUrl
+                entry.headers = bundle.headers
+                entry.activeVariantUrl = resolvedVariantUrl
+                entry.sessionKeys = resolvedSessionKeys
+                entry.allowUrl(bundle.masterUrl)
+                resolvedVariantUrl?.let(entry::allowUrl)
+                registerSessionKeyUrls(entry, resolvedSessionKeys)
+                entry.generation++
+                entry.lastRefreshSucceeded = true
+            }
             return true
         }
     }
 
     /**
-     * Refreshes an expired [SubEntry], tracking failure state separately from success cooldown.
+     * Refreshes an expired [SubEntry] without holding `synchronized(entry)` across network calls.
      */
     private fun refreshSubtitleEntry(entry: SubEntry): Boolean {
-        synchronized(entry) {
-            val now = System.currentTimeMillis()
-            val cooldown = if (entry.lastRefreshSucceeded) SUB_REFRESH_COOLDOWN_MS else FAILED_REFRESH_COOLDOWN_MS
-            if (entry.lastRefreshMs > 0L && now - entry.lastRefreshMs < cooldown) {
-                return entry.lastRefreshSucceeded
+        synchronized(entry.refreshLock) {
+            synchronized(entry) {
+                val now = System.currentTimeMillis()
+                val cooldown = if (entry.lastRefreshSucceeded) SUB_REFRESH_COOLDOWN_MS else FAILED_REFRESH_COOLDOWN_MS
+                if (entry.lastRefreshMs > 0L && now - entry.lastRefreshMs < cooldown) {
+                    return entry.lastRefreshSucceeded
+                }
             }
             val bundle = runCatching { entry.refresh() }.getOrNull()
-            entry.lastRefreshMs = System.currentTimeMillis()
             val freshUrl = bundle?.tracksByKey?.get(entry.trackLookupKey)
-            if (bundle == null || freshUrl == null || validatePublicHttpUrl(freshUrl) == null) {
-                entry.lastRefreshSucceeded = false
-                return false
+            synchronized(entry) {
+                entry.lastRefreshMs = System.currentTimeMillis()
+                if (bundle == null || freshUrl == null || validatePublicHttpUrl(freshUrl) == null) {
+                    entry.lastRefreshSucceeded = false
+                    return false
+                }
+                entry.headers = bundle.headers
+                entry.url = freshUrl
+                entry.cachedBytes = null
+                entry.lastRefreshSucceeded = true
+                return true
             }
-            entry.headers = bundle.headers
-            entry.url = freshUrl
-            entry.cachedBytes = null
-            entry.lastRefreshSucceeded = true
-            return true
         }
     }
 
@@ -1236,9 +1279,16 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
                         else -> if (attempt == 2) return null
                     }
                 }
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return null
             } catch (_: IOException) {
                 if (attempt == 2) return null
-                pauseMs(250L * (attempt + 1))
+                try {
+                    pauseMs(250L * (attempt + 1))
+                } catch (_: InterruptedException) {
+                    return null
+                }
             }
         }
         return null
@@ -1339,11 +1389,15 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
     private fun encodeParam(value: String): String = URLEncoder.encode(value, "UTF-8")
 
     /**
-     * Suspends via coroutine `delay` when backing off on HTTP 429 or transient errors.
+     * Sleeps interruptibly on the worker thread when backing off on HTTP 429 or transient errors.
      */
     private fun pauseMs(ms: Long) {
-        if (ms > 0L) {
-            runBlocking { delay(ms) }
+        if (ms <= 0L) return
+        try {
+            Thread.sleep(ms)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw e
         }
     }
 
@@ -1352,8 +1406,10 @@ class AnvStreamProxy(baseClient: OkHttpClient) {
         private const val MAX_CONN_THREADS = 16
         private const val PREFETCH_COUNT = 2
         private const val SEGMENT_CACHE_SIZE = 3
-        private const val MAX_HLS_ENTRIES = 256
-        private const val MAX_SUB_ENTRIES = 256
+        private const val SOFT_MAX_HLS_ENTRIES = 256
+        private const val HARD_MAX_HLS_ENTRIES = 512
+        private const val SOFT_MAX_SUB_ENTRIES = 256
+        private const val HARD_MAX_SUB_ENTRIES = 512
         private const val MAX_KEYS_PER_ENTRY = 32
         private const val MAX_ALLOWED_URLS_PER_ENTRY = 4_096
         private const val MAX_REMAP_ENTRIES_PER_STREAM = 2_048
