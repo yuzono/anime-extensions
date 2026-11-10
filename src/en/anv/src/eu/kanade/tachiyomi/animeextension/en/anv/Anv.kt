@@ -99,7 +99,7 @@ abstract class Anv : BaseSource() {
             .cookieJar(
                 object : CookieJar {
                     override fun loadForRequest(url: HttpUrl): List<Cookie> = runCatching {
-                        network.cookieJar.loadForRequest(url)
+                        network.client.cookieJar.loadForRequest(url)
                             .filterNot { it.name.equals(WATCH_COOKIE_NAME, ignoreCase = true) }
                     }.getOrDefault(emptyList())
 
@@ -109,7 +109,7 @@ abstract class Anv : BaseSource() {
                         }?.let { minted ->
                             jarMintedCookie.set("$WATCH_COOKIE_NAME=${minted.value}")
                         }
-                        runCatching { network.cookieJar.saveFromResponse(url, cookies) }
+                        runCatching { network.client.cookieJar.saveFromResponse(url, cookies) }
                     }
                 },
             )
@@ -1134,7 +1134,7 @@ abstract class Anv : BaseSource() {
 
         val jarCookie = origin.toHttpUrlOrNull()?.let { httpUrl ->
             runCatching {
-                network.cookieJar.loadForRequest(httpUrl)
+                network.client.cookieJar.loadForRequest(httpUrl)
                     .lastOrNull {
                         it.name.equals(WATCH_COOKIE_NAME, ignoreCase = true) &&
                             it.value.isNotBlank() &&
@@ -1172,16 +1172,18 @@ abstract class Anv : BaseSource() {
             .apply()
 
         origin.toHttpUrlOrNull()?.let { httpUrl ->
-            val okCookie = Cookie.Builder()
-                .name(WATCH_COOKIE_NAME)
-                .value(cookieValue)
-                .domain(httpUrl.host)
-                .path("/")
-                .expiresAt(expiresAt)
-                .apply { if (httpUrl.isHttps) secure() }
-                .httpOnly()
-                .build()
-            runCatching { network.cookieJar.saveFromResponse(httpUrl, listOf(okCookie)) }
+            runCatching {
+                val okCookie = Cookie.Builder()
+                    .name(WATCH_COOKIE_NAME)
+                    .value(cookieValue)
+                    .domain(httpUrl.host)
+                    .path("/")
+                    .expiresAt(expiresAt)
+                    .apply { if (httpUrl.isHttps) secure() }
+                    .httpOnly()
+                    .build()
+                network.client.cookieJar.saveFromResponse(httpUrl, listOf(okCookie))
+            }
             runCatching {
                 val cm = CookieManager.getInstance()
                 val maxAgeSec = COOKIE_TTL_MS / 1_000L
@@ -1208,14 +1210,16 @@ abstract class Anv : BaseSource() {
             .remove(PREF_WATCH_COOKIE_EXPIRES_KEY)
             .apply()
         origin.toHttpUrlOrNull()?.let { httpUrl ->
-            val expiredCookie = Cookie.Builder()
-                .name(WATCH_COOKIE_NAME)
-                .value("")
-                .domain(httpUrl.host)
-                .path("/")
-                .expiresAt(0L)
-                .build()
-            runCatching { network.cookieJar.saveFromResponse(httpUrl, listOf(expiredCookie)) }
+            runCatching {
+                val expiredCookie = Cookie.Builder()
+                    .name(WATCH_COOKIE_NAME)
+                    .value("")
+                    .domain(httpUrl.host)
+                    .path("/")
+                    .expiresAt(0L)
+                    .build()
+                network.client.cookieJar.saveFromResponse(httpUrl, listOf(expiredCookie))
+            }
         }
         runCatching {
             val cm = CookieManager.getInstance()
@@ -1352,7 +1356,7 @@ abstract class Anv : BaseSource() {
         val normalizedWatch = extractWatchCookiePair(watchCookiePair) ?: watchCookiePair
         val jarCookies = origin.toHttpUrlOrNull()?.let { httpUrl ->
             runCatching {
-                network.cookieJar.loadForRequest(httpUrl)
+                network.client.cookieJar.loadForRequest(httpUrl)
                     .filterNot { it.name.equals(WATCH_COOKIE_NAME, ignoreCase = true) }
                     .map { "${it.name}=${it.value}" }
             }.getOrNull()
