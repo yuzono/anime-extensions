@@ -140,17 +140,16 @@ data class EpisodeResult(
     val isRecap: Boolean,
 )
 
+/** No defaults: a renamed key must fail the parse so the static server list is used instead. */
 @Serializable
-data class ServerInfo(
-    val id: String,
+class ServerInfo(
     val providerId: String,
-    val default: Boolean = false,
-    val subTypes: List<String> = emptyList(),
+    val subTypes: List<String>,
 )
 
 @Serializable
-data class EpisodeServers(
-    val servers: List<ServerInfo> = emptyList(),
+class EpisodeServers(
+    val servers: List<ServerInfo>,
 )
 
 @Serializable

@@ -325,10 +325,12 @@ abstract class Anikage :
 
         val excludedServers = preferences.excludedServers
         val excludedTypes = preferences.excludedTypes
-        val activeProviders = providers.filter { it.second !in excludedServers }
+        val activeProviders = providers.filter { (type, provider) ->
+            provider !in excludedServers && type.lowercase() !in excludedTypes
+        }
         if (activeProviders.isEmpty()) {
-            val offered = providers.map { it.second }.distinct().joinToString()
-            throw Exception("All servers offering this episode ($offered) are excluded in the extension settings")
+            val offered = providers.joinToString { (type, provider) -> "$provider ($type)" }
+            throw Exception("All streams offered for this episode ($offered) are excluded in the extension settings")
         }
 
         val playlistUtils = PlaylistUtils(client, headers)
@@ -342,7 +344,7 @@ abstract class Anikage :
             if (extraction) extractionFailures += detail
         }
 
-        val allVideos = activeProviders.parallelCatchingFlatMap { (type, provider) ->
+        val videos = activeProviders.parallelCatchingFlatMap { (type, provider) ->
             val label = "$provider ($type)"
             val episodeData = try {
                 client.newCall(
@@ -400,15 +402,8 @@ abstract class Anikage :
             }
         }
 
-        val videoList = allVideos.filterNot { video ->
-            val videoType = video.videoTitle.substringBefore(" - ")
-            excludedTypes.any { videoType.equals(it, ignoreCase = true) }
-        }
-
         return when {
-            videoList.isNotEmpty() -> videoList
-            allVideos.isNotEmpty() ->
-                throw Exception("All videos were removed by the excluded audio types in the extension settings")
+            videos.isNotEmpty() -> videos
             // A server offered a stream that could not be fetched: that is breakage, report it.
             extractionFailures.isNotEmpty() -> throw Exception("No videos found: ${failures.joinToString("; ")}")
             // Every server that answered had no stream: a legitimately empty episode.
