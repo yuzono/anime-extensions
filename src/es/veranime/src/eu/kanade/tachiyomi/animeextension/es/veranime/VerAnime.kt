@@ -195,7 +195,7 @@ abstract class VerAnime :
             val videos = serverVideoResolver(src)
             if (language.isNotBlank()) {
                 videos.map {
-                    Video(videoUrl = it.videoUrl, videoTitle = "[$language] ${it.videoTitle}", headers = it.headers, it.subtitleTracks, it.audioTracks)
+                    Video(videoUrl = it.videoUrl, videoTitle = "[$language] ${it.videoTitle}", headers = it.headers, subtitleTracks = it.subtitleTracks, audioTracks = it.audioTracks)
                 }
             } else {
                 videos
