@@ -6,14 +6,14 @@ plugins {
 
 yuzono {
     name = "AnimeOnline.Ninja"
-    versionCode = 63
+    versionCode = 64
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "dooplay"
 
     source {
         lang = "es"
-        baseUrl = "https://ww3.animeonline.ninja"
+        baseUrl = "https://ww4.animeonline.ninja"
     }
 }
 

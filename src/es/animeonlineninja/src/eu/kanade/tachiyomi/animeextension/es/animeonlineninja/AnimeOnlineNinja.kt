@@ -40,10 +40,9 @@ abstract class AnimeOnlineNinja : DooPlay() {
 
     // ============================== Popular ===============================
     // The trending section paginates as /tendencias/page/N/ (its own pager
-    // links); /tendencias/N is a WordPress 404. Both ww3. and ver. sit behind
-    // the same Cloudflare zone and serve an identical managed challenge on
-    // every path, while ver.'s deep paths just 301 back here - so keep each
-    // request single-hopped on ww3. and let CloudflareInterceptor solve it.
+    // links); /tendencias/N is a WordPress 404. ww4. is the current canonical
+    // host: ww3. and ver2. 301 their deep paths here, so keep each request
+    // single-hopped on ww4. and let CloudflareInterceptor solve it.
     override fun popularAnimeRequest(page: Int) = GET(if (page == 1) "$baseUrl/tendencias/" else "$baseUrl/tendencias/page/$page/", headers)
 
     override fun popularAnimeSelector() = latestUpdatesSelector()
