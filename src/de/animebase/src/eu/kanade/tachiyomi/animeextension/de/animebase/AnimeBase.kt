@@ -197,7 +197,7 @@ abstract class AnimeBase :
                             videoUrl = video.videoUrl,
                             videoTitle = "$language ${video.videoTitle}",
                             headers = video.headers,
-                            subtitleTracks =video.subtitleTracks,
+                            subtitleTracks = video.subtitleTracks,
                             audioTracks = video.audioTracks,
                         )
                     }
