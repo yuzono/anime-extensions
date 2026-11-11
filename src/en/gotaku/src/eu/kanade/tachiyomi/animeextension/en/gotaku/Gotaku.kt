@@ -622,9 +622,17 @@ abstract class Gotaku :
                 return Pair(base, stamp)
             }
         }
-        val match = MANIFEST_ATTRS_REGEX.find(html) ?: MANIFEST_ATTRS_REVERSE_REGEX.find(html)
-        if (match != null) {
-            val (base, stamp) = match.destructured
+        val forwardMatch = MANIFEST_ATTRS_REGEX.find(html)
+        if (forwardMatch != null) {
+            val (base, stamp) = forwardMatch.destructured
+            if (base.startsWith("https://") && stamp.isNotEmpty()) {
+                return Pair(base, stamp)
+            }
+        }
+        val reverseMatch = MANIFEST_ATTRS_REVERSE_REGEX.find(html)
+        if (reverseMatch != null) {
+            val stamp = reverseMatch.groupValues[1]
+            val base = reverseMatch.groupValues[2]
             if (base.startsWith("https://") && stamp.isNotEmpty()) {
                 return Pair(base, stamp)
             }
