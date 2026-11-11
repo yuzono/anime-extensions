@@ -612,6 +612,26 @@ abstract class Gotaku :
         emptyList()
     }
 
+    private fun extractManifestAttrs(html: String, pageUrl: String): Pair<String, String>? {
+        val doc = Jsoup.parseBodyFragment(html, pageUrl)
+        val element = doc.selectFirst("[data-manifest-base][data-manifest-stamp]")
+        if (element != null) {
+            val base = element.attr("data-manifest-base").trim()
+            val stamp = element.attr("data-manifest-stamp").trim()
+            if (base.startsWith("https://") && stamp.isNotEmpty()) {
+                return Pair(base, stamp)
+            }
+        }
+        val match = MANIFEST_ATTRS_REGEX.find(html) ?: MANIFEST_ATTRS_REVERSE_REGEX.find(html)
+        if (match != null) {
+            val (base, stamp) = match.destructured
+            if (base.startsWith("https://") && stamp.isNotEmpty()) {
+                return Pair(base, stamp)
+            }
+        }
+        return null
+    }
+
     private suspend fun extractViaHttpImpl(
         embedUrl: String,
         watchReferer: String,
@@ -620,24 +640,8 @@ abstract class Gotaku :
     ): List<Video> {
         val html = client.get(embedUrl, apiHeaders(watchReferer))
             .readBodyBoundedString(MAX_HTML_BODY_BYTES) ?: return emptyList()
-        val doc = Jsoup.parseBodyFragment(html, embedUrl)
-        val baseAttr = doc.selectFirst("[data-manifest-base]")?.attr("data-manifest-base")
-        val baseRegex = MANIFEST_BASE_REGEX.find(html)?.groupValues?.get(1)
-        val base: String? = when {
-            !baseAttr.isNullOrEmpty() -> baseAttr
-            !baseRegex.isNullOrEmpty() -> baseRegex
-            else -> null
-        }
 
-        val stampAttr = doc.selectFirst("[data-manifest-stamp]")?.attr("data-manifest-stamp")
-        val stampRegex = MANIFEST_STAMP_REGEX.find(html)?.groupValues?.get(1)
-        val stamp: String? = when {
-            !stampAttr.isNullOrEmpty() -> stampAttr
-            !stampRegex.isNullOrEmpty() -> stampRegex
-            else -> null
-        }
-
-        if (base.isNullOrBlank() || stamp.isNullOrBlank() || !base.startsWith("https://")) return emptyList()
+        val (base, stamp) = extractManifestAttrs(html, embedUrl) ?: return emptyList()
 
         // Handshake: the nonce salts the response key, so the same
         // object must build the request and decrypt the response.
@@ -755,24 +759,7 @@ abstract class Gotaku :
         }
 
         // 5. Scrape manifest attrs + quality options
-        val dlDoc = Jsoup.parseBodyFragment(downloadHtml, finalDownloadUrl)
-        val dlBaseAttr = dlDoc.selectFirst("[data-manifest-base]")?.attr("data-manifest-base")
-        val dlBaseRegex = MANIFEST_BASE_REGEX.find(downloadHtml)?.groupValues?.get(1)
-        val dlBase: String? = when {
-            !dlBaseAttr.isNullOrEmpty() -> dlBaseAttr
-            !dlBaseRegex.isNullOrEmpty() -> dlBaseRegex
-            else -> null
-        }
-
-        val dlStampAttr = dlDoc.selectFirst("[data-manifest-stamp]")?.attr("data-manifest-stamp")
-        val dlStampRegex = MANIFEST_STAMP_REGEX.find(downloadHtml)?.groupValues?.get(1)
-        val dlStamp: String? = when {
-            !dlStampAttr.isNullOrEmpty() -> dlStampAttr
-            !dlStampRegex.isNullOrEmpty() -> dlStampRegex
-            else -> null
-        }
-
-        if (dlBase.isNullOrBlank() || dlStamp.isNullOrBlank() || !dlBase.startsWith("https://")) return emptyList()
+        val (dlBase, dlStamp) = extractManifestAttrs(downloadHtml, finalDownloadUrl) ?: return emptyList()
         val qualitiesByHeight = parseDownloadQualities(downloadHtml).associateBy { it.height }
 
         // 6. Handshake + manifest fetch
@@ -1004,9 +991,9 @@ abstract class Gotaku :
         private val QUALITY_INPUT_REGEX = Regex("""<input\s+[^>]*name="quality"[^>]*>""")
         private val QUALITY_REGEX = Regex("""(\d{3,4})""")
         private val MANIFEST_ATTRS_REGEX =
-            Regex("""data-manifest-base="([^"]+)"\s+data-manifest-stamp="([^"]+)"""")
-        private val MANIFEST_BASE_REGEX = Regex("""data-manifest-base=["']([^"']+)["']""")
-        private val MANIFEST_STAMP_REGEX = Regex("""data-manifest-stamp=["']([^"']+)["']""")
+            Regex("""data-manifest-base=["']([^"']+)["'][^>]*data-manifest-stamp=["']([^"']+)["']""")
+        private val MANIFEST_ATTRS_REVERSE_REGEX =
+            Regex("""data-manifest-stamp=["']([^"']+)["'][^>]*data-manifest-base=["']([^"']+)["']""")
         private val BR_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
         private val HTML_TAG_REGEX = Regex("""</?(i|b|em)>""", RegexOption.IGNORE_CASE)
     }
