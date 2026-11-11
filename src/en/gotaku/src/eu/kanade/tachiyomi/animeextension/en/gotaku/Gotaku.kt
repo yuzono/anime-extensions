@@ -34,6 +34,7 @@ import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.Jsoup
 import org.nanohttpd.protocols.http.NanoHTTPD
 import java.lang.ref.WeakReference
 import java.net.URLEncoder
@@ -617,12 +618,26 @@ abstract class Gotaku :
         embedDto: EmbedDto,
         hoster: Hoster,
     ): List<Video> {
-        // Embed page -> manifest base + stamp
         val html = client.get(embedUrl, apiHeaders(watchReferer))
             .readBodyBoundedString(MAX_HTML_BODY_BYTES) ?: return emptyList()
-        val attrs = MANIFEST_ATTRS_REGEX.find(html) ?: return emptyList()
-        val (base, stamp) = attrs.destructured
-        if (!base.startsWith("https://")) return emptyList()
+        val doc = Jsoup.parseBodyFragment(html, embedUrl)
+        val baseAttr = doc.selectFirst("[data-manifest-base]")?.attr("data-manifest-base")
+        val baseRegex = MANIFEST_BASE_REGEX.find(html)?.groupValues?.get(1)
+        val base: String? = when {
+            !baseAttr.isNullOrEmpty() -> baseAttr
+            !baseRegex.isNullOrEmpty() -> baseRegex
+            else -> null
+        }
+
+        val stampAttr = doc.selectFirst("[data-manifest-stamp]")?.attr("data-manifest-stamp")
+        val stampRegex = MANIFEST_STAMP_REGEX.find(html)?.groupValues?.get(1)
+        val stamp: String? = when {
+            !stampAttr.isNullOrEmpty() -> stampAttr
+            !stampRegex.isNullOrEmpty() -> stampRegex
+            else -> null
+        }
+
+        if (base.isNullOrBlank() || stamp.isNullOrBlank() || !base.startsWith("https://")) return emptyList()
 
         // Handshake: the nonce salts the response key, so the same
         // object must build the request and decrypt the response.
@@ -740,9 +755,24 @@ abstract class Gotaku :
         }
 
         // 5. Scrape manifest attrs + quality options
-        val dlAttrs = MANIFEST_ATTRS_REGEX.find(downloadHtml) ?: return emptyList()
-        val (dlBase, dlStamp) = dlAttrs.destructured
-        if (!dlBase.startsWith("https://")) return emptyList()
+        val dlDoc = Jsoup.parseBodyFragment(downloadHtml, finalDownloadUrl)
+        val dlBaseAttr = dlDoc.selectFirst("[data-manifest-base]")?.attr("data-manifest-base")
+        val dlBaseRegex = MANIFEST_BASE_REGEX.find(downloadHtml)?.groupValues?.get(1)
+        val dlBase: String? = when {
+            !dlBaseAttr.isNullOrEmpty() -> dlBaseAttr
+            !dlBaseRegex.isNullOrEmpty() -> dlBaseRegex
+            else -> null
+        }
+
+        val dlStampAttr = dlDoc.selectFirst("[data-manifest-stamp]")?.attr("data-manifest-stamp")
+        val dlStampRegex = MANIFEST_STAMP_REGEX.find(downloadHtml)?.groupValues?.get(1)
+        val dlStamp: String? = when {
+            !dlStampAttr.isNullOrEmpty() -> dlStampAttr
+            !dlStampRegex.isNullOrEmpty() -> dlStampRegex
+            else -> null
+        }
+
+        if (dlBase.isNullOrBlank() || dlStamp.isNullOrBlank() || !dlBase.startsWith("https://")) return emptyList()
         val qualitiesByHeight = parseDownloadQualities(downloadHtml).associateBy { it.height }
 
         // 6. Handshake + manifest fetch
@@ -975,6 +1005,8 @@ abstract class Gotaku :
         private val QUALITY_REGEX = Regex("""(\d{3,4})""")
         private val MANIFEST_ATTRS_REGEX =
             Regex("""data-manifest-base="([^"]+)"\s+data-manifest-stamp="([^"]+)"""")
+        private val MANIFEST_BASE_REGEX = Regex("""data-manifest-base=["']([^"']+)["']""")
+        private val MANIFEST_STAMP_REGEX = Regex("""data-manifest-stamp=["']([^"']+)["']""")
         private val BR_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
         private val HTML_TAG_REGEX = Regex("""</?(i|b|em)>""", RegexOption.IGNORE_CASE)
     }
