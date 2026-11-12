@@ -10,8 +10,10 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.awaitSuccess
+import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.applicationContext
 import keiyoushi.utils.useAsJsoup
 import kotlinx.coroutines.CancellationException
@@ -25,6 +27,7 @@ import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
+import org.jsoup.nodes.Document
 import kotlin.coroutines.resume
 
 class SendNowExtractor(private val client: OkHttpClient, private val headers: Headers) {
@@ -84,7 +87,15 @@ class SendNowExtractor(private val client: OkHttpClient, private val headers: He
         // same page the WebView loaded (avoids a second OkHttp GET that would re-trigger Cloudflare).
         Log.d(tag, "Opening WebView to solve Cloudflare Turnstile...")
         val result = try {
-            withTimeout(45_000) { solveTurnstile(url, userAgent) }
+            val doc = client.newCall(GET(url, headers))
+                .awaitSuccess()
+                .asJsoup()
+
+            if (doc.title() == "Download Challenge") {
+                withTimeout(45_000) { solveTurnstile(url, userAgent) }
+            } else {
+                return videosFromDocument(doc, name)
+            }
         } catch (_: TimeoutCancellationException) {
             Log.e(tag, "Turnstile solving timed out")
             return emptyList()
@@ -132,6 +143,44 @@ class SendNowExtractor(private val client: OkHttpClient, private val headers: He
 
         val videoUrl = source.attr("src")
         Log.d(tag, "Video source found: ${videoUrl.toHttpUrlOrNull()?.host ?: "unknown"}")
+
+        return videosFromDocument(postDoc, name)
+    }
+
+    fun videosFromDocument(doc: Document, name: String): List<Video> {
+        val noRedirectClient = client.newBuilder()
+            .followRedirects(false)
+            .build()
+
+        val id = doc.selectFirst("form > [name='id']")?.attr("value")
+        val rand = doc.selectFirst("form > [name='rand']")?.attr("value")
+
+        if (id.isNullOrEmpty() || rand.isNullOrEmpty()) {
+            Log.e(tag, "id or rand is null or empty")
+            return emptyList()
+        }
+
+        val formBody = FormBody.Builder()
+            .add("op", "download2")
+            .add("id", id)
+            .add("rand", rand)
+            .build()
+
+        val host = doc.location().toHttpUrl().host
+        val locationUrl = noRedirectClient.newCall(POST("https://$host/", headers, formBody)).execute()
+            .header("location")
+            ?.toHttpUrlOrNull()
+
+        if (locationUrl == null) {
+            Log.e(tag, "location url is null")
+            return emptyList()
+        }
+
+        val videoUrl = locationUrl
+            .newBuilder()
+            .setPathSegment(locationUrl.pathSize - 1, "video.mp4") // the last segment has to be renamed to "video.mp4".
+            .build()
+            .toString()
 
         val videoHeaders = Headers.headersOf("Referer", "https://$host/")
 
