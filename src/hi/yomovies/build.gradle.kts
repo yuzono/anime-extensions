@@ -12,7 +12,7 @@ yuzono {
 
     source {
         lang = "hi"
-        baseUrl = "https://yomovies.town"
+        baseUrl = "https://yomovies.academy"
     }
 }
 
