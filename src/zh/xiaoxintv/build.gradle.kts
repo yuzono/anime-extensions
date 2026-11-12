@@ -13,6 +13,6 @@ yuzono {
     source {
         name = "小宝影院"
         lang = "zh"
-        baseUrl = "https://ibaotv.com/"
+        baseUrl = "https://ibaotv.com"
     }
 }

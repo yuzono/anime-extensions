@@ -13,7 +13,7 @@ yuzono {
 
     source {
         lang = "pt-BR"
-        baseUrl = "https://anreyalp.vip/"
+        baseUrl = "https://anreyalp.vip"
     }
 }
 
