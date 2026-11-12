@@ -6,8 +6,8 @@ plugins {
 
 yuzono {
     name = "Goyabu"
-    versionCode = 8
-    contentWarning = ContentWarning.NSFW
+    versionCode = 9
+    contentWarning = ContentWarning.MIXED
     libVersion = "14"
 
     source {

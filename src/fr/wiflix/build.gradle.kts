@@ -6,14 +6,14 @@ plugins {
 
 yuzono {
     name = "Wiflix"
-    versionCode = 31
+    versionCode = 32
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "datalifeengine"
 
     source {
         lang = "fr"
-        baseUrl = "https://flemmix.best"
+        baseUrl = "https://flemmix.run"
     }
 }
 

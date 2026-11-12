@@ -6,8 +6,8 @@ plugins {
 
 yuzono {
     name = "AniKuro"
-    versionCode = 4
-    contentWarning = ContentWarning.NSFW
+    versionCode = 5
+    contentWarning = ContentWarning.MIXED
     libVersion = "16"
 
     source {

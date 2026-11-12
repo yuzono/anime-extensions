@@ -6,8 +6,8 @@ plugins {
 
 yuzono {
     name = "Anime-Base"
-    versionCode = 48
-    contentWarning = ContentWarning.NSFW
+    versionCode = 49
+    contentWarning = ContentWarning.MIXED
     libVersion = "14"
 
     source {

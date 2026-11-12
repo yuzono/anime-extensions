@@ -6,14 +6,14 @@ plugins {
 
 yuzono {
     name = "AnimePlayer"
-    versionCode = 7
-    contentWarning = ContentWarning.NSFW
+    versionCode = 8
+    contentWarning = ContentWarning.MIXED
     libVersion = "14"
     theme = "dooplay"
 
     source {
         lang = "pt-BR"
-        baseUrl = "https://animeplayer.com.br"
+        baseUrl = "https://anreyalp.vip"
     }
 }
 
