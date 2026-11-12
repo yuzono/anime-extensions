@@ -8,7 +8,7 @@ yuzono {
     name = "Animelib"
     versionCode = 19
     contentWarning = ContentWarning.NSFW
-    libVersion = "14"
+    libVersion = "16"
 
     source {
         lang = "ru"
