@@ -6,8 +6,8 @@ plugins {
 
 yuzono {
     name = "Newgrounds"
-    versionCode = 2
-    contentWarning = ContentWarning.NSFW
+    versionCode = 3
+    contentWarning = ContentWarning.MIXED
     libVersion = "14"
 
     source {
