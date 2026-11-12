@@ -140,50 +140,29 @@ data class EpisodeResult(
     val isRecap: Boolean,
 )
 
+/** No defaults: a renamed key must fail the parse so the static server list is used instead. */
 @Serializable
-data class ServerInfo(
-    val id: String,
+class ServerInfo(
     val providerId: String,
-    val default: Boolean = false,
-    val subTypes: List<String> = emptyList(),
+    val subTypes: List<String>,
 )
 
 @Serializable
-data class EpisodeServers(
-    val servers: List<ServerInfo> = emptyList(),
+class EpisodeServers(
+    val servers: List<ServerInfo>,
 )
 
 @Serializable
-data class EmbedOptions(
-    val key: String,
-    val label: String,
-    val url: String,
-)
-
-@Serializable
-data class EpisodeSource(
-    val slug: String,
-    val number: Int,
-    val providerId: String,
-    val subType: String,
+class EpisodeSource(
     val sources: List<SourceData> = emptyList(),
     val subtitles: List<SubtitleData> = emptyList(),
-    val embeds: List<Embed>? = null,
-    val intro: TimeStamp? = null,
-    val outro: TimeStamp? = null,
-    val headers: Map<String, String> = emptyMap(),
-    val embedOptions: List<EmbedOptions>? = null,
-    val cached: Boolean,
-    val stale: Boolean,
 )
 
 @Serializable
-data class SourceData(
+class SourceData(
     val url: String,
     val quality: String,
     val isM3U8: Boolean? = null,
-    val embedUrl: String? = null,
-    val type: String?,
 ) {
     fun episodeSourceUrl(): String = listOfNotNull(
         "https://og.bakayaro.live",
@@ -193,23 +172,8 @@ data class SourceData(
 }
 
 @Serializable
-data class SubtitleData(
+class SubtitleData(
     val file: String,
-    val label: String,
-    val kind: String,
-    val default: Boolean? = null,
-    val embedUrl: String? = null,
-)
-
-@Serializable
-data class Embed(
-    val url: String,
-    val type: String,
-    val server: String,
-)
-
-@Serializable
-data class TimeStamp(
-    val start: Int,
-    val end: Int,
+    val label: String? = null,
+    val kind: String? = null,
 )
