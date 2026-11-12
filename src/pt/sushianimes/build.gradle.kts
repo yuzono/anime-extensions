@@ -6,8 +6,8 @@ plugins {
 
 yuzono {
     name = "SushiAnimes"
-    versionCode = 3
-    contentWarning = ContentWarning.NSFW
+    versionCode = 4
+    contentWarning = ContentWarning.MIXED
     libVersion = "14"
 
     source {

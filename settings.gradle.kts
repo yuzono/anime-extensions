@@ -33,7 +33,7 @@ rootProject.name = "Yuzono-Anime"
 /**
  * Add or remove modules to load as needed for local development here.
  */
-loadAllIndividualExtensions()
+loadIndividualExtension("en","gotaku")
 // loadIndividualExtension("all", "jellyfin")
 
 /**
