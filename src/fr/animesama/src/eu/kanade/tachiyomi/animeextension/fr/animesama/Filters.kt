@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.fr.animesama
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import keiyoushi.utils.firstInstance
 
 object Filters {
 
@@ -11,7 +12,7 @@ object Filters {
 
     open class CheckBoxFilterList(name: String, values: List<AnimeFilter.CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
 
-    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.filterIsInstance<R>().first()
+    private inline fun <reified R> AnimeFilterList.getFirst(): R = this.firstInstance()
 
     private inline fun <reified R> AnimeFilterList.parseCheckbox(): List<String> = (this.getFirst<R>() as CheckBoxFilterList).state
         .filter { it.state }

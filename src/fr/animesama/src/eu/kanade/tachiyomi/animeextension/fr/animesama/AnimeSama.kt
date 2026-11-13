@@ -133,7 +133,7 @@ abstract class AnimeSama :
             val id = query.removePrefix(PREFIX_SEARCH)
             val animeUrl = if (id.startsWith("/")) "$baseUrl$id" else "$baseUrl/catalogue/$id/"
             val res = client.get(animeUrl)
-            val parent = parentEntry("/" + res.request.url.encodedPath, parseAnimePage(res))
+            val parent = parentEntry(res.request.url.encodedPath, parseAnimePage(res))
             return AnimesPage(listOf(parent), false)
         }
         return super.getSearchAnime(page, query, filters)
@@ -142,8 +142,7 @@ abstract class AnimeSama :
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val url = "$baseUrl/catalogue/".toHttpUrl().newBuilder()
         val params = Filters.getSearchFilters(filters)
-        val types = params.types.ifEmpty { listOf("Anime", "Film") }
-        types.forEach { url.addQueryParameter("type[]", it) }
+        params.types.forEach { url.addQueryParameter("type[]", it) }
         params.languages.forEach { url.addQueryParameter("langue[]", it) }
         params.statuses.forEach { url.addQueryParameter("current[]", it) }
         params.genres.forEach { url.addQueryParameter("genre[]", it) }
@@ -226,7 +225,10 @@ abstract class AnimeSama :
                 scanlator = voicesWithData.joinToString { it.voice.uppercase() }
             }
         }
-        return if (movie == null) episodes.reversed() else listOfNotNull(episodes.getOrNull(movie))
+        if (movie != null) {
+            return listOfNotNull(episodes.getOrNull(movie))
+        }
+        return episodes.reversed()
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
@@ -260,14 +262,16 @@ abstract class AnimeSama :
                     add(fetchEpisodePage("${primary.rootUrl}/$voice/", voice))
                 } catch (e: CancellationException) {
                     throw e
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    if (e.message?.contains("404") != true) throw e
                     // Voice folder absent (404) — skip.
                 }
             }
         }
 
-        pagesCache = PagesCache(pageUrl, pages, System.currentTimeMillis() + PAGES_CACHE_TTL_MS)
-        return pages
+        pagesCache = pagesCache?.takeIf { it.key == pageUrl && it.pages.size > pages.size }
+            ?: PagesCache(pageUrl, pages, System.currentTimeMillis() + PAGES_CACHE_TTL_MS)
+        return pagesCache!!.pages
     }
 
     private suspend fun fetchEpisodePage(url: String, voice: String): EpisodePage = parseEpisodePage(client.get(url), voice)
@@ -419,10 +423,13 @@ abstract class AnimeSama :
         val playerUrl = if (parts.size >= 3 && parts[2].startsWith("lien:")) {
             resolveLienUrl(parts[1], parts[2]) ?: run {
                 val path = parts.getOrNull(4)?.takeIf { it.isNotEmpty() } ?: return@run null
-                runCatching {
+                try {
                     val page = fetchEpisodePage("$baseUrl$path", voice)
                     resolveLienUrl(page.jeton, parts[2])
-                }.getOrNull()
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    null
+                }
             }
         } else {
             parts.getOrNull(1)
@@ -434,7 +441,8 @@ abstract class AnimeSama :
             universalMutex.withLock {
                 try {
                     universalExtractor.videosFromUrl(playerUrl, headers, prefix = prefix.trim())
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     emptyList()
                 }
             }
@@ -474,6 +482,7 @@ abstract class AnimeSama :
     override fun getEpisodeUrl(episode: SEpisode): String = when {
         episode.url.startsWith("[{") -> episode.url.parseAs<List<EpisodeVoiceData>>()
             .firstOrNull()?.path?.let { "$baseUrl$it" } ?: baseUrl
+        episode.url.startsWith("[[") -> episode.preview_url?.let { if (it.startsWith("http")) it else "$baseUrl$it" } ?: baseUrl
         // Fragment format points at the content page directly.
         !episode.url.startsWith("[") -> "$baseUrl${episode.url.substringBefore("#").removeSuffix("/")}"
         else -> baseUrl
@@ -484,50 +493,52 @@ abstract class AnimeSama :
             .parseAs<LienResponse>()
             .u
             .takeIf { it.isNotEmpty() }
-    } catch (_: Exception) {
+    } catch (e: Exception) {
+        if (e is CancellationException) throw e
         null
     }
 
     private suspend fun videosFromKnownPlayer(playerUrl: String, prefix: String, family: String): List<Video> {
         val isEarnvids = family.equals("Earnvids", true) || family.equals("VidHide", true) ||
             VIDHIDE_DOMAINS.any { playerUrl.contains(it, ignoreCase = true) }
-        val vids = with(playerUrl) {
-            when {
-                family.equals("Sibnet", true) || contains("sibnet.ru") -> sibnetExtractor.videosFromUrl(playerUrl, prefix)
+        val vids = try {
+            with(playerUrl) {
+                when {
+                    family.equals("Sibnet", true) || contains("sibnet.ru") -> sibnetExtractor.videosFromUrl(playerUrl, prefix)
 
-                family.equals("VK", true) || contains("vk.") || contains("vkvideo") -> vkExtractor.videosFromUrl(playerUrl, prefix)
+                    family.equals("VK", true) || contains("vk.") || contains("vkvideo") -> vkExtractor.videosFromUrl(playerUrl, prefix)
 
-                family.equals("Sendvid", true) || contains("sendvid.com") -> sendvidExtractor.videosFromUrl(playerUrl, prefix)
+                    family.equals("Sendvid", true) || contains("sendvid.com") -> sendvidExtractor.videosFromUrl(playerUrl, prefix)
 
-                family.equals("Vidmoly", true) || contains("vidmoly") || contains("ansembed") -> vidmolyExtractor.videosFromUrl(playerUrl, prefix.trim())
+                    family.equals("Vidmoly", true) || contains("vidmoly") || contains("ansembed") -> vidmolyExtractor.videosFromUrl(playerUrl, prefix.trim())
 
-                family.equals("VOE", true) || contains("voe") -> voeExtractor.videosFromUrl(playerUrl, prefix.trim())
+                    family.equals("VOE", true) || contains("voe") -> voeExtractor.videosFromUrl(playerUrl, prefix.trim())
 
-                isEarnvids -> {
-                    val embedHeaders = headers.newBuilder()
-                        .set("Referer", "$baseUrl/")
-                        .set("Origin", baseUrl)
-                        .build()
-                    VidHideExtractor(client, embedHeaders).videosFromUrl(
-                        playerUrl,
-                        videoNameGen = { quality -> "${prefix.trim()} Earnvids - $quality" },
-                    )
+                    isEarnvids -> {
+                        val embedHeaders = headers.newBuilder()
+                            .set("Referer", "$baseUrl/")
+                            .set("Origin", baseUrl)
+                            .build()
+                        VidHideExtractor(client, embedHeaders).videosFromUrl(
+                            playerUrl,
+                            videoNameGen = { quality -> "${prefix.trim()} Earnvids - $quality" },
+                        )
+                    }
+
+                    family.equals("Uqload", true) || contains("uqload") -> uqloadExtractor.videosFromUrl(playerUrl, prefix)
+
+                    family.equals("YourUpload", true) || contains("yourupload") -> yourUploadExtractor.videoFromUrl(playerUrl, headers, prefix = prefix)
+
+                    family.equals("Embed4me", true) || contains("embed4me") -> embed4MeExtractor.videosFromUrl(playerUrl, prefix)
+
+                    contains(".mp4") -> listOf(Video(videoUrl = playerUrl, videoTitle = "${prefix}Direct", headers = headers))
+
+                    else -> emptyList()
                 }
-
-                family.equals("Uqload", true) || contains("uqload") -> uqloadExtractor.videosFromUrl(playerUrl, prefix)
-
-                family.equals("YourUpload", true) || contains("yourupload") -> yourUploadExtractor.videoFromUrl(playerUrl, headers, prefix = prefix)
-
-                family.equals("Embed4me", true) || contains("embed4me") -> try {
-                    embed4MeExtractor.videosFromUrl(playerUrl, prefix)
-                } catch (_: Exception) {
-                    emptyList()
-                }
-
-                contains(".mp4") -> listOf(Video(videoUrl = playerUrl, videoTitle = "${prefix}Direct", headers = headers))
-
-                else -> emptyList()
             }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            emptyList()
         }
         return if (isEarnvids) {
             vids.distinctBy { it.videoTitle }
@@ -559,11 +570,11 @@ abstract class AnimeSama :
 
         val badges = card.select(".as-badge")
         if (badges.isNotEmpty()) {
-            val hasAnimeOrFilm = badges.any {
-                it.hasClass("as-badge-anime") || it.hasClass("as-badge-film") ||
-                    it.text().equals("Anime", true) || it.text().equals("Film", true)
+            val hasValidBadge = badges.any {
+                it.hasClass("as-badge-anime") || it.hasClass("as-badge-film") || it.hasClass("as-badge-autres") ||
+                    it.text().equals("Anime", true) || it.text().equals("Film", true) || it.text().equals("Autres", true)
             }
-            if (!hasAnimeOrFilm) return null
+            if (!hasValidBadge) return null
         }
 
         return SAnime.create().apply {
@@ -579,7 +590,7 @@ abstract class AnimeSama :
     }
 
     private fun parentEntry(url: String, page: AnimePageData): SAnime = SAnime.create().apply {
-        this.url = url
+        setUrlWithoutDomain(url)
         title = page.name
         thumbnail_url = page.thumbnailUrl
         description = page.description
@@ -591,7 +602,8 @@ abstract class AnimeSama :
 
     private fun parseAnimePage(response: Response): AnimePageData {
         val animeDoc = response.useAsJsoup()
-        val animeName = animeDoc.selectFirst("h1")?.text()!!
+        val animeName = animeDoc.selectFirst("h1")?.text()
+            ?: throw Exception("Page introuvable ou indisponible")
 
         val statusText = animeDoc.selectFirst(".oe-meta")?.text() ?: ""
 
