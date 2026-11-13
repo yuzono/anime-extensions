@@ -10,6 +10,7 @@ yuzono {
     contentWarning = ContentWarning.MIXED
     libVersion = "16"
 
+    // Domain index: https://reindex.to/
     source {
         lang = "en"
         baseUrl {
