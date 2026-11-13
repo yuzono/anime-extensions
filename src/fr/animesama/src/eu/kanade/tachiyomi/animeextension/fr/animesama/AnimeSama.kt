@@ -384,7 +384,7 @@ abstract class AnimeSama :
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> = when {
         episode.url.startsWith("[{") -> hosterListFromVoiceData(episode.url)
         else -> emptyList()
-    }.sortHosters()
+    }
 
     private fun hosterListFromVoiceData(url: String): List<Hoster> = url.parseAs<List<EpisodeVoiceData>>()
         .flatMap { voice ->
@@ -484,11 +484,8 @@ abstract class AnimeSama :
         }
     }
 
-    override fun getEpisodeUrl(episode: SEpisode): String = when {
-        episode.url.startsWith("[{") -> episode.url.parseAs<List<EpisodeVoiceData>>()
-            .firstOrNull()?.path?.let { "$baseUrl$it" } ?: baseUrl
-        else -> baseUrl
-    }
+    override fun getEpisodeUrl(episode: SEpisode): String = episode.url.parseAs<List<EpisodeVoiceData>>()
+        .first().path.let { "$baseUrl$it" }
 
     private suspend fun resolveLienUrl(jeton: String, token: String): String? = try {
         client.get("$baseUrl/api/lien.php?j=$jeton&l=${token.substringAfter("lien:")}")
