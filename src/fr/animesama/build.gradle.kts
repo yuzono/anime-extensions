@@ -21,6 +21,8 @@ yuzono {
 
     deeplink {
         host("anime-sama.to")
+        host("anime-sama.tv")
+        host("anime-sama.si")
         path("/catalogue/..*")
     }
 }

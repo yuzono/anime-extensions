@@ -169,8 +169,16 @@ abstract class AnimeSama :
         return if (segments.size <= 2) {
             parentDetails(anime)
         } else {
-            fetchSeasonEntries("$baseUrl/${segments.take(2).joinToString("/")}/", segments[2])
+            val refreshed = fetchSeasonEntries("$baseUrl/${segments.take(2).joinToString("/")}/", segments[2])
                 .firstOrNull() ?: anime
+            if (anime.url.contains("#")) {
+                refreshed.apply {
+                    url = anime.url
+                    title = anime.title
+                }
+            } else {
+                refreshed
+            }
         }
     }
 
@@ -205,15 +213,15 @@ abstract class AnimeSama :
             val episodes = List(movieCount) { idx ->
                 val targetIdx = slotIdx ?: idx
                 val voicesWithData = pages.filter { page ->
-                    page.slots.getOrNull(targetIdx)?.isNotEmpty() == true
+                    page.slots.any { it.getOrNull(targetIdx)?.isNotEmpty() == true }
                 }
                 val voiceData = voicesWithData.map { page ->
-                    val slot = page.slots.getOrNull(targetIdx).orEmpty()
                     EpisodeVoiceData(
                         voice = page.voice,
                         jeton = page.jeton,
                         path = page.path,
-                        players = slot.map { token ->
+                        players = page.slots.map { slot ->
+                            val token = slot.getOrNull(targetIdx).orEmpty()
                             val host = page.epsMeta[token.substringAfter("lien:")]
                             PlayerToken(
                                 token = token,
@@ -222,11 +230,11 @@ abstract class AnimeSama :
                         },
                     )
                 }
-                val movieName = filmNames.getOrNull(targetIdx) ?: "Film ${targetIdx + 1}"
+                val movieName = if (slotIdx != null) "Film" else (filmNames.getOrNull(targetIdx) ?: "Film ${targetIdx + 1}")
                 SEpisode.create().apply {
                     name = movieName
                     this.url = voiceData.toJsonString()
-                    episode_number = (targetIdx + 1).toFloat()
+                    episode_number = if (slotIdx != null) 1f else (targetIdx + 1).toFloat()
                     scanlator = voicesWithData.joinToString { it.voice.uppercase() }
                 }
             }
@@ -307,9 +315,11 @@ abstract class AnimeSama :
             }
         }
 
-        pagesCache = pagesCache?.takeIf { it.key == pageUrl && it.pages.size > pages.size }
-            ?: PagesCache(pageUrl, pages, System.currentTimeMillis() + PAGES_CACHE_TTL_MS)
-        return pagesCache!!.pages
+        val now = System.currentTimeMillis()
+        val cache = pagesCache?.takeIf { it.key == pageUrl && it.expiresAtMillis > now }
+            ?: PagesCache(pageUrl, pages, now + PAGES_CACHE_TTL_MS)
+        pagesCache = cache
+        return cache.pages
     }
 
     private suspend fun fetchEpisodePage(url: String, voice: String): EpisodePage = parseEpisodePage(client.get(url), voice)
@@ -373,10 +383,7 @@ abstract class AnimeSama :
     // ============================= Hosters ================================
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> = when {
         episode.url.startsWith("[{") -> hosterListFromVoiceData(episode.url)
-        // Legacy entries store the player urls directly as a JSON matrix in episode.url.
-        episode.url.startsWith("[[") -> hosterListFromPlayerUrls(episode)
-        // Interim entries point at the content page with the episode index in the fragment.
-        else -> hosterListFromFragment(episode)
+        else -> emptyList()
     }.sortHosters()
 
     private fun hosterListFromVoiceData(url: String): List<Hoster> = url.parseAs<List<EpisodeVoiceData>>()
@@ -391,46 +398,6 @@ abstract class AnimeSama :
             }
         }
         .distinctBy { it.internalData }
-
-    private suspend fun hosterListFromFragment(episode: SEpisode): List<Hoster> {
-        val cleanUrl = episode.url.substringBefore("#")
-        val epIndex = episode.url.substringAfter("#", "").toIntOrNull() ?: 0
-
-        val pages = fetchEpisodePages("$baseUrl$cleanUrl")
-        return pages.flatMap { page ->
-            page.slots.mapNotNull { slot ->
-                val token = slot.getOrNull(epIndex)?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-                val host = page.epsMeta[token.substringAfter("lien:")]
-                // The site's own player family name (lecteursInfos, e.g. "VOE")
-                val family = host?.let { page.lecteurs[it] }.orEmpty()
-                val label = family.ifEmpty { host ?: playerLabel(token) }
-                Hoster(
-                    hosterName = if (page.voice.isBlank()) label else "(${page.voice.uppercase()}) $label",
-                    internalData = "${page.voice}|||${page.jeton}|||$token|||$family|||${page.path}",
-                )
-            }
-        }.distinctBy { it.internalData }
-    }
-
-    private fun hosterListFromPlayerUrls(episode: SEpisode): List<Hoster> {
-        val playerUrls = episode.url.parseAs<List<List<String>>>()
-        val voiceNames = episode.scanlator?.split(", ") ?: emptyList()
-
-        return playerUrls
-            .filter { it.isNotEmpty() }
-            .flatMapIndexed { i, players ->
-                val voice = voiceNames.getOrElse(i) { "" }
-                players.filter { it.isNotEmpty() }.map { it to voice }
-            }
-            .distinctBy { it.first }
-            .map { (playerUrl, voice) ->
-                val label = playerLabel(playerUrl)
-                Hoster(
-                    hosterName = if (voice.isBlank()) label else "($voice) $label",
-                    internalData = "$voice|||$playerUrl",
-                )
-            }
-    }
 
     override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
 
@@ -460,21 +427,19 @@ abstract class AnimeSama :
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
         val parts = hoster.internalData.split("|||")
         val voice = parts.getOrElse(0) { "" }
-        val playerUrl = if (parts.size >= 3 && parts[2].startsWith("lien:")) {
-            resolveLienUrl(parts[1], parts[2]) ?: run {
-                val path = parts.getOrNull(4)?.takeIf { it.isNotEmpty() } ?: return@run null
-                try {
-                    val page = fetchEpisodePage("$baseUrl$path", voice)
-                    resolveLienUrl(page.jeton, parts[2])
-                } catch (e: Exception) {
-                    if (e is CancellationException) throw e
-                    null
-                }
+        val jeton = parts.getOrElse(1) { "" }
+        val token = parts.getOrElse(2) { "" }
+        val family = parts.getOrElse(3) { "" }
+        val playerUrl = resolveLienUrl(jeton, token) ?: run {
+            val path = parts.getOrNull(4)?.takeIf { it.isNotEmpty() } ?: return emptyList()
+            try {
+                val page = fetchEpisodePage("$baseUrl$path", voice)
+                resolveLienUrl(page.jeton, token)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                null
             }
-        } else {
-            parts.getOrNull(1)
         } ?: return emptyList()
-        val family = parts.getOrNull(3).orEmpty()
         val prefix = if (voice.isBlank()) "" else "(${voice.uppercase()}) "
 
         val videos = videosFromKnownPlayer(playerUrl, prefix, family).ifEmpty {
@@ -522,9 +487,6 @@ abstract class AnimeSama :
     override fun getEpisodeUrl(episode: SEpisode): String = when {
         episode.url.startsWith("[{") -> episode.url.parseAs<List<EpisodeVoiceData>>()
             .firstOrNull()?.path?.let { "$baseUrl$it" } ?: baseUrl
-        episode.url.startsWith("[[") -> episode.preview_url?.let { if (it.startsWith("http")) it else "$baseUrl$it" } ?: baseUrl
-        // Fragment format points at the content page directly.
-        !episode.url.startsWith("[") -> "$baseUrl${episode.url.substringBefore("#").removeSuffix("/")}"
         else -> baseUrl
     }
 
