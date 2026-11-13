@@ -26,16 +26,14 @@ object Filters {
         }
     }
 
-    open class CheckBoxFilterList(name: String, values: List<CheckBox>) :
-        AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
+    open class CheckBoxFilterList(name: String, values: List<CheckBox>) : AnimeFilter.Group<AnimeFilter.CheckBox>(name, values)
 
-    private class CheckBoxVal(name: String, state: Boolean = false) :
-        AnimeFilter.CheckBox(name, state)
+    private class CheckBoxVal(name: String, state: Boolean = false) : AnimeFilter.CheckBox(name, state)
 
     internal fun getSearchParameters(filters: AnimeFilterList): FilterSearchParams {
         if (filters.isEmpty()) return FilterSearchParams()
         return FilterSearchParams(
-            
+
             genres(filters).joinToString("") { "&genero[]=$it" } +
                 filters.firstInstance<CategoryFilter>().toQueryPart("categoria") +
                 filters.firstInstance<YearFilter>().toQueryPart("fecha") +
@@ -43,7 +41,6 @@ object Filters {
         )
     }
 
-    
     internal fun applyTo(builder: HttpUrl.Builder, filters: AnimeFilterList) {
         genres(filters).forEach { builder.addQueryParameter("genero[]", it) }
         filters.firstInstance<CategoryFilter>().applyTo(builder, "categoria")
@@ -58,8 +55,7 @@ object Filters {
             .mapNotNull { checkbox -> FiltersData.GENRES.find { it.first == checkbox.name }?.second }
     }
 
-    private fun String.changePrefix() =
-        this.takeIf { it.startsWith("&") }?.let { this.replaceFirst("&", "?") } ?: ""
+    private fun String.changePrefix() = this.takeIf { it.startsWith("&") }?.let { this.replaceFirst("&", "?") } ?: ""
 
     class FilterSearchParams(val filter: String = "") {
         fun getQuery() = filter.changePrefix()
@@ -82,7 +78,7 @@ object Filters {
     class LetterFilter : QueryPartFilter("Letra", FiltersData.LETTERS)
 
     private object FiltersData {
-        
+
         val CATEGORIES = arrayOf(
             Pair("Todos", ""),
             Pair("Anime", "anime"),
@@ -98,14 +94,12 @@ object Filters {
             Pair("Audio Japonés", "audio-japones"),
         )
 
-        
         val YEARS: Array<Pair<String, String>> = buildList {
             add("Todos" to "")
             val maxYear = Calendar.getInstance().get(Calendar.YEAR).coerceAtLeast(2026)
             for (year in maxYear downTo 1982) add(year.toString() to year.toString())
         }.toTypedArray()
 
-        
         val LETTERS = arrayOf(
             Pair("Todas", ""),
             Pair("#", "09"),
@@ -118,7 +112,6 @@ object Filters {
             Pair("Y", "Y"), Pair("Z", "Z"),
         )
 
-        
         val GENRES = arrayOf(
             Pair("Acción", "accion"),
             Pair("Aventura", "aventura"),
