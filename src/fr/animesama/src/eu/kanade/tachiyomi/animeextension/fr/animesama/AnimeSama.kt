@@ -210,11 +210,12 @@ abstract class AnimeSama :
             val movieCount = if (slotIdx != null) 1 else (pages.maxOfOrNull { page -> page.slots.maxOfOrNull { it.size } ?: 0 } ?: 0)
             val filmNames = pages.firstOrNull { it.filmNames.isNotEmpty() }?.filmNames.orEmpty()
 
-            val episodes = List(movieCount) { idx ->
+            val episodes = (0 until movieCount).mapNotNull { idx ->
                 val targetIdx = slotIdx ?: idx
                 val voicesWithData = pages.filter { page ->
                     page.slots.any { it.getOrNull(targetIdx)?.isNotEmpty() == true }
                 }
+                if (voicesWithData.isEmpty()) return@mapNotNull null
                 val voiceData = voicesWithData.map { page ->
                     EpisodeVoiceData(
                         voice = page.voice,
@@ -245,10 +246,11 @@ abstract class AnimeSama :
         }
 
         val episodeCount = pages.maxOfOrNull { page -> page.slots.maxOfOrNull { it.size } ?: 0 } ?: 0
-        val episodes = List(episodeCount) { epIdx ->
+        val episodes = (0 until episodeCount).mapNotNull { epIdx ->
             val voicesWithData = pages.filter { page ->
                 page.slots.any { it.getOrNull(epIdx)?.isNotEmpty() == true }
             }
+            if (voicesWithData.isEmpty()) return@mapNotNull null
             val voiceData = voicesWithData.map { page ->
                 EpisodeVoiceData(
                     voice = page.voice,
