@@ -6,9 +6,9 @@ plugins {
 
 yuzono {
     name = "Anime-Sama"
-    versionCode = 34
+    versionCode = 35
     contentWarning = ContentWarning.SAFE
-    libVersion = "14"
+    libVersion = "16"
 
     source {
         lang = "fr"
@@ -19,10 +19,10 @@ yuzono {
         path("/catalogue/..*")
     }
 
-    // Old domains: keep in sync with KNOWN_HOSTS in AnimeSama.kt
     deeplink {
-        host("anime-sama.si")
+        host("anime-sama.to")
         host("anime-sama.tv")
+        host("anime-sama.si")
         path("/catalogue/..*")
     }
 }
@@ -33,6 +33,7 @@ dependencies {
     implementation(project(":lib:sendvidextractor"))
     implementation(project(":lib:vidmolyextractor"))
     implementation(project(":lib:vidhideextractor"))
+    implementation(project(":lib:voeextractor"))
     implementation(project(":lib:uqloadextractor"))
     implementation(project(":lib:youruploadextractor"))
     implementation(project(":lib:universalextractor"))
