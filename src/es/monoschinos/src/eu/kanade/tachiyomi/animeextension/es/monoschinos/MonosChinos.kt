@@ -29,6 +29,7 @@ import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import kotlinx.coroutines.CancellationException
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -70,6 +71,7 @@ abstract class MonosChinos :
             "StreamWish" to listOf("streamwish", "wish", "swdyu", "iplayerhls", "strwish", "wishembed", "kswplayer", "swhoi", "multimovies", "uqloads", "neko-stream", "streamgg"),
             "Okru" to listOf("okru", "ok.ru"),
             "Uqload" to listOf("uqload", "upload"),
+            "Upload" to listOf("uqload", "upload"),
             "Filemoon" to listOf("filemoon", "bysekoze", "moonplayer", "files.im", "moviesm4u", "filemoon.sx"),
             "DoodStream" to listOf("doodstream", "dood", "ds2play", "ds2video", "dvsplay", "dvsplayer", "playmogo", "dooood", "d000d", "d0000d", "dooodster", "doods"),
             "MixDrop" to listOf("mixdrop", "mxdrop"),
@@ -82,6 +84,8 @@ abstract class MonosChinos :
         private val SUB_ES_REGEX = Regex("-sub-espanol$")
         private val QUALITY_REGEX = Regex("""(\d+)p""")
         private val NON_ALNUM = Regex("[^a-z0-9]")
+
+        private val EP_NUM_REGEX = Regex("""(\d+(?:\.\d+)?)""")
     }
 
     // ====================== POPULAR ======================
@@ -119,7 +123,6 @@ abstract class MonosChinos :
 
         val animeList = episodeItems.mapNotNull { a ->
             val episodeUrl = a.attr("abs:href")
-            // Use HttpUrl.pathSegments instead of substringAfter("/ver/")
             val episodeSlug = episodeUrl.toHttpUrlOrNull()?.pathSegments?.getOrNull(1)
                 ?: return@mapNotNull null
             val animeSlugBase = episodeSlug.replace(EPISODE_SLUG_REGEX, "")
@@ -128,12 +131,10 @@ abstract class MonosChinos :
             val title = a.selectFirst("h3, h2, .title, .card-title")?.text()
                 ?: return@mapNotNull null
 
-            // Jsoup already trims `.text()`; use `lowercase()` instead of `ignoreCase = true`.
             val episodeNumber = a.select("span, div")
                 .firstOrNull { it.text().lowercase().startsWith("ep") }
                 ?.text()
-                ?.substringAfter("ep", "")
-                ?.trim()
+                ?.let { EP_NUM_REGEX.find(it)?.groupValues?.get(1) }
                 ?: ""
 
             SAnime.create().apply {
@@ -168,7 +169,6 @@ abstract class MonosChinos :
                 GET(url, headers)
             }
             params.filter.isNotBlank() -> {
-                // Build with HttpUrl.Builder so `genero[]=…` gets encoded correctly.
                 val builder = "$baseUrl/animes".toHttpUrl().newBuilder()
                     .addQueryParameter("p", page.toString())
                 Filters.applyTo(builder, filters)
@@ -185,7 +185,6 @@ abstract class MonosChinos :
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.asJsoup()
         return SAnime.create().apply {
-            // Fail loudly — don't write an empty title into the user's library.
             title = document.selectFirst("h1")?.text()
                 ?: throw Exception("MonosChinos: missing <h1> title on ${document.location()}")
 
@@ -217,7 +216,7 @@ abstract class MonosChinos :
         }
     }
 
-// ====================== EPISODES ======================
+    // ====================== EPISODES ======================
 
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
@@ -227,13 +226,20 @@ abstract class MonosChinos :
         val animeUrl = "$baseUrl${anime.url}"
         val document = client.get(animeUrl, headers).asJsoup()
 
-        val ajaxUrl = document.selectFirst("section.caplist")?.attr("data-ajax")?.let {
-            if (it.startsWith("http")) it else baseUrl + it
+        val rawAjax = document.selectFirst("section.caplist")?.attr("data-ajax")
+            ?.takeIf { it.isNotBlank() } ?: return emptyList()
+
+        val baseHttp = baseUrl.toHttpUrl()
+        val ajaxUrl = if (rawAjax.startsWith("http")) {
+            rawAjax.toHttpUrlOrNull()
+        } else {
+            animeUrl.toHttpUrl().resolve(rawAjax)
         } ?: return emptyList()
+
+        if (ajaxUrl.host != baseHttp.host || ajaxUrl.scheme != baseHttp.scheme) return emptyList()
 
         val csrfToken = document.selectFirst("meta[name='csrf-token']")?.attr("content") ?: ""
 
-        // Use HttpUrl.pathSegments instead of substringAfter("/anime/")
         val animeSlug = animeUrl.toHttpUrlOrNull()?.pathSegments?.getOrNull(1)
             ?: anime.url.substringAfter("/anime/").substringBefore("?").substringBefore("#")
 
@@ -251,9 +257,9 @@ abstract class MonosChinos :
 
         while (hasMore && currentPage <= maxPages) {
             val paginatedUrl = if (currentPage == 1) {
-                ajaxUrl
+                ajaxUrl.toString()
             } else {
-                val separator = if (ajaxUrl.contains("?")) "&" else "?"
+                val separator = if (ajaxUrl.toString().contains("?")) "&" else "?"
                 "$ajaxUrl${separator}page=$currentPage"
             }
 
@@ -267,7 +273,6 @@ abstract class MonosChinos :
                 .set("Accept", "application/json, text/javascript, */*; q=0.01")
                 .build()
 
-            // Suspend call via awaitSuccess() — no `execute()` inside the parser.
             val json = try {
                 val request = Request.Builder()
                     .url(paginatedUrl)
@@ -275,8 +280,13 @@ abstract class MonosChinos :
                     .headers(requestHeaders)
                     .build()
                 client.newCall(request).awaitSuccess().parseAs<EpisodesDto>()
-            } catch (_: Exception) {
-                break
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                throw Exception(
+                    "MonosChinos: failed to load episode page $currentPage for $animeUrl",
+                    e,
+                )
             }
 
             for (obj in json.eps) {
@@ -311,6 +321,7 @@ abstract class MonosChinos :
 
         return episodes.sortedByDescending { it.episode_number }
     }
+
     // ====================== HOSTERS/VIDEOS ======================
 
     override fun hosterListParse(response: Response): List<Hoster> {
@@ -324,6 +335,8 @@ abstract class MonosChinos :
             } catch (e: Exception) {
                 null
             } ?: return@mapNotNull null
+
+            if (!isSafeHosterUrl(decodedUrl)) return@mapNotNull null
 
             val serverName = button.attr("data-server").takeIf { it.isNotBlank() }
                 ?: button.text().takeIf { it.isNotBlank() }
@@ -364,7 +377,7 @@ abstract class MonosChinos :
         "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
         "okru" to listOf("ok.ru", "okru"),
         "filemoon" to listOf("filemoon", "moonplayer", "moviesm4u", "files.im", "filemoon.sx", "bysekoze"),
-        "uqload" to listOf("uqload"),
+        "uqload" to listOf("uqload", "upload"),
         "mp4upload" to listOf("mp4upload"),
         "streamwish" to listOf("wishembed", "streamwish", "strwish", "wish", "kswplayer", "swhoi", "multimovies", "uqloads", "neko-stream", "swdyu", "iplayerhls", "streamgg"),
         "doodstream" to listOf("doodstream", "dood.", "ds2play", "doods.", "ds2video", "dooood", "d000d", "d0000d", "dooodster", "dvsplayer", "dvsplay", "playmogo"),
@@ -385,19 +398,25 @@ abstract class MonosChinos :
         val source = url.lowercase()
         val serverKey = serverName.lowercase().replace(NON_ALNUM, "")
 
-        var matched = conventions.firstOrNull { (key, aliases) ->
-            val k = key.lowercase()
-            serverKey.contains(k) || k.contains(serverKey) ||
-                aliases.any { serverKey.contains(it.lowercase().replace(NON_ALNUM, "")) }
+        val exactMatched = conventions.firstOrNull { (_, aliases) ->
+            aliases.any { alias -> alias.lowercase().replace(NON_ALNUM, "") == serverKey }
         }?.first
 
-        if (matched == null) {
-            matched = conventions.firstOrNull { (_, aliases) ->
-                aliases.any { it in source }
+        val nameMatched = exactMatched ?: if (serverKey.isEmpty()) {
+            null
+        } else {
+            conventions.firstOrNull { (key, aliases) ->
+                val k = key.lowercase()
+                serverKey.contains(k) || k.contains(serverKey) ||
+                    aliases.any { serverKey.contains(it.lowercase().replace(NON_ALNUM, "")) }
             }?.first
         }
 
-        val effectiveMatched = matched ?: when {
+        val sourceMatched = nameMatched ?: conventions.firstOrNull { (_, aliases) ->
+            aliases.any { it in source }
+        }?.first
+
+        val effectiveMatched = sourceMatched ?: when {
             serverKey.contains("dood") -> "doodstream"
             serverKey.contains("filemoon") -> "filemoon"
             serverKey.contains("lulu") -> "lulu"
@@ -427,27 +446,31 @@ abstract class MonosChinos :
             "mixdrop" -> mixdropExtractor.videosFromUrl(url)
             "streamtape" -> streamTapeExtractor.videosFromUrl(url)
             "lulu" -> luluExtractor.videosFromUrl(url, prefix = "LuluStream:")
-            else -> universalExtractor.videosFromUrl(url, headers)
+            else -> if (isSafeHosterUrl(url)) universalExtractor.videosFromUrl(url, headers) else emptyList()
         }
     }
 
     private fun buildDoodCandidates(url: String): List<String> {
-        val httpUrl = url.toHttpUrlOrNull() ?: return listOf(url)
-        val path = httpUrl.encodedPath
-        val query = httpUrl.encodedQuery
+        val original = url.toHttpUrlOrNull() ?: return listOf(url)
+        val path = original.encodedPath
+        val query = original.encodedQuery
+        val originalHost = original.host
 
-        val orderedDomains = buildList {
-            cachedDoodDomain?.let { add(it) }
-            addAll(doodstreamDomains.filter { it != cachedDoodDomain })
+        val ordered = buildList {
+            add(originalHost)
+            cachedDoodDomain?.takeIf { it != originalHost }?.let { add(it) }
+            addAll(doodstreamDomains.filter { it != originalHost && it != cachedDoodDomain })
         }
 
-        return orderedDomains.map { host ->
+        return ordered.map { host ->
             if (query != null) "https://$host$path?$query" else "https://$host$path"
         }
     }
 
     private suspend fun tryDoodExtract(url: String): List<Video> = try {
         doodExtractor.videosFromUrl(url, "DoodStream:")
+    } catch (e: CancellationException) {
+        throw e
     } catch (_: Exception) {
         emptyList()
     }
@@ -467,6 +490,27 @@ abstract class MonosChinos :
     }
 
     // ====================== ASSISTANTS ======================
+
+    private fun isSafeHosterUrl(url: String): Boolean {
+        val u = url.toHttpUrlOrNull() ?: return false
+        if (u.scheme != "http" && u.scheme != "https") return false
+
+        val host = u.host.lowercase()
+        if (host == "localhost" || host.endsWith(".local") || host.endsWith(".internal")) return false
+        if (host == "::1" || host == "0.0.0.0") return false
+
+        val parts = host.split(".")
+        if (parts.size == 4 && parts.all { it.toIntOrNull() != null }) {
+            val a = parts[0].toInt()
+            val b = parts[1].toInt()
+            if (a == 10 || a == 127 || (a == 192 && b == 168) ||
+                (a == 172 && b in 16..31) || (a == 169 && b == 254)
+            ) {
+                return false
+            }
+        }
+        return true
+    }
 
     private fun matchesPref(text: String, pref: String): Boolean {
         val t = text.lowercase().replace(NON_ALNUM, "")
