@@ -220,8 +220,7 @@ abstract class MonosChinos :
 
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
-    override fun episodeListParse(response: Response): List<SEpisode> =
-        throw UnsupportedOperationException("Use the suspend getEpisodeList() override")
+    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException("Use the suspend getEpisodeList() override")
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val animeUrl = "$baseUrl${anime.url}"
@@ -351,8 +350,7 @@ abstract class MonosChinos :
         }
     }
 
-    override suspend fun getVideoList(hoster: Hoster): List<Video> =
-        serverVideoResolver(hoster.hosterUrl, hoster.internalData)
+    override suspend fun getVideoList(hoster: Hoster): List<Video> = serverVideoResolver(hoster.hosterUrl, hoster.internalData)
 
     override fun List<Hoster>.sortHosters(): List<Hoster> {
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
