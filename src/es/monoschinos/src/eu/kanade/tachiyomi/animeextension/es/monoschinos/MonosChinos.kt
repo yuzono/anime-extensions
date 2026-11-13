@@ -70,8 +70,7 @@ abstract class MonosChinos :
             "Voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
             "StreamWish" to listOf("streamwish", "wish", "swdyu", "iplayerhls", "strwish", "wishembed", "kswplayer", "swhoi", "multimovies", "uqloads", "neko-stream", "streamgg"),
             "Okru" to listOf("okru", "ok.ru"),
-            "Uqload" to listOf("uqload", "upload"),
-            "Upload" to listOf("uqload", "upload"),
+            "Uqload" to listOf("uqload"),
             "Filemoon" to listOf("filemoon", "bysekoze", "moonplayer", "files.im", "moviesm4u", "filemoon.sx"),
             "DoodStream" to listOf("doodstream", "dood", "ds2play", "ds2video", "dvsplay", "dvsplayer", "playmogo", "dooood", "d000d", "d0000d", "dooodster", "doods"),
             "MixDrop" to listOf("mixdrop", "mxdrop"),
@@ -84,8 +83,9 @@ abstract class MonosChinos :
         private val SUB_ES_REGEX = Regex("-sub-espanol$")
         private val QUALITY_REGEX = Regex("""(\d+)p""")
         private val NON_ALNUM = Regex("[^a-z0-9]")
-
         private val EP_NUM_REGEX = Regex("""(\d+(?:\.\d+)?)""")
+
+        private val EXACT_ONLY_ALIASES = setOf("upload")
     }
 
     // ====================== POPULAR ======================
@@ -220,7 +220,8 @@ abstract class MonosChinos :
 
     override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
-    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException("Use the suspend getEpisodeList() override")
+    override fun episodeListParse(response: Response): List<SEpisode> =
+        throw UnsupportedOperationException("Use the suspend getEpisodeList() override")
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val animeUrl = "$baseUrl${anime.url}"
@@ -350,7 +351,8 @@ abstract class MonosChinos :
         }
     }
 
-    override suspend fun getVideoList(hoster: Hoster): List<Video> = serverVideoResolver(hoster.hosterUrl, hoster.internalData)
+    override suspend fun getVideoList(hoster: Hoster): List<Video> =
+        serverVideoResolver(hoster.hosterUrl, hoster.internalData)
 
     override fun List<Hoster>.sortHosters(): List<Hoster> {
         val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
@@ -398,9 +400,13 @@ abstract class MonosChinos :
         val source = url.lowercase()
         val serverKey = serverName.lowercase().replace(NON_ALNUM, "")
 
-        val exactMatched = conventions.firstOrNull { (_, aliases) ->
-            aliases.any { alias -> alias.lowercase().replace(NON_ALNUM, "") == serverKey }
-        }?.first
+        val exactMatched = if (serverKey.isEmpty()) {
+            null
+        } else {
+            conventions.firstOrNull { (_, aliases) ->
+                aliases.any { alias -> alias.lowercase().replace(NON_ALNUM, "") == serverKey }
+            }?.first
+        }
 
         val nameMatched = exactMatched ?: if (serverKey.isEmpty()) {
             null
@@ -408,12 +414,16 @@ abstract class MonosChinos :
             conventions.firstOrNull { (key, aliases) ->
                 val k = key.lowercase()
                 serverKey.contains(k) || k.contains(serverKey) ||
-                    aliases.any { serverKey.contains(it.lowercase().replace(NON_ALNUM, "")) }
+                    aliases
+                        .filterNot { it.lowercase() in EXACT_ONLY_ALIASES }
+                        .any { serverKey.contains(it.lowercase().replace(NON_ALNUM, "")) }
             }?.first
         }
 
         val sourceMatched = nameMatched ?: conventions.firstOrNull { (_, aliases) ->
-            aliases.any { it in source }
+            aliases
+                .filterNot { it.lowercase() in EXACT_ONLY_ALIASES }
+                .any { it in source }
         }?.first
 
         val effectiveMatched = sourceMatched ?: when {
@@ -518,7 +528,11 @@ abstract class MonosChinos :
         val keys: List<String> = PREF_SERVER_ALIASES[pref] ?: listOf(pref.lowercase())
         return keys.any { key ->
             val k = key.lowercase().replace(NON_ALNUM, "")
-            k.isNotEmpty() && (t.contains(k) || k.contains(t))
+            when {
+                k.isEmpty() -> false
+                k in EXACT_ONLY_ALIASES -> t == k
+                else -> t.contains(k) || k.contains(t)
+            }
         }
     }
 
