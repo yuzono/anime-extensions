@@ -18,6 +18,7 @@ class EpisodePage(
     val languesDispo: List<String>,
     val jeton: String,
     val slots: List<List<String>>,
+    val filmNames: List<String>,
     val epsMeta: Map<String, String?>, // lien id -> host
     val lecteurs: Map<String, String>, // host -> display name
 )

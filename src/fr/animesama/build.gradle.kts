@@ -19,10 +19,8 @@ yuzono {
         path("/catalogue/..*")
     }
 
-    // Old domains: keep in sync with KNOWN_HOSTS in AnimeSama.kt
     deeplink {
-        host("anime-sama.si")
-        host("anime-sama.tv")
+        host("anime-sama.to")
         path("/catalogue/..*")
     }
 }

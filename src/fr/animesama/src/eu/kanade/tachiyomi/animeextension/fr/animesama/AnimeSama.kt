@@ -61,7 +61,7 @@ abstract class AnimeSama :
     override val client: OkHttpClient = super.client.newBuilder()
         .followRedirects(false)
         .addInterceptor { chain ->
-            val maxRedirects = 5
+            val maxRedirects = 10
             var request = chain.request()
             var response = chain.proceed(request)
             var redirectCount = 0
@@ -106,7 +106,7 @@ abstract class AnimeSama :
         return AnimesPage(animes, page < chunks.size)
     }
 
-    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/#$page")
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/#$page", headers)
 
     // =============================== Latest ===============================
     override fun latestUpdatesParse(response: Response): AnimesPage {
@@ -115,7 +115,7 @@ abstract class AnimeSama :
             .mapNotNull(::animeFromCard)
         return AnimesPage(animes, false)
     }
-    override fun latestUpdatesRequest(page: Int): Request = GET(baseUrl)
+    override fun latestUpdatesRequest(page: Int): Request = GET(baseUrl, headers)
 
     // =============================== Search ===============================
     override fun getFilterList() = Filters.FILTER_LIST
@@ -192,13 +192,51 @@ abstract class AnimeSama :
     // ============================== Episodes ==============================
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         val url = anime.url.removeSuffix("/")
-        val movie = url.split("#").getOrElse(1) { "" }.toIntOrNull()
+        val slotIdx = url.split("#").getOrElse(1) { "" }.toIntOrNull()
         val cleanUrl = url.substringBefore("#")
 
         val pages = fetchEpisodePages("$baseUrl$cleanUrl")
         val isFilm = cleanUrl.trim('/').split("/").drop(2).any { it.contains("film", true) }
-        val episodeCount = pages.maxOfOrNull { page -> page.slots.maxOfOrNull { it.size } ?: 0 } ?: 0
 
+        if (isFilm) {
+            val movieCount = if (slotIdx != null) 1 else (pages.maxOfOrNull { page -> page.slots.maxOfOrNull { it.size } ?: 0 } ?: 0)
+            val filmNames = pages.firstOrNull { it.filmNames.isNotEmpty() }?.filmNames.orEmpty()
+
+            val episodes = List(movieCount) { idx ->
+                val targetIdx = slotIdx ?: idx
+                val voicesWithData = pages.filter { page ->
+                    page.slots.getOrNull(targetIdx)?.isNotEmpty() == true
+                }
+                val voiceData = voicesWithData.map { page ->
+                    val slot = page.slots.getOrNull(targetIdx).orEmpty()
+                    EpisodeVoiceData(
+                        voice = page.voice,
+                        jeton = page.jeton,
+                        path = page.path,
+                        players = slot.map { token ->
+                            val host = page.epsMeta[token.substringAfter("lien:")]
+                            PlayerToken(
+                                token = token,
+                                family = host?.let { page.lecteurs[it] }.orEmpty(),
+                            )
+                        },
+                    )
+                }
+                val movieName = filmNames.getOrNull(targetIdx) ?: "Film ${targetIdx + 1}"
+                SEpisode.create().apply {
+                    name = movieName
+                    this.url = voiceData.toJsonString()
+                    episode_number = (targetIdx + 1).toFloat()
+                    scanlator = voicesWithData.joinToString { it.voice.uppercase() }
+                }
+            }
+            if (slotIdx != null) {
+                return listOfNotNull(episodes.firstOrNull())
+            }
+            return episodes
+        }
+
+        val episodeCount = pages.maxOfOrNull { page -> page.slots.maxOfOrNull { it.size } ?: 0 } ?: 0
         val episodes = List(episodeCount) { epIdx ->
             val voicesWithData = pages.filter { page ->
                 page.slots.any { it.getOrNull(epIdx)?.isNotEmpty() == true }
@@ -219,14 +257,14 @@ abstract class AnimeSama :
                 )
             }
             SEpisode.create().apply {
-                name = if (isFilm) "Film ${epIdx + 1}" else "Episode ${epIdx + 1}"
+                name = "Episode ${epIdx + 1}"
                 this.url = voiceData.toJsonString()
                 episode_number = (epIdx + 1).toFloat()
                 scanlator = voicesWithData.joinToString { it.voice.uppercase() }
             }
         }
-        if (movie != null) {
-            return listOfNotNull(episodes.getOrNull(movie))
+        if (slotIdx != null) {
+            return listOfNotNull(episodes.getOrNull(slotIdx))
         }
         return episodes.reversed()
     }
@@ -327,7 +365,9 @@ abstract class AnimeSama :
             .toString()
             .removeSuffix("/")
 
-        return EpisodePage(voice, path, rootUrl, languesDispo, jeton, slots, epsMeta, lecteurs)
+        val filmNames = filmNameRegex.findAll(uncommented).map { it.destructured.component2() }.toList()
+
+        return EpisodePage(voice, path, rootUrl, languesDispo, jeton, slots, filmNames, epsMeta, lecteurs)
     }
 
     // ============================= Hosters ================================
@@ -636,6 +676,7 @@ abstract class AnimeSama :
 
     private val commentRegex by lazy { Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL) }
     private val seasonRegex by lazy { Regex("""panneauAnime\((["'])(.*?)\1,\s*(["'])(.*?)\3\)""") }
+    private val filmNameRegex by lazy { Regex("""newSPF\((["'])(.*?)\1\)""") }
 
     // Inline episode script: var eps1 = ["lien:<id>", ...]; var epsMeta = {...};
     // var epsJeton = "..."; var lecteursInfos = {...}; var languesDispo = [...];
@@ -645,25 +686,50 @@ abstract class AnimeSama :
     private val lecteursRegex by lazy { Regex("""var\s+lecteursInfos\s*=\s*(\{.*?\})\s*;""", RegexOption.DOT_MATCHES_ALL) }
     private val languesRegex by lazy { Regex("""var\s+languesDispo\s*=\s*(\[[^\]]*\])""") }
 
-    private fun seasonEntries(response: Response, seasonFilter: String): List<SAnime> {
+    private suspend fun seasonEntries(response: Response, seasonFilter: String): List<SAnime> {
         val page = parseAnimePage(response)
         val pageUrl = response.request.url.toString().removeSuffix("/")
 
-        val entries = page.seasons.mapNotNull { (seasonName, seasonStem) ->
+        val entries = mutableListOf<Triple<String, String, Double>>()
+        page.seasons.forEachIndexed { index, (seasonName, seasonStem) ->
             val stemSeason = seasonStem.substringBefore("/")
-            if (seasonFilter.isNotEmpty() && stemSeason != seasonFilter) {
-                return@mapNotNull null
-            }
+            val baseSeasonNum = (index + 1).toDouble()
 
-            val displaySeason = if (stemSeason.startsWith("saison")) {
-                "Saison " + stemSeason.substringAfter("saison").substringBefore("/")
+            if (stemSeason.contains("film", true)) {
+                try {
+                    val filmRes = client.get("$pageUrl/$seasonStem")
+                    val episodePage = parseEpisodePage(filmRes, "")
+                    val filmNames = episodePage.filmNames
+                    val movieCount = episodePage.slots.maxOfOrNull { it.size } ?: 0
+
+                    for (slotIdx in 0 until movieCount) {
+                        val movieNum = baseSeasonNum + slotIdx * 0.1
+                        if (seasonFilter.isNotEmpty() && stemSeason != seasonFilter) {
+                            continue
+                        }
+                        val movieName = filmNames.getOrNull(slotIdx) ?: "${page.name} Film ${slotIdx + 1}"
+                        entries.add(Triple(movieName, "$pageUrl/$seasonStem#$slotIdx", movieNum))
+                    }
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    if (seasonFilter.isEmpty() || stemSeason == seasonFilter) {
+                        entries.add(Triple("${page.name} Film", "$pageUrl/$seasonStem", baseSeasonNum))
+                    }
+                }
             } else {
-                seasonName.substringBefore(" (")
+                if (seasonFilter.isNotEmpty() && stemSeason != seasonFilter) {
+                    return@forEachIndexed
+                }
+                val displaySeason = if (stemSeason.startsWith("saison")) {
+                    "Saison " + stemSeason.substringAfter("saison").substringBefore("/")
+                } else {
+                    seasonName.substringBefore(" (")
+                }
+                entries.add(Triple("${page.name} $displaySeason", "$pageUrl/$seasonStem", baseSeasonNum))
             }
-            Pair("${page.name} $displaySeason", "$pageUrl/$seasonStem")
         }
 
-        return entries.mapIndexed { i, (title, url) ->
+        return entries.map { (title, url, seasonNum) ->
             SAnime.create().apply {
                 this.title = title
                 thumbnail_url = page.thumbnailUrl
@@ -671,7 +737,7 @@ abstract class AnimeSama :
                 genre = page.genres
                 status = page.status
                 setUrlWithoutDomain(url.removeSuffix("/"))
-                season_number = (i + 1).toDouble()
+                season_number = seasonNum
                 fetch_type = FetchType.Episodes
                 initialized = true
             }
