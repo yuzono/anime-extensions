@@ -119,15 +119,14 @@ internal class DirectFileProbe(
     }
 
     // =================== Matroska / WebM (EBML tracks) ====================
-    private fun matroskaDimensions(head: ByteArray):
-        Pair<Int, Int>? =
-        walkEbml(
-            head, 0,
-            head.size,
-            ID_SEGMENT,
-            ID_TRACKS,
-            ID_TRACK_ENTRY
-        )?.takeIf { (width, height) -> width > 0 && height > 0 }
+    private fun matroskaDimensions(head: ByteArray): Pair<Int, Int>? = walkEbml(
+        head,
+        0,
+        head.size,
+        ID_SEGMENT,
+        ID_TRACKS,
+        ID_TRACK_ENTRY,
+    )?.takeIf { (width, height) -> width > 0 && height > 0 }
 
     /**
      * Recurses the ids in `pathIds` down to a Video element and reads its
