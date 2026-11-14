@@ -28,6 +28,7 @@ class CinejoyExtractor(
 ) {
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+    private val directFileProbe by lazy { DirectFileProbe(client, wingHeaders) }
 
     suspend fun videosForServer(
         server: WingServerInfo,
@@ -163,10 +164,14 @@ class CinejoyExtractor(
                 expanded
             }
         } else {
+            // Direct file link: when wing.st sends no quality metadata, we probe
+            // the file itself (Content-Disposition name or container header)
+            // and fall back to the bare server + container label.
+            val quality = directFileProbe.quality(url) ?: "Auto"
             listOf(
                 Video(
                     videoUrl = url,
-                    videoTitle = buildVideoLabel(server, "Auto", url, subtitles.size),
+                    videoTitle = buildVideoLabel(server, quality, url, subtitles.size),
                     headers = wingHeaders,
                     subtitleTracks = subtitles,
                 ),

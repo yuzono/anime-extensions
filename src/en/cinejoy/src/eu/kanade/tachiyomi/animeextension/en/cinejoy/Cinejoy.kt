@@ -834,11 +834,11 @@ abstract class Cinejoy :
 
         // Fallback when https://api.wing.st/servers is unreachable.
         private val DEFAULT_SERVERS = listOf(
-            WingServerInfo("secret", mayHave4K = true),
-            WingServerInfo("Nebula"),
+            WingServerInfo("Light", mayHave4K = true),
             WingServerInfo("Lisbon", mayHave4K = true),
-            WingServerInfo("Solara"),
-            WingServerInfo("Athens"),
+            WingServerInfo("Nebula"),
+            WingServerInfo("Comet", mayHave4K = true),
+            WingServerInfo("Zenith", mayHave4K = true),
         )
 
         // Catalog backing the server preferences; names the dynamic
