@@ -13,7 +13,7 @@ yuzono {
 
     source {
         lang = "es"
-        baseUrl = "https://ww3.animeonline.ninja"
+        baseUrl = "https://ww4.animeonline.ninja"
     }
 }
 

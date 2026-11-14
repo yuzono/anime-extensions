@@ -12,6 +12,7 @@ import aniyomi.lib.streamwishextractor.StreamWishExtractor
 import aniyomi.lib.uqloadextractor.UqloadExtractor
 import aniyomi.lib.vidhideextractor.VidHideExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
@@ -21,6 +22,7 @@ import keiyoushi.annotation.Source
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.useAsJsoup
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -40,10 +42,9 @@ abstract class AnimeOnlineNinja : DooPlay() {
 
     // ============================== Popular ===============================
     // The trending section paginates as /tendencias/page/N/ (its own pager
-    // links); /tendencias/N is a WordPress 404. Both ww3. and ver. sit behind
-    // the same Cloudflare zone and serve an identical managed challenge on
-    // every path, while ver.'s deep paths just 301 back here - so keep each
-    // request single-hopped on ww3. and let CloudflareInterceptor solve it.
+    // links); /tendencias/N is a WordPress 404. ww4. is the current canonical
+    // host: ww3. and ver2. 301 their deep paths here, so keep each request
+    // single-hopped on ww4. and let CloudflareInterceptor solve it.
     override fun popularAnimeRequest(page: Int) = GET(if (page == 1) "$baseUrl/tendencias/" else "$baseUrl/tendencias/page/$page/", headers)
 
     override fun popularAnimeSelector() = latestUpdatesSelector()
@@ -111,6 +112,23 @@ abstract class AnimeOnlineNinja : DooPlay() {
         } else {
             GET("$baseUrl$path/page/$page", headers)
         }
+    }
+
+    // Old links point at the mirrors the source used before ww4., and DooPlay
+    // rejects any host that is not the current baseUrl. Rewrite them to the
+    // canonical host so previously shared/imported URLs keep opening.
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        if (query.startsWith("https://")) {
+            val url = query.toHttpUrl()
+            if (url.host in LEGACY_HOSTS) {
+                val migratedQuery = url.newBuilder()
+                    .host(baseUrl.toHttpUrl().host)
+                    .build()
+                    .toString()
+                return super.getSearchAnime(page, migratedQuery, filters)
+            }
+        }
+        return super.getSearchAnime(page, query, filters)
     }
 
     // ============================== Episodes ==============================
@@ -353,6 +371,14 @@ abstract class AnimeOnlineNinja : DooPlay() {
     override val episodeNumberRegex by lazy { Regex("""(\d+(?:\.\d+)?)$""") }
 
     companion object {
+        private val LEGACY_HOSTS = setOf(
+            "animeonline.ninja",
+            "www.animeonline.ninja",
+            "ver.animeonline.ninja",
+            "ww3.animeonline.ninja",
+            "ver2.animeonline.ninja",
+        )
+
         private const val PREF_LANG_KEY = "preferred_lang"
         private const val PREF_LANG_TITLE = "Preferred language"
         private const val PREF_LANG_DEFAULT = "SUB"
