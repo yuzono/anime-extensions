@@ -12,7 +12,7 @@ yuzono {
 
     source {
         lang = "fr"
-        baseUrl = "https://voir-anime.to"
+        baseUrl = "https://voiranime.cx/"
     }
 }
 
