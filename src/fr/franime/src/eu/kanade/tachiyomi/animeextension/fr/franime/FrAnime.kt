@@ -30,11 +30,13 @@ import keiyoushi.utils.bodyString
 import keiyoushi.utils.decodeHex
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
@@ -78,14 +80,19 @@ abstract class FrAnime :
     override fun getFilterList() = Filters.FILTER_LIST
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        if (query.startsWith("https://")) {
+        if (query.startsWith("https://") || query.startsWith("http://")) {
             val url = query.toHttpUrl()
             if (url.host != baseUrl.toHttpUrl().host) {
                 throw Exception("Unsupported url")
             }
             val anime = findAnimeByIdOrSlug(url.queryParameter("anime_id")?.toLongOrNull(), url.encodedPathSegments.lastOrNull().orEmpty())
                 ?: throw Exception("Unsupported url")
-            return AnimesPage(listOf(anime.toSAnime(baseUrl)), false)
+            // Season URLs open the season itself; bare anime URLs open the parent.
+            val seasonNumber = url.queryParameter("s")?.toIntOrNull()
+            val entry = seasonNumber
+                ?.let { seasonEntry(anime, it, anime.seasons.indexOfLast { s -> s.hasPlayers() }) }
+                ?: anime.toSAnime(baseUrl)
+            return AnimesPage(listOf(entry), false)
         }
 
         val params = Filters.get(filters)
@@ -102,27 +109,35 @@ abstract class FrAnime :
     // ============================== Seasons ===============================
     override suspend fun getSeasonList(anime: SAnime): List<SAnime> {
         val animeData = findAnimeByUrl(anime.url) ?: return emptyList()
-        val stem = urlStem(animeData)
+        val lastPlayable = animeData.seasons.indexOfLast { it.hasPlayers() }
 
-        return animeData.seasons.mapIndexedNotNull { index, season ->
-            if (!season.hasPlayers()) return@mapIndexedNotNull null
+        // Season posters hit the franime API + Kitsu; fetch them concurrently.
+        return animeData.seasons.indices
+            .parallelCatchingFlatMap { index -> listOfNotNull(seasonEntry(animeData, index + 1, lastPlayable)) }
+            .sortedBy { it.season_number }
+    }
 
-            val displayTitle = if (animeData.seasons.size == 1 && season.title.equals("Saison 1", true)) {
-                animeData.displayTitle()
-            } else {
-                (animeData.displayTitle() + " " + season.title).trim()
-            }
-            SAnime.create().apply {
-                title = displayTitle
-                thumbnail_url = seasonPoster(animeData, index + 1)
-                description = animeData.seasonDescription()
-                genre = animeData.genres.joinToString()
-                status = animeData.parseStatus()
-                setUrlWithoutDomain("/anime/$stem?anime_id=${animeData.id}&s=${index + 1}")
-                season_number = trailingNumber(season.title) ?: (index + 1).toDouble()
-                fetch_type = FetchType.Episodes
-                initialized = true
-            }
+    private suspend fun seasonEntry(animeData: Anime, seasonNumber: Int, lastPlayable: Int): SAnime? {
+        val index = seasonNumber - 1
+        val season = animeData.seasons.getOrNull(index) ?: return null
+        if (!season.hasPlayers()) return null
+
+        val displayTitle = if (animeData.seasons.size == 1 && season.title.equals("Saison 1", true)) {
+            animeData.displayTitle()
+        } else {
+            (animeData.displayTitle() + " " + season.title).trim()
+        }
+        return SAnime.create().apply {
+            title = displayTitle
+            thumbnail_url = seasonPoster(animeData, seasonNumber)
+            description = animeData.seasonDescription()
+            genre = animeData.genres.joinToString()
+            // Earlier seasons of an ongoing series are done airing.
+            status = if (index < lastPlayable) SAnime.COMPLETED else animeData.parseStatus()
+            setUrlWithoutDomain("/anime/${urlStem(animeData)}?anime_id=${animeData.id}&s=$seasonNumber")
+            season_number = trailingNumber(season.title) ?: seasonNumber.toDouble()
+            fetch_type = FetchType.Episodes
+            initialized = true
         }
     }
 
@@ -176,16 +191,15 @@ abstract class FrAnime :
             if (!episode.hasPlayers()) return@mapIndexedNotNull null
 
             val details = detailsByNumber[index + 1]
-            val realTitle = details?.title?.takeIf { !it.lowercase().matches(EPISODE_TITLE_PATTERN) }
             val voices = episode.voiceList()
 
             SEpisode.create().apply {
                 setUrlWithoutDomain(anime.url + "&ep=${index + 1}")
-                name = if (realTitle != null) "Episode ${index + 1}: $realTitle" else episode.title ?: "Episode ${index + 1}"
+                name = episode.title ?: "Episode ${index + 1}"
                 episode_number = (trailingNumber(episode.title ?: "") ?: (index + 1).toDouble()).toFloat()
                 scanlator = voices.joinToString(" & ")
                 preview_url = details?.thumbnail
-                date_upload = dateFormat.tryParse(details?.airDate)
+                date_upload = parseAirDate(details?.airDate)
             }
         }
         return episodes.sortedByDescending { it.episode_number }
@@ -275,11 +289,10 @@ abstract class FrAnime :
         val episodeIdx = parts.getOrNull(2)?.toIntOrNull() ?: return emptyList()
         val lang = parts.getOrNull(3) ?: return emptyList()
         val playerIdx = parts.getOrNull(4)?.toIntOrNull() ?: return emptyList()
-        val lecteur = parts.getOrNull(5) ?: return emptyList()
 
         val apiUrl = "$baseApiUrl/anime/$animeId/$seasonIdx/$episodeIdx/$lang/$playerIdx"
         val playerUrl = resolvePlayerUrl(apiUrl) ?: return emptyList()
-        val videos = videosFromPlayer(playerUrl, lecteur, "(${lang.uppercase()}) ")
+        val videos = videosFromPlayer(playerUrl, "(${lang.uppercase()}) ")
             .distinctBy { it.videoTitle to it.videoUrl.substringBefore("?") }
         if (videos.isEmpty()) return emptyList()
 
@@ -308,11 +321,22 @@ abstract class FrAnime :
 
     private suspend fun resolvePlayerUrl(apiUrl: String): String? = try {
         val body = client.get(apiUrl).bodyString().trim()
-        when {
-            body.startsWith("{") -> null // {"msg":"Aucun lecteur disponible pour cette épisode"}
-            body.contains("/watch") -> decodeWatchUrl(body)
-            body.startsWith("http") -> body
-            else -> null
+        if (body.length > MAX_PLAYER_BODY_LENGTH) {
+            null
+        } else {
+            val url = body.toHttpUrlOrNull()
+            when {
+                body.startsWith("{") -> null // {"msg":"Aucun lecteur disponible pour cette épisode"}
+
+                // FRAnime wrapper URL (franime.fr/watch...), decoded client-side.
+                url != null && url.host == baseUrl.toHttpUrl().host && url.encodedPath.startsWith("/watch") ->
+                    decodeWatchUrl(url)
+
+                // Direct player URL (legacy); host-validated by videosFromPlayer.
+                url != null -> body
+
+                else -> null
+            }
         }
     } catch (e: CancellationException) {
         throw e
@@ -322,22 +346,23 @@ abstract class FrAnime :
 
     // The lecteur endpoint returns a franime.fr/watch2/?a=..&o=.. wrapper URL. Its params are
     // base64 -> hex -> bytes, and one param XORed with a single-byte key is the player URL.
-    // The key varies per response, so scan every param and key for a printable https URL.
-    private fun decodeWatchUrl(watchUrl: String): String? {
-        val httpUrl = watchUrl.toHttpUrlOrNull() ?: return null
-        for (name in httpUrl.queryParameterNames) {
-            val bytes = httpUrl.queryParameter(name)
+    // The key varies per response, so derive it from the mandatory leading "h" of every
+    // URL and scan each param once.
+    private fun decodeWatchUrl(watchUrl: HttpUrl): String? {
+        for (name in watchUrl.queryParameterNames) {
+            val bytes = watchUrl.queryParameter(name)
                 ?.let { value ->
                     runCatching {
                         Base64.decode(value, Base64.DEFAULT).toString(Charsets.US_ASCII).decodeHex()
                     }.getOrNull()
                 }
+                ?.takeIf { it.size <= MAX_WATCH_PARAM_BYTES }
                 ?: continue
-            for (key in 0..255) {
-                val decoded = xorDecode(bytes, key)
-                if (decoded.isHttpUrl() && decoded.all { it.code in 32..126 }) {
-                    return decoded
-                }
+
+            val key = (bytes[0].toInt() and 0xFF) xor 'h'.code
+            val decoded = xorDecode(bytes, key)
+            if (decoded.isHttpUrl() && decoded.all { it.code in 32..126 }) {
+                return decoded
             }
         }
         return null
@@ -349,39 +374,43 @@ abstract class FrAnime :
 
     private fun String.isHttpUrl(): Boolean = startsWith("https://")
 
-    private suspend fun videosFromPlayer(playerUrl: String, lecteur: String, prefix: String): List<Video> {
-        val lowerUrl = playerUrl.lowercase()
+    private suspend fun videosFromPlayer(playerUrl: String, prefix: String): List<Video> {
+        val url = playerUrl.toHttpUrlOrNull()
+        // Only HTTPS URLs on known player hosts reach the extractors; brand
+        // fragments rather than full domains, since several of these services
+        // rotate TLDs.
+        if (url == null || !url.isHttps) return emptyList()
+        val host = url.host
         return try {
             when {
-                lecteur.equals("sendvid", true) || lowerUrl.contains("sendvid.com") ->
+                host.contains("sendvid") ->
                     sendvidExtractor.videosFromUrl(playerUrl, prefix)
 
-                lecteur.equals("sibnet", true) || lowerUrl.contains("sibnet.ru") ->
+                host.contains("sibnet") ->
                     sibnetExtractor.videosFromUrl(playerUrl, prefix)
 
-                lecteur.equals("vk", true) || lecteur.equals("vkru", true) ||
-                    lowerUrl.contains("vk.com") || lowerUrl.contains("vkvideo") ->
+                host.contains("vk.com") || host.contains("vkvideo") ->
                     vkExtractor.videosFromUrl(playerUrl, prefix)
 
-                lecteur.equals("vidmoly", true) || lowerUrl.contains("vidmoly") || lowerUrl.contains("ansembed") ->
+                host.contains("vidmoly") || host.contains("ansembed") ->
                     vidmolyExtractor.videosFromUrl(playerUrl, prefix)
 
-                lecteur.equals("filemoon", true) || lowerUrl.contains("filemoon") || lowerUrl.contains("bysedikamoum") ->
+                host.contains("filemoon") || host.contains("bysedikamoum") ->
                     filemoonExtractor.videosFromUrl(playerUrl, prefix)
 
-                lecteur.equals("uqload", true) || lowerUrl.contains("uqload") ->
+                host.contains("uqload") ->
                     uqloadExtractor.videosFromUrl(playerUrl, prefix)
 
-                lecteur.equals("lpayer", true) || lowerUrl.contains("embed4me") ->
+                host.contains("embed4me") ->
                     embed4meExtractor.videosFromUrl(playerUrl, prefix)
 
-                lecteur.lowercase() in VIDHIDE_LECTEURS || VIDHIDE_LECTEURS.any { lowerUrl.contains(it) } ->
+                VIDHIDE_LECTEURS.any { host.contains(it) } ->
                     vidhideExtractor.videosFromUrl(playerUrl) { quality -> "${prefix.trim()} Earnvids - $quality" }
 
-                lecteur.equals("dailymotion", true) || lowerUrl.contains("dailymotion") ->
+                host.contains("dailymotion") ->
                     dailymotionExtractor.videosFromUrl(playerUrl, prefix)
 
-                lecteur.equals("yourupload", true) || lowerUrl.contains("yourupload") ->
+                host.contains("yourupload") ->
                     yourUploadExtractor.videoFromUrl(playerUrl, headers, prefix = prefix)
 
                 else -> emptyList()
@@ -401,14 +430,20 @@ abstract class FrAnime :
         .set("Origin", baseUrl)
 
     @Volatile
-    private var databaseCache: List<Anime>? = null
+    private var databaseCache: Pair<List<Anime>, Long>? = null
 
     private val databaseMutex = Mutex()
 
     private suspend fun database(): List<Anime> {
-        databaseCache?.let { return it }
+        databaseCache
+            ?.takeIf { System.currentTimeMillis() - it.second < CATALOG_TTL_MS }
+            ?.let { return it.first }
         return databaseMutex.withLock {
-            databaseCache ?: client.get("$baseApiUrl/animes/").parseAs<List<Anime>>().also { databaseCache = it }
+            databaseCache
+                ?.takeIf { System.currentTimeMillis() - it.second < CATALOG_TTL_MS }
+                ?.let { return it.first }
+            client.get("$baseApiUrl/animes/").parseAs<List<Anime>>()
+                .also { databaseCache = it to System.currentTimeMillis() }
         }
     }
 
@@ -518,6 +553,10 @@ abstract class FrAnime :
         timeZone = TimeZone.getTimeZone("UTC")
     }
 
+    private fun parseAirDate(date: String?): Long = date?.let {
+        synchronized(dateFormat) { dateFormat.tryParse(it) }
+    } ?: 0L
+
     private fun slugOf(title: String) = titleRegex
         .replace(title, "")
         .replace(" ", "-").lowercase()
@@ -565,8 +604,6 @@ abstract class FrAnime :
         private const val KITSU_PAGE_SIZE = 20
         private const val KITSU_MAX_EPISODES = 20 * KITSU_PAGE_SIZE
 
-        private val EPISODE_TITLE_PATTERN = Regex("""^ép?isode\s*\d+(\.\d+)?$""")
-
         private val voicesMap = mapOf(
             "Préférer VO" to "vo",
             "Préférer VF" to "vf",
@@ -591,6 +628,10 @@ abstract class FrAnime :
         private val PLAYERS_VALUES = playersMap.values.toTypedArray()
 
         private val VIDHIDE_LECTEURS = setOf("movearnpre", "smoothpre", "minochinos", "dingtezuni", "morencius")
+
+        private const val CATALOG_TTL_MS = 30 * 60 * 1000L
+        private const val MAX_PLAYER_BODY_LENGTH = 20_000
+        private const val MAX_WATCH_PARAM_BYTES = 512
 
         private const val PREF_VOICE_KEY = "preferred_voice"
         private const val PREF_VOICE_DEFAULT = "vo"

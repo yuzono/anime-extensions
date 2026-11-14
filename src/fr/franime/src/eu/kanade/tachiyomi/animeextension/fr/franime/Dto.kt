@@ -178,6 +178,7 @@ fun Episode.voiceList(): List<String> = buildList {
 fun Episode.hasVoice(voice: String): Boolean = when (voice) {
     "VOSTFR" -> languages.vo.players.any { !it.equals(UNAVAILABLE, true) }
     "VF" -> languages.vf.players.any { !it.equals(UNAVAILABLE, true) }
+    "VOSTFR & VF" -> hasVoice("VOSTFR") && hasVoice("VF")
     else -> false
 }
 
@@ -188,6 +189,7 @@ fun Episode.hasPlayers(): Boolean = voiceList().isNotEmpty()
 fun Anime.generalDescription(): String = buildString {
     seasons.sumOf { s -> s.episodes.count { it.voiceList().isNotEmpty() } }
         .takeIf { it > 0 }
+        ?.let { append("Épisodes : ").append(it).append("\n") }
     append(generalMetadataBlock())
 }.trim()
 
