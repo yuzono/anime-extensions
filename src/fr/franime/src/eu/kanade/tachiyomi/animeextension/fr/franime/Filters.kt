@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.fr.franime
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import keiyoushi.utils.firstInstanceOrNull
+import java.util.Calendar
 
 private val THEMES = listOf(
     "Action",
@@ -55,7 +56,9 @@ private val SORTS = listOf("Ressemblance", "Mieux noté", "Moins bien noté", "A
 private val TYPES = listOf("VOSTFR & VF", "VOSTFR", "VF")
 private val SEASONS = listOf("Tout", "Hiver", "Printemps", "Été", "Automne")
 
-private val YEARS = listOf("Tout") + (2027 downTo 1970).map(Int::toString)
+private val currentYear = Calendar.getInstance().get(Calendar.YEAR)
+
+private val YEARS = listOf("Tout") + (currentYear downTo 1970).map(Int::toString)
 
 private class ThemeCheckBox(name: String) : AnimeFilter.CheckBox(name)
 

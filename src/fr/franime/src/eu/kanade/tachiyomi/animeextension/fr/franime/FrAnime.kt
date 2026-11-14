@@ -356,7 +356,7 @@ abstract class FrAnime :
                         Base64.decode(value, Base64.DEFAULT).toString(Charsets.US_ASCII).decodeHex()
                     }.getOrNull()
                 }
-                ?.takeIf { it.size <= MAX_WATCH_PARAM_BYTES }
+                ?.takeIf { it.isNotEmpty() && it.size <= MAX_WATCH_PARAM_BYTES }
                 ?: continue
 
             val key = (bytes[0].toInt() and 0xFF) xor 'h'.code
