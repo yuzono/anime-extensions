@@ -6,16 +6,22 @@ plugins {
 
 yuzono {
     name = "Voiranime"
-    versionCode = 5
+    versionCode = 6
     contentWarning = ContentWarning.MIXED
-    libVersion = "14"
+    libVersion = "16"
 
     source {
         lang = "fr"
-        baseUrl = "https://voir-anime.to"
+        baseUrl = "https://voiranime.cx"
     }
 }
 
 dependencies {
+    implementation(project(":lib:filemoonextractor"))
+    implementation(project(":lib:streamtapeextractor"))
     implementation(project(":lib:universalextractor"))
+    implementation(project(":lib:vidhideextractor"))
+    implementation(project(":lib:vidmolyextractor"))
+    implementation(project(":lib:voeextractor"))
+    implementation(project(":lib:youruploadextractor"))
 }
