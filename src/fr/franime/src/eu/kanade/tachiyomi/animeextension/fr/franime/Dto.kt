@@ -148,7 +148,7 @@ fun Anime.displayTitle(): String = title.ifBlank { titleOriginal }
 fun Anime.toSAnime(baseUrl: String) = SAnime.create().apply {
     title = displayTitle()
     thumbnail_url = posterUrl(baseUrl)
-    genre = genres.joinToString()
+    genre = genres.sorted().joinToString()
     status = parseStatus()
     description = generalDescription()
     url = "/anime/${slugOf(titleOriginal).ifBlank { slugOf(title).ifBlank { "anime-$id" } }}?anime_id=$id"
@@ -211,17 +211,15 @@ private fun Anime.statusLabel(): String = when (status.trim().lowercase()) {
     else -> status.trim()
 }
 
-fun Anime.matchesQuery(query: String): Boolean {
-    return query.isBlank() || listOf(
-        title,
-        titleOriginal,
-        titlesAlt.enUs,
-        titlesAlt.enJp,
-        titlesAlt.jaJp,
-        slugOf(titleOriginal),
-        slugOf(title),
-    ).any { it?.contains(query, true) == true }
-}
+fun Anime.matchesQuery(query: String): Boolean = query.isBlank() || listOf(
+    title,
+    titleOriginal,
+    titlesAlt.enUs,
+    titlesAlt.enJp,
+    titlesAlt.jaJp,
+    slugOf(titleOriginal),
+    slugOf(title),
+).any { it?.contains(query, true) == true }
 
 fun Anime.matchesFilters(params: SearchParams): Boolean {
     if (params.themes.isNotEmpty() && params.themes.none { it in genres }) return false

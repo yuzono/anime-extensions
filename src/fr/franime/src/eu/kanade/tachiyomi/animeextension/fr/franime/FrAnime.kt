@@ -107,10 +107,6 @@ abstract class FrAnime :
         return animeData.seasons.mapIndexedNotNull { index, season ->
             if (!season.hasPlayers()) return@mapIndexedNotNull null
 
-            val seasonDetails = fetchSeasonDetails(animeData.id, index + 1)
-            val poster = seasonDetails?.kitsuId?.let { fetchKitsuPoster(it) }
-                ?: animeData.posterUrl(baseUrl)
-
             val displayTitle = if (animeData.seasons.size == 1 && season.title.equals("Saison 1", true)) {
                 animeData.displayTitle()
             } else {
@@ -118,7 +114,7 @@ abstract class FrAnime :
             }
             SAnime.create().apply {
                 title = displayTitle
-                thumbnail_url = poster
+                thumbnail_url = seasonPoster(animeData, index + 1)
                 description = animeData.seasonDescription()
                 genre = animeData.genres.joinToString()
                 status = animeData.parseStatus()
@@ -141,6 +137,7 @@ abstract class FrAnime :
         return animeData.toSAnime(baseUrl).apply {
             url = anime.url
             title = anime.title
+            thumbnail_url = seasonPoster(animeData, seasonNumber)
             animeData.seasons.getOrNull(seasonNumber - 1)?.let { description = animeData.seasonDescription() }
             fetch_type = FetchType.Episodes
             season_number = anime.season_number
@@ -460,9 +457,14 @@ abstract class FrAnime :
         client.get("$baseApiUrl/anime-seasons/$animeId/$seasonNumber").parseAs<SeasonDetails>()
     } catch (e: CancellationException) {
         throw e
-    } catch (_: Exception) {
+    } catch (e: Exception) {
         null
     }
+
+    // Each season maps to its own Kitsu entry, with its own poster; fall back to the
+    // catalog poster when the mapping is missing.
+    private suspend fun seasonPoster(animeData: Anime, seasonNumber: Int): String? = fetchSeasonDetails(animeData.id, seasonNumber)?.kitsuId?.let { fetchKitsuPoster(it) }
+        ?: animeData.posterUrl(baseUrl)
 
     private suspend fun fetchKitsuPoster(kitsuId: Long): String? = try {
         client.get("$KITSU_API/anime/$kitsuId")
