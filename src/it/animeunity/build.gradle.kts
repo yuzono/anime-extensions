@@ -12,6 +12,8 @@ yuzono {
 
     source {
         lang = "it"
-        baseUrl = "https://www.animeunity.so"
+        baseUrl("https://www.animeunity.co") {
+            withCustom = true
+        }
     }
 }

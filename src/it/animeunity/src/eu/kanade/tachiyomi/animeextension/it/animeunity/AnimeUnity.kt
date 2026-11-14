@@ -17,8 +17,9 @@ import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.toJsonRequestBody
+import keiyoushi.utils.toJsonBody
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -31,9 +32,6 @@ import java.text.SimpleDateFormat
 abstract class AnimeUnity :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
-
-    // TODO: Check frequency of url changes to potentially
-    // add back overridable baseurl preference
 
     override val supportsLatest = true
 
@@ -121,6 +119,7 @@ abstract class AnimeUnity :
                 ).execute()
 
         val document = archivioResponse.asJsoup()
+        val siteUrl = archivioResponse.request.url.resolve("/")!!.toString().removeSuffix("/")
 
         val crsfToken = document.select("meta[name=csrf-token]").attr("content")
         var newHeadersBuilder = headers.newBuilder()
@@ -150,15 +149,15 @@ abstract class AnimeUnity :
                 newHeadersBuilder
                     .add("X-CSRF-TOKEN", crsfToken)
                     .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
-                    .add("Referer", "$baseUrl/${filters.top}")
-            return GET("$baseUrl/${filters.top}", headers = topHeaders.build())
+                    .add("Referer", "$siteUrl/${filters.top}")
+            return GET("$siteUrl/${filters.top}", headers = topHeaders.build())
         }
 
         val searchHeaders =
             newHeadersBuilder
                 .add("Accept", "application/json, text/plain, */*")
                 .add("Content-Type", "application/json;charset=utf-8")
-                .add("Origin", baseUrl)
+                .add("Origin", siteUrl)
                 .add("Referer", archivioResponse.request.url.toString())
                 .add("X-Requested-With", "XMLHttpRequest")
                 .build()
@@ -176,9 +175,9 @@ abstract class AnimeUnity :
                 "dubbed": ${if (filters.dub.isEmpty()) "false" else "true"},
                 "season": ${filters.season.falseIfEmpty()}
             }
-            """.trimIndent().toJsonRequestBody()
+            """.trimIndent().toJsonBody()
 
-        return POST("$baseUrl/archivio/get-animes", body = body, headers = searchHeaders)
+        return POST("$siteUrl/archivio/get-animes", body = body, headers = searchHeaders)
     }
 
     override fun searchAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException()
@@ -198,7 +197,7 @@ abstract class AnimeUnity :
                 }
             }
 
-        AnimesPage(animeList, data.tot - page * 30 >= 30 && data.tot > 30)
+        AnimesPage(animeList, data.tot > page * 30)
     } else {
         popularAnimeParse(response)
     }
@@ -384,7 +383,7 @@ abstract class AnimeUnity :
                     Track(it.groupValues[2], it.groupValues[1])
                 }.toList()*/
 
-        Regex("""https?://vixcloud\.co/playlist/(.+)\?.*type=video&.*rendition=(\d+p?).*""").findAll(masterPl).forEach { match ->
+        Regex("""https?://[^/\s]+/playlist/(.+)\?.*type=video&.*rendition=(\d+p?).*""").findAll(masterPl).forEach { match ->
             var videoUrl = match.groupValues[0]
             val filename = match.groupValues[1]
             if (!filename.endsWith(".m3u8")) {
@@ -446,7 +445,7 @@ abstract class AnimeUnity :
     private fun String.falseIfEmpty(): String = if (this.isEmpty()) {
         "false"
     } else {
-        "\"${this}\""
+        JsonPrimitive(this).toString()
     }
 
     @SuppressLint("SimpleDateFormat")
