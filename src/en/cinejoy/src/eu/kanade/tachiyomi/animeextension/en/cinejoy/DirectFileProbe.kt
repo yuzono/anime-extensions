@@ -321,10 +321,12 @@ internal class DirectFileProbe(
 /**
  * Returns a client that refuses connections to hosts resolving to
  * non-public addresses (loopback, LAN, link-local, ULA, CGNAT, multicast).
- * Enforced through the DNS layer, so every connection - including each
- * redirect hop and literal-IP hosts - is validated. Wing.st stream URLs
- * come from a decrypted payload rather than a fixed catalog; an explicit
- * host allowlist would break on the CDNs' frequent rotation, so public
+ * Hostnames are validated when the DNS layer resolves them for the
+ * connection; IP literals never reach the Dns callback (RouteSelector
+ * parses them directly), so a network interceptor re-checks them for
+ * every request, redirects included. Wing.st stream URLs come from a
+ * decrypted payload rather than a fixed catalog; an explicit host
+ * allowlist would break on the CDNs' frequent rotation, so public
  * reachability is defined by address ranges instead.
  */
 internal fun OkHttpClient.withPublicHostGuard(): OkHttpClient = newBuilder()
@@ -335,6 +337,13 @@ internal fun OkHttpClient.withPublicHostGuard(): OkHttpClient = newBuilder()
             throw UnknownHostException("Blocked non-public host: $host")
         }
         addresses
+    }
+    .addNetworkInterceptor { chain ->
+        val url = chain.request().url
+        literalAddress(url.host)
+            ?.takeIf { !it.isPublic }
+            ?.let { throw UnknownHostException("Blocked non-public host: ${url.host}") }
+        chain.proceed(chain.request())
     }
     .build()
 

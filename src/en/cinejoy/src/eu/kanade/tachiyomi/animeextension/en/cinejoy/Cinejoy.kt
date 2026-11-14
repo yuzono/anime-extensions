@@ -598,8 +598,13 @@ abstract class Cinejoy :
         val servers = wingServers()
         val preferredServer = preferences.preferredServerName
 
-        val selected = servers.filter { it.name in preferences.enabledServerNames }
-            .ifEmpty { servers.filter { it.name in SERVER_NAMES } }
+        val savedServers = preferences.getStringSet(PREF_SERVERS_KEY, null)
+        val selected = when {
+            savedServers == null -> servers.filter { it.name in SERVER_NAMES }
+            savedServers.isEmpty() -> emptyList()
+            else -> servers.filter { it.name in savedServers }
+                .ifEmpty { servers.filter { it.name in SERVER_NAMES } }
+        }
 
         return selected
             // Stable sort: the preferred server moves first, the rest keep
@@ -709,10 +714,6 @@ abstract class Cinejoy :
     private val SharedPreferences.preferredServerName by preferences.delegate(
         PREF_SERVER_KEY,
         PREF_SERVER_DEFAULT,
-    )
-    private val SharedPreferences.enabledServerNames: Set<String> by preferences.delegate(
-        PREF_SERVERS_KEY,
-        PREF_SERVERS_DEFAULT,
     )
     private val SharedPreferences.subLimitPref by preferences.delegate(
         PREF_SUB_LIMIT_KEY,
