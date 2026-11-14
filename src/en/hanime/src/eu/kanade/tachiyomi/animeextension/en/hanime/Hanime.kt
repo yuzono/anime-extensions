@@ -40,11 +40,16 @@ abstract class Hanime :
 
     override val supportsLatest = true
 
-    override fun headersBuilder() = Headers.Builder()
-        .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
-        .add("Accept-Language", "en-US,en;q=0.9")
-        .add("Origin", "https://hanime.tv")
-        .add("Referer", "https://hanime.tv/")
+    override fun headersBuilder(): Headers.Builder {
+        val builder = super.headersBuilder()
+        if (builder.get("User-Agent").isNullOrBlank()) {
+            builder.set("User-Agent", FALLBACK_USER_AGENT)
+        }
+        return builder
+            .add("Accept-Language", "en-US,en;q=0.9")
+            .add("Origin", "https://hanime.tv")
+            .add("Referer", "https://hanime.tv/")
+    }
 
     /** Headers for video stream requests (m3u8, segments, AES key). */
     private fun videoHeaders(): Headers = headers.newBuilder()
@@ -97,7 +102,7 @@ abstract class Hanime :
         "webview" -> WebViewSignatureProvider()
         "wasm" -> {
             val binary = runCatching {
-                withContext(Dispatchers.IO) { HanimeWasmBinary.fetchWasmBinary(client) }
+                withContext(Dispatchers.IO) { HanimeWasmBinary.fetchWasmBinary(client, headers["User-Agent"]) }
             }.getOrNull()
             if (binary != null) {
                 ChicorySignatureProvider(binary)
@@ -895,6 +900,9 @@ abstract class Hanime :
 
     companion object {
         private const val TAG = "Hanime"
+
+        private const val FALLBACK_USER_AGENT =
+            "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
         /** Guest search API (v11) — returns the full catalog wrapped in `{"data": [...]}`. */
         private const val SEARCH_URL = "https://guest.freeanimehentai.net/api/v11/search_hvs"
