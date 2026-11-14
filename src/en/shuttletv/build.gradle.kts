@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "ShuttleTV"
-    versionCode = 2
+    versionCode = 3
     contentWarning = ContentWarning.MIXED
     libVersion = "16"
 
@@ -14,10 +14,10 @@ yuzono {
         lang = "en"
         baseUrl {
             mirrors(
-                "https://shuttletv.su",
                 "https://shuttletv.pk",
-                "https://shuttletv.me",
                 "https://shuttletv.cr",
+                "https://shuttletv.ga",
+                "https://shuttletv.me",
             )
         }
     }
