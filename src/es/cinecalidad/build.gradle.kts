@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "CineCalidad"
-    versionCode = 39
+    versionCode = 40
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 

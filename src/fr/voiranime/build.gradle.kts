@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "Voiranime"
-    versionCode = 6
+    versionCode = 7
     contentWarning = ContentWarning.MIXED
     libVersion = "16"
 

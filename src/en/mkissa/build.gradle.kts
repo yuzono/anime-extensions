@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "MKissa"
-    versionCode = 76
+    versionCode = 77
     contentWarning = ContentWarning.MIXED
     libVersion = "16"
 
