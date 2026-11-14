@@ -27,7 +27,11 @@ class CinejoyExtractor(
     private val headers: Headers,
 ) {
 
-    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
+    // This client refuses connections to loopback/LAN hosts (redirects
+    // included). Note that HlsDashServer registrations stay on the
+    // plain client - its 127.0.0.1 loopback server is intentional.
+    private val guardedClient by lazy { client.withPublicHostGuard() }
+    private val playlistUtils by lazy { PlaylistUtils(guardedClient, headers) }
     private val directFileProbe by lazy { DirectFileProbe(client, wingHeaders) }
 
     suspend fun videosForServer(
@@ -135,17 +139,23 @@ class CinejoyExtractor(
         val isDash = stream.type.equals("dash", ignoreCase = true) || ".mpd" in lower
 
         if (isHls || isDash) {
-            val expanded = runCatching {
-                playlistUtils.extractFromHls(
-                    playlistUrl = url,
-                    videoNameGen = { quality ->
-                        buildVideoLabel(server, quality, url, subtitles.size)
-                    },
-                    subtitleList = subtitles,
-                    masterHeaders = wingHeaders,
-                    videoHeaders = wingHeaders,
-                )
-            }.getOrDefault(emptyList()).ifEmpty {
+            val expanded = (
+                try {
+                    playlistUtils.extractFromHls(
+                        playlistUrl = url,
+                        videoNameGen = { quality ->
+                            buildVideoLabel(server, quality, url, subtitles.size)
+                        },
+                        subtitleList = subtitles,
+                        masterHeaders = wingHeaders,
+                        videoHeaders = wingHeaders,
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    emptyList()
+                }
+                ).ifEmpty {
                 listOf(
                     Video(
                         videoUrl = url,
@@ -156,9 +166,15 @@ class CinejoyExtractor(
                 )
             }
             if (isHls) {
-                val renditions = runCatching {
-                    client.get(url, wingHeaders).bodyString()
-                }.getOrNull()?.let { parseAudioRenditions(url, it) }.orEmpty()
+                val renditions = (
+                    try {
+                        guardedClient.get(url, wingHeaders).bodyString()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        null
+                    }
+                    )?.let { parseAudioRenditions(url, it) }.orEmpty()
                 expanded.map { maybeConvertFmp4Hls(it, renditions) }
             } else {
                 expanded
@@ -194,12 +210,12 @@ class CinejoyExtractor(
         video: Video,
         renditions: List<AudioRendition>,
     ): Video = try {
-        val playlist = client.get(video.videoUrl, wingHeaders).bodyString()
+        val playlist = guardedClient.get(video.videoUrl, wingHeaders).bodyString()
         if (!playlist.contains("#EXT-X-MAP")) return video
 
         val audioTracks = renditions.mapNotNull { rendition ->
             runCatching {
-                if (!client.get(rendition.url, wingHeaders).bodyString().contains("#EXT-X-MAP")) {
+                if (!guardedClient.get(rendition.url, wingHeaders).bodyString().contains("#EXT-X-MAP")) {
                     return@mapNotNull null
                 }
                 Track(HlsDashServer.register(client, wingHeaders, rendition.url, null), rendition.name)

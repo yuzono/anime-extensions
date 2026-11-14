@@ -595,11 +595,13 @@ abstract class Cinejoy :
     // ============================= Hosters ===============================
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val (path, extraDataEncoded) = episode.url.split("#", limit = 2)
-        val enabledServers = preferences.enabledServerNames
+        val servers = wingServers()
         val preferredServer = preferences.preferredServerName
 
-        return wingServers()
-            .filter { it.name in enabledServers }
+        val selected = servers.filter { it.name in preferences.enabledServerNames }
+            .ifEmpty { servers.filter { it.name in SERVER_NAMES } }
+
+        return selected
             // Stable sort: the preferred server moves first, the rest keep
             // their API order.
             .sortedByDescending { it.name == preferredServer }

@@ -1,8 +1,13 @@
 package eu.kanade.tachiyomi.animeextension.en.cinejoy
 
 import keiyoushi.network.get
+import kotlinx.coroutines.CancellationException
+import okhttp3.Dns
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
+import java.net.InetAddress
+import java.net.UnknownHostException
 import java.nio.charset.StandardCharsets
 import kotlin.math.abs
 import kotlin.math.min
@@ -14,9 +19,15 @@ import kotlin.math.min
  * the original scene filename exposed in `Content-Disposition` (e.g.
  * "…2160p….mkv") or the container header: MP4 `tkhd` and Matroska
  * `PixelWidth`/`PixelHeight` both sit in the first few kilobytes.
+ *
+ * Probe URLs come from the decrypted wing.st payload rather than a fixed
+ * catalog, so they are guarded against loopback/LAN targets: [probeClient]
+ * rejects every host that resolves to a non-public address — enforced at
+ * connect time, which covers each redirect hop as well — and [quality]
+ * additionally pre-checks the scheme and literal-IP hosts before connecting.
  */
 internal class DirectFileProbe(
-    private val client: OkHttpClient,
+    client: OkHttpClient,
     headers: Headers,
 ) {
 
@@ -24,13 +35,21 @@ internal class DirectFileProbe(
         .set("Range", "bytes=0-${PROBE_SIZE - 1}")
         .build()
 
+    private val probeClient = client.withPublicHostGuard()
+
     /**
      * Returns a standard quality label ("1080p") or null when the file can't
      * be reached or its header can't be parsed.
      */
-    suspend fun quality(url: String): String? = runCatching {
-        client.get(url, probeHeaders, ensureSuccess = false).use { response ->
-            if (!response.isSuccessful) return@runCatching null
+    suspend fun quality(url: String): String? = try {
+        if (!isProbeableUrl(url)) return null
+
+        probeClient.get(url, probeHeaders, ensureSuccess = false).use { response ->
+            if (!response.isSuccessful) return null
+
+            // The filename rides in the headers; skip the body read entirely
+            // when it already answers the quality question.
+            fileNameQuality(response.header("Content-Disposition"))?.let { return it }
 
             val head = response.body.byteStream().use { input ->
                 val buf = ByteArray(PROBE_SIZE)
@@ -43,9 +62,13 @@ internal class DirectFileProbe(
                 if (read == PROBE_SIZE) buf else buf.copyOf(read)
             }
 
-            fileNameQuality(response.header("Content-Disposition")) ?: containerQuality(head)
+            containerQuality(head)
         }
-    }.getOrNull()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
+    }
 
     private fun fileNameQuality(disposition: String?): String? {
         val name = disposition?.let { FILE_NAME_REGEX.find(it)?.groupValues?.get(1) } ?: return null
@@ -183,6 +206,20 @@ internal class DirectFileProbe(
 
     // =============================== Helpers ==============================
 
+    /**
+     * Cheap pre-flight for probe URLs: only http(s), and if the host is an
+     * IP literal it must be public. Hostnames are validated when [probeClient]
+     * resolves them for the connection (redirects included).
+     */
+    private fun isProbeableUrl(url: String): Boolean = try {
+        val httpUrl = url.toHttpUrl()
+        val literal = literalAddress(httpUrl.host)
+        (httpUrl.scheme == "http" || httpUrl.scheme == "https") &&
+            (literal == null || literal.isPublic)
+    } catch (_: IllegalArgumentException) {
+        false
+    }
+
     /** Length of an EBML vint (element id or size), derived from its marker bits. */
     private fun ebmlVintLength(head: ByteArray, pos: Int): Int? {
         if (pos >= head.size) return null
@@ -213,8 +250,13 @@ internal class DirectFileProbe(
         for (i in 0 until length) {
             raw = (raw shl 8) or (head[pos + i].toLong() and 0xFF)
         }
-        if (raw == (1L shl (8 * length)) - 1) return -1L
-        return raw and ((1L shl (7 * length)) - 1)
+        // The "unknown size" sentinel is a vint with every bit set. Since
+        // [ebmlVintLength] guarantees the marker bit is set, that's
+        // equivalent to the marker-stripped payload being all ones - which
+        // also works for the 8-byte case, where shifting by 64 would wrap.
+        val payloadMask = (1L shl (7 * length)) - 1
+        val payload = raw and payloadMask
+        return if (payload == payloadMask) -1L else payload
     }
 
     /** Big-endian integer of up to 8 bytes as stored in an EBML data payload. */
@@ -266,3 +308,60 @@ internal class DirectFileProbe(
         private val STANDARD_QUALITIES = listOf(144, 240, 360, 480, 720, 1080, 1440, 2160)
     }
 }
+
+/**
+ * Returns a client that refuses connections to hosts resolving to
+ * non-public addresses (loopback, LAN, link-local, ULA, CGNAT, multicast).
+ * Enforced through the DNS layer, so every connection - including each
+ * redirect hop and literal-IP hosts - is validated. Wing.st stream URLs
+ * come from a decrypted payload rather than a fixed catalog; an explicit
+ * host allowlist would break on the CDNs' frequent rotation, so public
+ * reachability is defined by address ranges instead.
+ */
+internal fun OkHttpClient.withPublicHostGuard(): OkHttpClient = newBuilder()
+    .dns { host ->
+        val addresses = runCatching { Dns.SYSTEM.lookup(host) }
+            .getOrElse { throw UnknownHostException("Unresolvable host: $host") }
+        if (addresses.isEmpty() || addresses.any { !it.isPublic }) {
+            throw UnknownHostException("Blocked non-public host: $host")
+        }
+        addresses
+    }
+    .build()
+
+private val IPV4_REGEX = Regex("""\d{1,3}(\.\d{1,3}){3}""")
+
+/** Parses a host as an IP literal (no DNS lookup involved), or null for a hostname. */
+private fun literalAddress(host: String): InetAddress? {
+    if (IPV4_REGEX.matches(host) || host.contains(':')) {
+        return runCatching { InetAddress.getByName(host) }.getOrNull()
+    }
+    return null
+}
+
+private val InetAddress.isPublic: Boolean
+    get() {
+        if (isLoopbackAddress || isAnyLocalAddress ||
+            isLinkLocalAddress || isSiteLocalAddress || isMulticastAddress
+        ) {
+            return false
+        }
+
+        val bytes = address
+        return when (bytes.size) {
+            4 -> {
+                val first = bytes[0].toInt() and 0xFF
+                val second = bytes[1].toInt() and 0xFF
+                first != 0 && !(first == 100 && second in 64..127) // 0/8, CGNAT 100.64/10
+            }
+            16 -> when {
+                (bytes[0].toInt() and 0xFF) in 0xFC..0xFD -> false // unique local fc00::/7
+                bytes.copyOfRange(0, 10).all { it.toInt() == 0 } &&
+                    bytes[10] == 0xFF.toByte() && bytes[11] == 0xFF.toByte() ->
+                    // IPv4-mapped ::ffff:a.b.c.d — check the embedded address
+                    InetAddress.getByAddress(bytes.copyOfRange(12, 16)).isPublic
+                else -> true
+            }
+            else -> false
+        }
+    }
