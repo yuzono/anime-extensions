@@ -47,6 +47,14 @@ object Filters {
         }
     }
 
+    class RatingFilter : AnimeFilter.Select<String>("Rating", RATING_ENTRIES.toTypedArray(), 0) {
+        fun getValue(): String? = RATING_VALUES.getOrNull(state)
+        companion object {
+            private val RATING_ENTRIES = listOf("Any", "G", "PG", "PG-13", "R", "R+", "Rx")
+            private val RATING_VALUES = listOf(null, "G", "PG", "PG-13", "R", "R+", "Rx")
+        }
+    }
+
     @RequiresApi(Build.VERSION_CODES.O)
     class YearFilter : AnimeFilter.Select<String>("Year", YEAR_ENTRIES.toTypedArray(), 0) {
         fun getValue(): String? = YEAR_VALUES.getOrNull(state)
@@ -207,6 +215,7 @@ object Filters {
             StatusFilter(),
             SeasonFilter(),
             OriginFilter(),
+            RatingFilter(),
             YearFilter(),
             GenreFilter(),
             CharacterFilter(),
