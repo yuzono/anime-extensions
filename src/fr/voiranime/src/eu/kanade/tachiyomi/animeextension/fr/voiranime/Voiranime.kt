@@ -20,6 +20,7 @@ import keiyoushi.utils.get
 import keiyoushi.utils.post
 import keiyoushi.utils.useAsJsoup
 import okhttp3.Headers
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
@@ -87,12 +88,13 @@ abstract class Voiranime : AnimeHttpSource() {
     // =========================== Anime Details ============================
     override suspend fun getAnimeDetails(anime: SAnime): SAnime {
         val document = client.get("$baseUrl${anime.url}", headers).useAsJsoup()
-        return detailsFromDocument(document)
+        return detailsFromDocument(document, anime.url)
     }
 
     override fun animeDetailsParse(response: Response): SAnime = throw UnsupportedOperationException()
 
-    private fun detailsFromDocument(document: Document): SAnime = SAnime.create().apply {
+    private fun detailsFromDocument(document: Document, animeUrl: String): SAnime = SAnime.create().apply {
+        url = animeUrl
         // Info table rows: ".post-content_item" with a ".summary-heading" label and ".summary-content" value
         // (e.g. Status => "EN COURS", Studios => "Toei Animation").
         val info = document.select(".post-content_item").associate { item ->
@@ -113,6 +115,7 @@ abstract class Voiranime : AnimeHttpSource() {
             "terminé", "termine", "complété", "completed" -> SAnime.COMPLETED
             else -> SAnime.UNKNOWN
         }
+        initialized = true
     }
 
     // ============================== Episodes ==============================
@@ -121,7 +124,12 @@ abstract class Voiranime : AnimeHttpSource() {
         val ajaxHeaders = headersBuilder()
             .add("X-Requested-With", "XMLHttpRequest")
             .build()
-        val response = client.post("$baseUrl${anime.url}ajax/chapters/", ajaxHeaders)
+        val chaptersUrl = anime.url.resolvePageUrl()
+            ?.newBuilder()
+            ?.addPathSegments("ajax/chapters/")
+            ?.build()
+            ?: return emptyList()
+        val response = client.post(chaptersUrl.toString(), ajaxHeaders)
         return response.useAsJsoup().let(::episodesFromDocument)
     }
 
@@ -157,7 +165,8 @@ abstract class Voiranime : AnimeHttpSource() {
 
     // ============================== Hosters ===============================
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
-        val document = client.get("$baseUrl${episode.url}", headers).useAsJsoup()
+        val pageUrl = episode.url.resolvePageUrl()?.toString() ?: return emptyList()
+        val document = client.get(pageUrl, headers).useAsJsoup()
         return document.select("select.host-select option").mapNotNull { option ->
             val redirect = option.attr("data-redirect").takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val name = option.attr("value").removePrefix("LECTEUR ").trim()
@@ -170,7 +179,7 @@ abstract class Voiranime : AnimeHttpSource() {
 
     // ========================= Video Extraction ===========================
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
-        val pageUrl = "$baseUrl${hoster.internalData}"
+        val pageUrl = hoster.internalData.resolvePageUrl()?.toString() ?: return emptyList()
         val iframe = client.get(pageUrl, headers).useAsJsoup()
             .selectFirst("iframe")?.attr("abs:src") ?: return emptyList()
         val name = hoster.hosterName
@@ -178,7 +187,8 @@ abstract class Voiranime : AnimeHttpSource() {
         return when {
             name.contains("MOON", true) -> filemoonExtractor.videosFromUrl(iframe, prefix = "$name - Filemoon - ", referer = pageUrl)
             name.contains("VOE", true) -> voeExtractor.videosFromUrl(iframe, prefix = name)
-            name.contains("Stape", true) -> streamtapeExtractor.videosFromUrl(iframe, "$name - Streamtape")
+            name.contains("Stape", true) || name.contains("StreamTape", true)
+            -> streamtapeExtractor.videosFromUrl(iframe, "$name - Streamtape")
             name.contains("SB", true) -> vidhideExtractor.videosFromUrl(iframe) { quality -> "$name - VidHide - $quality" }
             name.contains("myTV", true) -> vidmolyExtractor.videosFromUrl(iframe, prefix = "$name -")
             name.contains("YU", true) -> yourUploadExtractor.videoFromUrl(iframe, extractorHeaders, prefix = "$name - ")
@@ -187,6 +197,11 @@ abstract class Voiranime : AnimeHttpSource() {
     }
 
     // =============================== Utils ================================
+    private fun String.resolvePageUrl(): HttpUrl? {
+        val base = baseUrl.toHttpUrl()
+        return base.resolve(this)?.takeIf { it.host == base.host }
+    }
+
     private fun String?.parseDate(): Long {
         this ?: return 0L
         val trimmed = trim()

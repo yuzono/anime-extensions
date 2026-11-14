@@ -57,9 +57,9 @@ class FilemoonExtractor(private val client: OkHttpClient) {
                 set("Pragma", "no-cache")
             }.build()
 
-            // Get embed URL from details endpoint to resolve the actual host
-            val embedUrl = getEmbedUrl(host, mediaId, baseHeaders)
-                ?: return emptyList()
+            // Get embed URL from details endpoint to resolve the actual host. Some hosts
+            // return no embed_frame_url, or reject the request without the site's "Referer"
+            val embedUrl = getEmbedUrl(host, mediaId, baseHeaders) ?: url
 
             val embedHost = embedUrl.toHttpUrl().host
             val pageReferer = referer ?: embedUrl
@@ -123,10 +123,7 @@ class FilemoonExtractor(private val client: OkHttpClient) {
         } catch (e: Exception) {
             Log.e("FilemoonExtractor", "Failed to get embed URL from details", e)
         }
-        // Byse hosts that serve the player on the embed URL itself (e.g. mfw09.org) return
-        // no embed_frame_url and may even reject the details request without the embedding
-        // site's Referer; the challenge flow then runs against the original host.
-        return "https://$host/e/$mediaId"
+        return null
     }
 
     private fun extractMediaId(httpUrl: okhttp3.HttpUrl): String {
