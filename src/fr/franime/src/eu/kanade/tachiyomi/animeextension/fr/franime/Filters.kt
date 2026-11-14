@@ -55,7 +55,7 @@ private val SORTS = listOf("Ressemblance", "Mieux noté", "Moins bien noté", "A
 private val TYPES = listOf("VOSTFR & VF", "VOSTFR", "VF")
 private val SEASONS = listOf("Tout", "Hiver", "Printemps", "Été", "Automne")
 
-private val YEARS = (2027 downTo 1970).map(Int::toString)
+private val YEARS = listOf("Tout") + (2027 downTo 1970).map(Int::toString)
 
 private class ThemeCheckBox(name: String) : AnimeFilter.CheckBox(name)
 

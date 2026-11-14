@@ -195,7 +195,7 @@ abstract class FrAnime :
 
             SEpisode.create().apply {
                 setUrlWithoutDomain(anime.url + "&ep=${index + 1}")
-                name = episode.title ?: "Episode ${index + 1}"
+                name = episode.title?.normalizeEpisodeName() ?: "Épisode ${index + 1}"
                 episode_number = (trailingNumber(episode.title ?: "") ?: (index + 1).toDouble()).toFloat()
                 scanlator = voices.joinToString(" & ")
                 preview_url = details?.thumbnail
@@ -568,6 +568,9 @@ abstract class FrAnime :
 
     private fun trailingNumber(text: String): Double? = trailingNumberRegex.find(text)?.groupValues?.get(1)?.toDoubleOrNull()
 
+    private fun String.normalizeEpisodeName() = replaceFirst(Regex("^[éeÉE]pisode\\b"), "Épisode")
+
+    // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         screen.addListPreference(
             key = PREF_QUALITY_KEY,
