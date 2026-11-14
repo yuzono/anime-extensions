@@ -12,7 +12,7 @@ yuzono {
 
     source {
         lang = "fr"
-        baseUrl = "https://voiranime.cx/"
+        baseUrl = "https://voiranime.cx"
     }
 }
 
