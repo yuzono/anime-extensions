@@ -116,15 +116,17 @@ class FilemoonExtractor(private val client: OkHttpClient) {
                 .substringAfter(":")
                 .substringAfter('"')
                 .substringBefore('"')
-            if (embedFrameUrl.isBlank()) {
-                Log.w("FilemoonExtractor", "Empty embed_frame_url from details for $host/$mediaId")
-                return null
+            if (embedFrameUrl.isNotBlank()) {
+                return embedFrameUrl
             }
-            return embedFrameUrl
+            Log.w("FilemoonExtractor", "Empty embed_frame_url from details for $host/$mediaId")
         } catch (e: Exception) {
             Log.e("FilemoonExtractor", "Failed to get embed URL from details", e)
-            return null
         }
+        // Byse hosts that serve the player on the embed URL itself (e.g. mfw09.org) return
+        // no embed_frame_url and may even reject the details request without the embedding
+        // site's Referer; the challenge flow then runs against the original host.
+        return "https://$host/e/$mediaId"
     }
 
     private fun extractMediaId(httpUrl: okhttp3.HttpUrl): String {
