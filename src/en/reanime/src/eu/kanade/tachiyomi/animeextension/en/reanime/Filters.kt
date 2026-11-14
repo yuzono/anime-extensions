@@ -215,6 +215,7 @@ object Filters {
             StatusFilter(),
             SeasonFilter(),
             OriginFilter(),
+            RatingFilter(),
             YearFilter(),
             GenreFilter(),
             CharacterFilter(),
