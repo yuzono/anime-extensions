@@ -130,7 +130,7 @@ internal class DirectFileProbe(
             var header = 8
             when (size) {
                 1 -> {
-                    // largesize: an 8-byte size follows the type
+                    if (pos + 16 > end) return
                     size = readLong(head, pos + 8).toInt()
                     header = 16
                 }
