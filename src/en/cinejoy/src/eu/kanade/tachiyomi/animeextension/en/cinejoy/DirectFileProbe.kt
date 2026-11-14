@@ -99,24 +99,31 @@ internal class DirectFileProbe(
 
     /**
      * `tkhd` ends with width and height as 16.16 fixed-point integers in the
-     * last 8 bytes of the box.
+     * last 8 bytes of the box. The first track isn't necessarily the video
+     * (chapter/data tracks carry a zero-size header), so every `tkhd` is
+     * checked and the first one with usable dimensions wins.
      */
-    private fun mp4Dimensions(head: ByteArray): Pair<Int, Int>? = findBox(head, 0, head.size, "tkhd", CONTAINER_BOXES)
-        ?.takeIf { (start, end) -> end - start >= 8 }
-        ?.let { (start, end) ->
-            val width = readInt(head, end - 8) ushr 16
-            val height = readInt(head, end - 4) ushr 16
-            width to height
+    private fun mp4Dimensions(head: ByteArray): Pair<Int, Int>? {
+        var dims: Pair<Int, Int>? = null
+        forEachBox(head, 0, head.size, "tkhd", CONTAINER_BOXES) { start, end ->
+            if (dims == null && end - start >= 8) {
+                val width = readInt(head, end - 8) ushr 16
+                val height = readInt(head, end - 4) ushr 16
+                if (width > 0 || height > 0) dims = width to height
+            }
         }
-        ?.takeIf { (width, height) -> width > 0 || height > 0 }
+        return dims
+    }
 
-    private fun findBox(
+    /** Invokes `onFound` for every box of type `target`, descending into `containers`. */
+    private fun forEachBox(
         head: ByteArray,
         start: Int,
         end: Int,
         target: String,
         containers: Set<String>,
-    ): Pair<Int, Int>? {
+        onFound: (Int, Int) -> Unit,
+    ) {
         var pos = start
         while (pos + 8 <= end) {
             var size = readInt(head, pos)
@@ -129,16 +136,16 @@ internal class DirectFileProbe(
                 }
                 0 -> size = end - pos // extends to the end of the file
             }
-            if (size < header || pos + size > end) return null
+            if (size < header || pos + size > end) return
 
             val type = boxType(head, pos + 4)
-            if (type == target) return pos + header to pos + size
-            if (type in containers) {
-                findBox(head, pos + header, pos + size, target, containers)?.let { return it }
+            if (type == target) {
+                onFound(pos + header, pos + size)
+            } else if (type in containers) {
+                forEachBox(head, pos + header, pos + size, target, containers, onFound)
             }
             pos += size
         }
-        return null
     }
 
     // =================== Matroska / WebM (EBML tracks) ====================
@@ -170,8 +177,10 @@ internal class DirectFileProbe(
             val size = ebmlSize(head, sizePos, sizeLength) ?: return null
             val dataStart = sizePos + sizeLength
             // An all-ones size vint means "unknown" (whole rest of the
-            // parent); truncated tails are clamped to the buffer.
-            val dataEnd = if (size < 0) end else min(dataStart + size.toInt(), end)
+            // parent); truncated tails are clamped to the buffer. The size
+            // is clamped as a Long first - Segment sizes regularly exceed
+            // Int range, and converting first would wrap the low 32 bits.
+            val dataEnd = if (size < 0) end else min(dataStart + size, end.toLong()).toInt()
 
             when {
                 pathIds.isNotEmpty() && id == pathIds[0] ->
