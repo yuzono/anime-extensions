@@ -33,7 +33,6 @@ abstract class AnimesOnlineCC : DooPlay() {
     // =============================== Episode ===============================
     override fun episodeFromElement(element: Element, seasonName: String): SEpisode = SEpisode.create().apply {
         val epNum = element.selectFirst("div.numerando")!!.text()
-            .trim()
             .let(episodeNumberRegex::find)
             ?.groupValues
             ?.last() ?: "0"
