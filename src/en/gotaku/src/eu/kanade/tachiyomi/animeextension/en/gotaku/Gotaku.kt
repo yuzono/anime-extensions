@@ -254,7 +254,7 @@ abstract class Gotaku :
 
     private fun parseTitles(response: Response): AnimesPage {
         if (!Filters.hasCache()) {
-            Filters.fetchAndCacheFilters(client, headers, apiUrl)
+            Filters.fetchAndCacheFilters(client, apiHeaders("$baseUrl/browse"), apiUrl)
         }
         val dto = response.parseAs<TitlesResponseDto>()
         val animes = dto.data
@@ -267,7 +267,14 @@ abstract class Gotaku :
     override fun latestUpdatesParse(response: Response): AnimesPage = parseTitles(response)
 
     // =============================== Search ===============================
-    override fun getFilterList(): AnimeFilterList = Filters.getFilterList()
+    override fun getFilterList(): AnimeFilterList {
+        if (!Filters.hasCache()) {
+            Executors.newSingleThreadExecutor().execute {
+                runCatching { Filters.fetchAndCacheFilters(client, apiHeaders("$baseUrl/browse"), apiUrl) }
+            }
+        }
+        return Filters.getFilterList()
+    }
 
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
         val params = mutableListOf<Pair<String, String>>()
@@ -319,6 +326,9 @@ abstract class Gotaku :
         page: Int,
         requestFn: (Int) -> Request,
     ): AnimesPage {
+        if (!Filters.hasCache()) {
+            Filters.fetchAndCacheFilters(client, apiHeaders("$baseUrl/browse"), apiUrl)
+        }
         var currentPage = page
         val totalPages = if (hideNsfw) 20 else 1 // cap; or calculate from total
 

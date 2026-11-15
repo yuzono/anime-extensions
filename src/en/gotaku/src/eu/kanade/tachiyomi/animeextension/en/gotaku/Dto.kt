@@ -17,6 +17,7 @@ class FiltersDataDto(
     val seasons: List<ValueLabelDto> = emptyList(),
     val ratings: List<ValueLabelDto> = emptyList(),
     val years: List<ValueLabelDto> = emptyList(),
+    val countries: List<ValueLabelDto> = emptyList(),
 )
 
 @Serializable
