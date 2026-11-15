@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "PelisForte"
-    versionCode = 54
+    versionCode = 55
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 

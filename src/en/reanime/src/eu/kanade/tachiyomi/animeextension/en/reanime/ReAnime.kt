@@ -216,6 +216,7 @@ abstract class ReAnime :
                     is Filters.StatusFilter -> filter.getValue()?.let { addQueryParameter("status", it) }
                     is Filters.SeasonFilter -> filter.getValue()?.let { addQueryParameter("season", it) }
                     is Filters.OriginFilter -> filter.getValue()?.let { addQueryParameter("country", it) }
+                    is Filters.RatingFilter -> filter.getValue()?.let { addQueryParameter("rating", it) }
                     is Filters.YearFilter -> filter.getValue()?.let { addQueryParameter("year", it) }
                     is Filters.GenreFilter -> {
                         val genres = filter.getSelectedValues()
@@ -302,7 +303,7 @@ abstract class ReAnime :
     }
 
     private fun formatFuzzyDate(date: FuzzyDateDto?): String? {
-        if (date == null || date.year == null || date.year <= 0) return null
+        if (date?.year == null || date.year <= 0) return null
         if (date.month == null || date.month !in 1..12) return null
 
         val monthStr = MONTHS[date.month - 1]
@@ -414,7 +415,6 @@ abstract class ReAnime :
             infoLines.add("**Rating**: $it")
         }
 
-        // Append all info lines cleanly
         if (infoLines.isNotEmpty()) {
             append(infoLines.joinToString("\n"))
             append("\n")

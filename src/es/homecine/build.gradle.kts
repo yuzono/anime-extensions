@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "HomeCine"
-    versionCode = 22
+    versionCode = 23
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 
