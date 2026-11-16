@@ -25,6 +25,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
 
 @Source
 abstract class Rule34Video :
@@ -84,10 +85,9 @@ abstract class Rule34Video :
         val document = response.asJsoup()
         // 404 pages can still contain unrelated "related videos" cards, and the site
         // occasionally serves a bare 200 shell; only parse a response with a real listing block.
-        if (document.selectFirst(VIDEO_LIST_MARKER_SELECTOR) == null) {
-            throw Exception("Failed to load video list: no listing block (HTTP ${response.code})")
-        }
-        val animeList = document.select(VIDEO_CARD_SELECTOR).mapNotNull { element ->
+        val container = document.findVideoListContainer()
+            ?: throw Exception("Failed to load video list: no listing block (HTTP ${response.code})")
+        val animeList = container.select(VIDEO_CARD_SELECTOR).mapNotNull { element ->
             // The site has two video card layouts: the classic `.item.thumb` grid (home,
             // search, tag/artist/category pages) and the member page's `.item.ma-v` one.
             val link = element.selectFirst("a.th[href*=\"/video\"], a.ma-thumb[href*=\"/video\"]")
@@ -115,6 +115,16 @@ abstract class Rule34Video :
         }
         val hasNext = document.selectFirst(NEXT_PAGE_SELECTOR) != null
         return AnimesPage(animeList, hasNext)
+    }
+
+    // The first recognized listing marker locates its card container, so cards from
+    // unrelated grids on the same page (related/recommended blocks) are never parsed.
+    private fun Document.findVideoListContainer(): Element? {
+        val marker = selectFirst(VIDEO_LIST_MARKER_SELECTOR) ?: return null
+        val blockId = marker.attr("data-rd-list")
+        return (if (blockId.isNotBlank()) getElementById("${blockId}_items") else null)
+            ?: marker.selectFirst(VIDEO_LIST_CONTAINER_SELECTOR)
+            ?: marker.parent()?.selectFirst(VIDEO_LIST_CONTAINER_SELECTOR)
     }
 
     // =============================== Latest ===============================
@@ -521,6 +531,7 @@ abstract class Rule34Video :
         const val PREFIX_SEARCH = "slug:"
 
         private const val VIDEO_LIST_MARKER_SELECTOR = "div.fs-ui.fs-list[data-rd-list], div.ma-block[data-rdm-list]"
+        private const val VIDEO_LIST_CONTAINER_SELECTOR = "div.ma-grid, div.thumbs"
         private const val VIDEO_CARD_SELECTOR = "div.item.thumb, div.item.ma-v"
         private const val NEXT_PAGE_SELECTOR = "nav.fs-pager a[rel=next], div.item.pager.next a"
         private const val DOWNLOAD_LINK_SELECTOR = "div.vp-sheet[data-sheet=download] a.tag_item_download, div.row:has(div.label:contains(Download)) a.tag_item"
