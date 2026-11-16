@@ -21,6 +21,7 @@ import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -45,21 +46,36 @@ abstract class Rule34Video :
         return parseUploaderId(preferences.getString(PREF_UPLOADER_ID_KEY, ""))
     }
 
-    // Accepts either the numeric member id or a member page URL
+    // Accepts either the numeric member id or a member page URL on this source's host
     // (e.g. https://rule34video.com/members/98965/videos/).
     private fun parseUploaderId(raw: String?): String? {
         val value = raw?.trim().orEmpty()
-        val id = MEMBER_URL_REGEX.find(value)?.groupValues?.get(1)
-            ?: value.trimEnd('/').takeIf { NUMERIC_ID_REGEX.matches(it) }
-        return id?.toLongOrNull()?.takeIf { it > 0 }?.toString()
+        val numeric = value.trimEnd('/')
+        if (NUMERIC_ID_REGEX.matches(numeric)) {
+            return numeric.toLongOrNull()?.takeIf { it > 0 }?.toString()
+        }
+
+        val url = value.toHttpUrlOrNull() ?: return null
+        val baseHost = runCatching { baseUrl.toHttpUrl().host }.getOrNull() ?: return null
+        if (!url.host.equals(baseHost, ignoreCase = true) && !url.host.endsWith(".$baseHost", ignoreCase = true)) {
+            return null
+        }
+        if (url.pathSegments.firstOrNull() != "members") return null
+        val id = url.pathSegments.getOrNull(1)?.takeIf { NUMERIC_ID_REGEX.matches(it) } ?: return null
+        return id.toLongOrNull()?.takeIf { it > 0 }?.toString()
     }
 
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int): Request {
         val uploaderId = configuredUploaderId()
         if (uploaderId != null) {
-            val pageQuery = if (page > 1) "?from_videos=$page" else ""
-            return GET("$baseUrl/members/$uploaderId/videos/$pageQuery", headers)
+            val urlBuilder = baseUrl.toHttpUrl().newBuilder()
+                .addPathSegment("members")
+                .addPathSegment(uploaderId)
+                .addPathSegment("videos")
+                .addPathSegment("")
+            if (page > 1) urlBuilder.addQueryParameter("from_videos", page.toString())
+            return GET(urlBuilder.build(), headers)
         }
         return GET("$baseUrl/latest-updates/$page/", headers)
     }
@@ -470,27 +486,29 @@ abstract class Rule34Video :
                 "Default (Newest / Relevance)",
                 "Newest",
                 "Most Viewed",
+                "Top Rated",
+                "Longest",
+                "Random",
                 "Most Viewed - Past 24 Hours",
                 "Most Viewed - Past 2 Days",
                 "Most Viewed - Past Week",
                 "Most Viewed - Past Month",
                 "Most Viewed - Past 3 Months",
                 "Most Viewed - Past Year",
-                "Top Rated",
-                "Longest",
-                "Random",
             ),
         ) {
         fun toQueryParameters(): List<Pair<String, String>> = when (state) {
             1 -> listOf("sort_by" to "post_date")
             2 -> listOf("sort_by" to "video_viewed")
+            3 -> listOf("sort_by" to "rating")
+            4 -> listOf("sort_by" to "duration")
+            5 -> listOf("sort_by" to "pseudo_rand")
             // The "past ..." sorts reuse the site's date filter, which is submitted as a
             // numeric `post_date_from` preset: 1 = 24 hours, 2 = 2 days, 3 = week,
-            // 4 = month, 5 = 3 months, 6 = year. It is not listed in the sort menu.
-            in 3..8 -> listOf("sort_by" to "video_viewed", "post_date_from" to (state - 2).toString())
-            9 -> listOf("sort_by" to "rating")
-            10 -> listOf("sort_by" to "duration")
-            11 -> listOf("sort_by" to "pseudo_rand")
+            // 4 = month, 5 = 3 months, 6 = year. It is not listed in the site's sort menu.
+            // They are appended after the pre-existing options so saved searches keep
+            // their selected sort when they restore the old filter indices.
+            in 6..11 -> listOf("sort_by" to "video_viewed", "post_date_from" to (state - 5).toString())
             else -> emptyList()
         }
     }
@@ -514,7 +532,6 @@ abstract class Rule34Video :
         private const val TAGS_SELECTOR = "div.vp-tags a.tag_item, div.row_spacer:has(div.label:contains(Tags)) a.tag_item:not(:contains(Suggest))"
 
         private val SLUG_REGEX = Regex("""[^\p{L}\p{N}]+""")
-        private val MEMBER_URL_REGEX = Regex("""(?:^|/)members/(\d+)(?:[/?#]|$)""")
         private val NUMERIC_ID_REGEX = Regex("""\d+""")
         private val QUALITY_REGEX = Regex("""\d{3,4}p""")
         private val FLASHVARS_URL_REGEX = Regex("""(video(?:_alt)?_url\d*)\s*:\s*['"](https?:[^'"]+)['"]""")
