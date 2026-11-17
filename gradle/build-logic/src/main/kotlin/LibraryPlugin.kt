@@ -40,6 +40,7 @@ class LibraryPlugin : Plugin<Project> {
 
         dependencies {
             compileOnly(libs.bundles.common)
+            compileOnly(project(":extensions-lib"))
             implementation(project(":core"))
         }
     }

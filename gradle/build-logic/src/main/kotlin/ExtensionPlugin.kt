@@ -212,6 +212,7 @@ class ExtensionPlugin : Plugin<Project> {
             addProvider("implementation", keiyoushi.theme.map { project(":lib-multisrc:$it") })
             implementation(project(":core"))
             compileOnly(libs.bundles.common)
+            compileOnly(project(":extensions-lib"))
             ksp(project(":compiler"))
         }
 

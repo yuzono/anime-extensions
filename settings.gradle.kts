@@ -40,6 +40,7 @@ loadAllIndividualExtensions()
  * ===================================== COMMON CONFIGURATION ======================================
  */
 include(":core")
+include(":extensions-lib")
 include(":compiler")
 
 // Load all modules under /lib
