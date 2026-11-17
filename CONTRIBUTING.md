@@ -530,6 +530,9 @@ implementations are in [Anikku](https://github.com/komikku-app/anikku/tree/maste
 and [Animiru](https://github.com/animiruorg/Animiru). Referencing them will help with understanding
 extensions' call flow.
 
+Settings screens use the real `androidx.preference` 1.2.1, compile-only: both apps ship that version
+and keep its whole API, so any public `androidx.preference` class can be used.
+
 #### lib tools
 
 The `lib/` directory contains reusable Gradle modules that solve common problems shared across

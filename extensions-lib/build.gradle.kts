@@ -18,4 +18,5 @@ dependencies {
     compileOnly(libs.jsoup)
     compileOnly(libs.injekt.core)
     compileOnlyApi(libs.nanohttpd.app)
+    compileOnlyApi(libs.androidx.preference) { isTransitive = false }
 }
