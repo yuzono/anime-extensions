@@ -23,7 +23,5 @@ yuzono {
 }
 
 dependencies {
-    implementation(project(":lib:hlssegment"))
     implementation(project(":lib:unpacker"))
-    implementation("com.github.komikku-app.nanohttpd:nanohttpd:gradle-upgrade-SNAPSHOT")
 }
