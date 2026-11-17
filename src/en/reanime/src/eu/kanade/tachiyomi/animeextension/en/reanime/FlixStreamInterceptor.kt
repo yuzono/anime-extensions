@@ -6,6 +6,7 @@ import okhttp3.ConnectionPool
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -21,7 +22,6 @@ import okio.buffer
 import java.net.SocketTimeoutException
 import java.net.URLEncoder
 import java.util.Collections
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration.Companion.seconds
 
@@ -35,14 +35,14 @@ import kotlin.time.Duration.Companion.seconds
  */
 class FlixStreamInterceptor(private val sourceHeaders: () -> Headers) : StreamInterceptor {
 
-    @Volatile
-    var segmentMask: ByteArray = FALLBACK_MASK
+    private class Stream(val mask: ByteArray, val wPayload: String)
 
-    @Volatile
-    private var lastWPayload = ""
-
-    /** `host/directory/` of every url listed in a served playlist. */
-    private val mediaDirectories: MutableSet<String> = Collections.newSetFromMap(ConcurrentHashMap())
+    /** Each stream's state, keyed by the directory of its urls. */
+    private val streams: MutableMap<String, Stream> = Collections.synchronizedMap(
+        object : LinkedHashMap<String, Stream>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Stream>) = size > MAX_STREAMS
+        },
+    )
 
     // Dedicated client: 30s timeout, larger connection pool. DO NOT force HTTP/1.1 (causes 403s)
     private val proxyClient by lazy {
@@ -57,14 +57,13 @@ class FlixStreamInterceptor(private val sourceHeaders: () -> Headers) : StreamIn
     }
 
     /** The url to play a stream from, wrapped in enc-dec.app when it is a master playlist. */
-    fun streamUrl(streamUrl: String, wPayload: String): String {
-        lastWPayload = wPayload
+    fun streamUrl(streamUrl: String, wPayload: String, mask: ByteArray): String {
         val url = if (isMasterPlaylist(streamUrl)) wrapInDecApi(streamUrl, wPayload) else streamUrl
-        addMediaDirectory(url.toHttpUrl())
+        streams[keyOf(url.toHttpUrl())] = Stream(mask.takeIf { it.size == MASK_SIZE } ?: FALLBACK_MASK, wPayload)
         return url
     }
 
-    override fun handles(url: HttpUrl): Boolean = isDecApiPlaylist(url) || directoryOf(url) in mediaDirectories
+    override fun handles(url: HttpUrl): Boolean = isDecApiPlaylist(url) || keyOf(url) in streams
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
@@ -112,11 +111,10 @@ class FlixStreamInterceptor(private val sourceHeaders: () -> Headers) : StreamIn
         try {
             val source = response.body.source()
 
-            // Peek at the first 13 bytes (max 12-byte WebP header + 1 payload byte)
-            val headerBytes = try {
-                source.peek().readByteArray(13)
-            } catch (_: java.io.EOFException) {
-                ByteArray(0)
+            // Up to 13 bytes: max 12-byte WebP header + 1 payload byte
+            val headerBytes = source.peek().run {
+                request(13)
+                buffer.readByteArray(minOf(buffer.size, 13L))
             }
 
             val headerSize = detectHeader(headerBytes)
@@ -124,7 +122,8 @@ class FlixStreamInterceptor(private val sourceHeaders: () -> Headers) : StreamIn
 
             val originalLength = response.body.contentLength()
             val outputLength = if (originalLength > 0) originalLength - headerSize else -1L
-            val body = FlixcloudSegmentSource(source, segmentMask, headerSize)
+            val mask = streams[keyOf(request.url)]?.mask ?: FALLBACK_MASK
+            val body = FlixcloudSegmentSource(source, mask, headerSize)
                 .buffer()
                 .asResponseBody(SEGMENT_TYPE, outputLength)
 
@@ -141,7 +140,7 @@ class FlixStreamInterceptor(private val sourceHeaders: () -> Headers) : StreamIn
 
     private fun fetchPlaylist(request: Request, proxyHeaders: Headers): Response {
         val url = request.url.toString()
-        if (url.contains(encDecUrl)) request.url.queryParameter("w_payload")?.let { lastWPayload = it }
+        val stream = streams[keyOf(request.url)] ?: Stream(FALLBACK_MASK, request.url.queryParameter("w_payload").orEmpty())
         val upstream = request.newBuilder().headers(proxyHeaders).build()
 
         var response: Response? = null
@@ -166,8 +165,8 @@ class FlixStreamInterceptor(private val sourceHeaders: () -> Headers) : StreamIn
 
         val resolve = { uri: String ->
             val resolved = ensureToken(parentHttpUrl.resolve(uri).toString(), url)
-            val final = if (isMasterPlaylist(resolved)) wrapInDecApi(resolved, lastWPayload) else resolved
-            addMediaDirectory(final.toHttpUrl())
+            val final = if (isMasterPlaylist(resolved)) wrapInDecApi(resolved, stream.wPayload) else resolved
+            streams[keyOf(final.toHttpUrl())] = stream
             final
         }
 
@@ -205,17 +204,19 @@ class FlixStreamInterceptor(private val sourceHeaders: () -> Headers) : StreamIn
 
     private fun isDecApiPlaylist(url: HttpUrl) = url.host == ENC_DEC_HOST && url.encodedPath.endsWith("/parse-flixcloud")
 
-    private fun addMediaDirectory(url: HttpUrl) {
-        if (!isDecApiPlaylist(url)) mediaDirectories.add(directoryOf(url))
+    /** Directory of [url], or of the playlist an enc-dec.app url wraps. */
+    private fun keyOf(url: HttpUrl): String {
+        val target = if (isDecApiPlaylist(url)) url.queryParameter("url")?.toHttpUrlOrNull() ?: url else url
+        return target.host + target.encodedPath.substringBeforeLast('/') + "/"
     }
-
-    private fun directoryOf(url: HttpUrl) = url.host + url.encodedPath.substringBeforeLast('/') + "/"
 
     companion object {
         val flixCloudUrl = "https://flixcloud.cc"
         val encDecUrl = "https://enc-dec.app"
         val decApi = "$encDecUrl/api"
         private const val ENC_DEC_HOST = "enc-dec.app"
+        private const val MASK_SIZE = 16
+        private const val MAX_STREAMS = 64
 
         private val FALLBACK_MASK = listOf(157, 42, 241, 71, 179, 142, 92, 112, 166, 25, 228, 59, 216, 98, 15, 197)
             .map { it.toByte() }
@@ -300,6 +301,7 @@ private class FlixcloudSegmentSource(
     private val skipBytes: Int,
 ) : ForwardingSource(upstream) {
 
+    private val temp = Buffer()
     private var bytesSkipped = 0
     private var xorIndex = 0
 
@@ -312,17 +314,19 @@ private class FlixcloudSegmentSource(
             bytesSkipped += skipped.toInt()
         }
 
-        // Phase 2: read payload, XOR it, write to sink
-        val temp = Buffer()
+        // Phase 2: read payload, XOR it in place, move it to sink
         val n = super.read(temp, byteCount)
         if (n == -1L) return -1L
 
-        val bytes = temp.readByteArray()
-        for (i in bytes.indices) {
-            bytes[i] = (bytes[i].toInt() xor mask[xorIndex and 15].toInt()).toByte()
-            xorIndex++
+        temp.readAndWriteUnsafe().use { cursor ->
+            while (cursor.next() != -1) {
+                val data = cursor.data!!
+                for (i in cursor.start until cursor.end) {
+                    data[i] = (data[i].toInt() xor mask[xorIndex++ and 15].toInt()).toByte()
+                }
+            }
         }
-        sink.write(bytes)
+        sink.write(temp, n)
         return n
     }
 }

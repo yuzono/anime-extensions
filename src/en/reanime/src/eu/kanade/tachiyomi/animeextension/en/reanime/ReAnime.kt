@@ -921,6 +921,7 @@ abstract class ReAnime :
                         ?.split(",")
                         ?.map { it.trim().toInt().toByte() }
                         ?.toByteArray()
+                        ?.takeIf { it.size == 16 }
                 } catch (_: Exception) {
                     // Ignore fetch/parse errors
                 }
@@ -1017,8 +1018,7 @@ abstract class ReAnime :
                 ?: return emptyList()
 
             // Step 5: Real playlist url; AniSource plays it through the stream proxy
-            flixStream.segmentMask = xorMask
-            val playlistUrl = flixStream.streamUrl(streamUrl, wPayload)
+            val playlistUrl = flixStream.streamUrl(streamUrl, wPayload, xorMask)
 
             // Cache skip times for this episode
             skipTimesCache.put(playlistUrl, skipTimes)
@@ -1136,7 +1136,7 @@ abstract class ReAnime :
     private fun loadSavedXorMask(): ByteArray? {
         val savedStr = preferences.getString("flixcloud_xor_mask", null) ?: return null
         return try {
-            savedStr.split(",").map { it.trim().toInt().toByte() }.toByteArray()
+            savedStr.split(",").map { it.trim().toInt().toByte() }.toByteArray().takeIf { it.size == 16 }
         } catch (_: Exception) {
             null
         }
