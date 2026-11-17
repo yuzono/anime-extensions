@@ -64,6 +64,10 @@ See `CONTRIBUTING.md` for full rules. Critical for agents:
 - Use `response.parseAs<T>()`, `response.asJsoup()`, `SimpleDateFormat(...).tryParse()`, `element.absUrl("href")` + `setUrlWithoutDomain()`.
 - No hardcoded `User-Agent`, no `Thread.sleep()`, no manual Cloudflare checks, no `buildJsonObject` for requests.
 - Preserve `id` when renaming `name`/`lang`; keep package name stable.
+- `extensions-lib/` holds the compile-only source API stubs (lib 16 plus the lib 17 API Animiru implements).
+  App-specific members are marked `@AnimiruOnly` / `@AnikkuOnly`; extensions reach them through
+  `keiyoushi.source.AniSource`, and serve streams that need an interceptor with `StreamInterceptor` instead of
+  their own local server. See `CONTRIBUTING.md#anikku-and-animiru-anisource`.
 - New or migrated extensions target extensions-lib 16: extend `AnimeHttpSource` directly (not the `keiyoushi.utils.AnimeHttpLegacySource`/`ParsedAnimeHttpLegacySource` shims), implement hosters (`getHosterList`/`getVideoList(hoster)`), use the named `Video(videoUrl =, videoTitle =, ...)` constructor, and set `libVersion = "16"` in `build.gradle.kts`. See `CONTRIBUTING.md#extensions-lib-16`.
 
 ### `keiyoushi.network` client helpers
@@ -171,7 +175,7 @@ From `.github/workflows/build_pull_request.yml` + `.github/scripts/`:
   `assembleDebug` in a PR check without the signing key), except in a full rebuild, which builds every extension
   and replaces the whole published index with the build output: extensions removed from `src/` drop out, with
   their APKs and icons. A full rebuild happens when a core file changes (`CORE_FILES_REGEX`: `common/`,
-  `compiler/`, `core/`, `gradle/`, the root build files, `.github/scripts`), on a manual run of `build_push.yml`
+  `compiler/`, `core/`, `extensions-lib/`, `gradle/`, the root build files, `.github/scripts`), on a manual run of `build_push.yml`
   with `full_rebuild`, and when no earlier successful run is found.
 - Head-commit message prefixes: `[skip bumping version]` skips the auto-bump; `[skip yuzono ci]` skips
   the bump *and* the build, except in a manual `full_rebuild` run, which still builds.
