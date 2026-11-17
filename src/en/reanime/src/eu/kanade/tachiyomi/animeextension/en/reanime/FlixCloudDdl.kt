@@ -1,6 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.reanime
 
-import eu.kanade.tachiyomi.animeextension.en.reanime.FlixProxyServer.Companion.flixCloudUrl
+import eu.kanade.tachiyomi.animeextension.en.reanime.FlixStreamInterceptor.Companion.flixCloudUrl
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.get
 import okhttp3.Headers
