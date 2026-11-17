@@ -689,7 +689,7 @@ abstract class AnimePahe :
             return try {
                 val resolvedVideo = KwikExtractor(client, headers, cfUA).getStreamVideo(paheWinLink, video.videoTitle)
 
-                resolvedVideo?.copy(preferred = video.preferred)
+                resolvedVideo.copy(preferred = video.preferred)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
