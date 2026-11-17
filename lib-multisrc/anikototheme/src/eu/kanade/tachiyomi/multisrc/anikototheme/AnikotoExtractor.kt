@@ -152,6 +152,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         embedUrl: String,
         server: AnikotoTheme.VideoData,
     ): List<Video> {
+        val preferAssSubtitles = theme.preferAssSubtitles
         val pageHeaders = theme.headers.newBuilder()
             .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .add("X-Requested-With", "XMLHttpRequest")
@@ -166,7 +167,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         val mediaId = parseMegaPlayMediaId(pageBody)
             ?: throw Exception("Failed to find MegaPlay media ID")
 
-        val getSourcesUrl = buildMegaPlayGetSourcesUrl(embedUrl, mediaId)
+        val getSourcesUrl = buildMegaPlayGetSourcesUrl(embedUrl, mediaId, preferAssSubtitles)
 
         val apiHeaders = theme.headers.newBuilder().apply {
             add("Accept", "application/json,*/*")
@@ -184,6 +185,11 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
 
         val tracks = sourcesDto.tracks
             ?.filter { it.label.isNotBlank() }
+            ?.sortedByDescending {
+                val isAss = it.file.substringBefore('?').endsWith(".ass", ignoreCase = true)
+                isAss == preferAssSubtitles
+            }
+            ?.distinctBy { it.label.lowercase() }
             ?.map { Track(it.file, it.label) }
             .orEmpty()
 
@@ -236,7 +242,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         return FILE_ID_REGEX.find(html)?.groupValues?.get(1)
     }
 
-    private fun buildMegaPlayGetSourcesUrl(embedUrl: String, id: String): String {
+    private fun buildMegaPlayGetSourcesUrl(embedUrl: String, id: String, preferAssSubtitles: Boolean): String {
         val base = try {
             val u = embedUrl.toHttpUrl()
             "${u.scheme}://${u.host}/stream/getSources"
@@ -246,6 +252,10 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
 
         val urlBuilder = base.toHttpUrl().newBuilder()
             .addQueryParameter("id", id)
+
+        if (preferAssSubtitles) {
+            urlBuilder.addQueryParameter("st", "other")
+        }
 
         try {
             val original = embedUrl.toHttpUrl()
