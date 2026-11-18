@@ -110,8 +110,6 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         val videos = when {
             isMegaPlayServer(server.serverName) || isMegaPlayUrl(embedLink) ->
                 extractFromMegaPlay(embedLink, server)
-            embedLink.contains("mewcdn.online/player/plyr.php") ->
-                extractFromMewcdnPlayer(embedLink, server)
             embedLink.endsWith(".m3u8") || (embedLink.contains(".m3u8") && !embedLink.contains("/stream/")) ->
                 extractDirectM3u8(embedLink, server)
             else -> {
@@ -146,7 +144,8 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         ) || name.contains("vidstream") || name.contains("hd1") || name.contains("hd2")
     }
 
-    private fun isMegaPlayUrl(url: String): Boolean = MEGAPLAY_HOST_REGEX.containsMatchIn(url)
+    // MegaPlay and its mirrors (e.g. VidPlay on vidtube.site) share the /stream/getSources API
+    private fun isMegaPlayUrl(url: String): Boolean = url.contains("/stream/", ignoreCase = true)
 
     private suspend fun extractFromMegaPlay(
         embedUrl: String,
@@ -375,79 +374,16 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         return videos
     }
 
-    private suspend fun extractFromMewcdnPlayer(serverUrl: String, server: AnikotoTheme.VideoData): List<Video> {
-        val fragment = serverUrl.substringAfter("#").substringBefore("#").takeIf { it.isNotEmpty() }
-            ?: throw Exception("No fragment found in mewcdn player URL")
-
-        val rawM3u8 = String(Base64.decode(fragment, Base64.DEFAULT), Charsets.UTF_8).trim()
-        if (!rawM3u8.startsWith("http")) {
-            throw Exception("Invalid m3u8 URL decoded from mewcdn fragment")
-        }
-
-        val pageHeaders = theme.headers.newBuilder()
-            .add("Referer", "${theme.baseUrl}/")
-            .build()
-
-        val hostMap = theme.client.get(serverUrl, pageHeaders).use { response ->
-            parseHostMap(response.body.string())
-        }
-
-        val m3u8 = applyHostMap(rawM3u8, hostMap)
-
-        val displayName = theme.getServerDisplayName(server.serverName)
-        val typeSuffix = server.type.takeIf { it.isNotEmpty() }?.let { " - $it" } ?: ""
-
-        val vidHeaders = theme.headers.newBuilder()
-            .set("Referer", "https://mewcdn.online/")
-            .set("Origin", "https://mewcdn.online")
-            .build()
-
-        val videos = theme.playlistUtils.extractFromHls(
-            m3u8,
-            videoNameGen = { quality ->
-                "$displayName$typeSuffix - ${theme.cleanHlsQuality(quality)}"
-            },
-            referer = "https://mewcdn.online/",
-            masterHeaders = vidHeaders,
-            videoHeaders = vidHeaders,
-        )
-
-        return videos
-    }
-
-    private fun parseHostMap(html: String): Map<String, String> {
-        val mapMatch = HOST_MAP_REGEX.find(html) ?: return emptyMap()
-        return HOST_ENTRY_REGEX.findAll(mapMatch.groupValues[1]).associate {
-            it.groupValues[1] to it.groupValues[2]
-        }
-    }
-
-    private fun applyHostMap(url: String, hostMap: Map<String, String>): String {
-        var result = url
-        for ((origin, proxy) in hostMap) {
-            if (result.contains(origin)) {
-                result = result.replace(origin, proxy)
-                break
-            }
-        }
-        return result
-    }
-
     companion object {
         private const val MEGAPLAY_AES_KEY = "i?LMTAx0Q6,:}50U"
         private const val MEGAPLAY_AES_IV = "W0;27ToaUpl_P%'c"
         private const val MEGAPLAY_TOKEN_SECRET = "MpCdnT0k3n!9f2K#xQ7vL5mR8wN1pY4s"
         private const val THUMBNAILS_KIND = "thumbnails"
 
-        private val MEGAPLAY_HOST_REGEX = Regex("""megaplay\.[^/]+/stream/""", RegexOption.IGNORE_CASE)
-
         private val DATA_ID_REGEX = Regex("""data-id=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
         private val FILE_ID_REGEX = Regex("""File\s+(\d+)""", RegexOption.IGNORE_CASE)
         private val FILE_JSON_REGEX = Regex(""""file"\s*:\s*"([^"]+)"""")
         private val TOKEN_PARAM_REGEX = Regex("""[?&]token=""", RegexOption.IGNORE_CASE)
         private val PATH_KEY_REGEX = Regex("""/([a-f0-9]{32})/([a-f0-9]{32})/""", RegexOption.IGNORE_CASE)
-
-        private val HOST_MAP_REGEX = Regex("""var HOST_MAP\s*=\s*\{([^}]+)\}""")
-        private val HOST_ENTRY_REGEX = Regex("""'([^']+)'\s*:\s*'([^']+)'""")
     }
 }

@@ -549,12 +549,24 @@ abstract class AnikotoTheme(
         val epUrl = data[1]
         val server = VideoData(type = serverType, serverId = hoster.hosterUrl, serverName = hoster.hosterName)
 
-        return extractors.extractVideo(server, epUrl)
+        return extractors.extractVideo(server, epUrl).markPreferred(server)
     }
 
     override fun getAnimeUrl(anime: SAnime): String = baseUrl + anime.url.substringBefore("#")
 
     override fun getEpisodeUrl(episode: SEpisode): String = baseUrl + episode.url.substringAfter("epurl=").substringBefore("&")
+
+    // The preferred quality of the preferred server and type, so the app picks it
+    private fun List<Video>.markPreferred(server: VideoData): List<Video> {
+        if (buildTypeFallbackChain(prefType).none { it.equals(server.type, ignoreCase = true) }) return this
+        val preferredBase = extractBaseServerName(prefServer)
+        val isPreferredServer = server.serverName.equals(prefServer, ignoreCase = true) ||
+            extractBaseServerName(server.serverName).equals(preferredBase, ignoreCase = true)
+        if (!isPreferredServer) return this
+
+        val preferredIndex = indexOfFirst { it.videoTitle.contains(prefQuality) }.takeIf { it >= 0 } ?: 0
+        return mapIndexed { index, video -> video.copy(preferred = index == preferredIndex) }
+    }
 
     override suspend fun fetchVideoThumbnails(video: Video): VideoThumbnails? {
         val vttUrl = video.internalData.takeIf { it.isNotBlank() } ?: return null
