@@ -7,35 +7,39 @@ import eu.kanade.tachiyomi.animeextension.all.animeonsen.dto.AnimeListItem
 import eu.kanade.tachiyomi.animeextension.all.animeonsen.dto.AnimeListResponse
 import eu.kanade.tachiyomi.animeextension.all.animeonsen.dto.EpisodeDto
 import eu.kanade.tachiyomi.animeextension.all.animeonsen.dto.MeilisearchResponse
+import eu.kanade.tachiyomi.animeextension.all.animeonsen.dto.SearchRequest
 import eu.kanade.tachiyomi.animeextension.all.animeonsen.dto.SearchResponse
 import eu.kanade.tachiyomi.animeextension.all.animeonsen.dto.VideoData
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
+import eu.kanade.tachiyomi.animesource.model.Hoster.Companion.toHosterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
 import keiyoushi.annotation.Source
-import keiyoushi.utils.AnimeHttpLegacySource
+import keiyoushi.network.get
+import keiyoushi.network.post
+import keiyoushi.source.AniSource
+import keiyoushi.source.model.Related
+import keiyoushi.source.model.SAnimeUpdate
 import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonRequestBody
-import kotlinx.serialization.json.boolean
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import okhttp3.Headers
-import okhttp3.Request
-import okhttp3.Response
+import okhttp3.OkHttpClient
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToInt
 
 @Source
 abstract class AnimeOnsen :
-    AnimeHttpLegacySource(),
+    AniSource(),
     ConfigurableAnimeSource {
 
     private val apiUrl = "https://api.animeonsen.xyz/v4"
@@ -44,12 +48,9 @@ abstract class AnimeOnsen :
 
     override val supportsLatest = false
 
-    override val client by lazy {
-        network.client.newBuilder()
-            .addInterceptor(AOAPIInterceptor(network.client, apiUrl, baseUrl))
-            .addInterceptor(SearchInterceptor(network.client, baseUrl, searchUrl))
-            .build()
-    }
+    override fun OkHttpClient.Builder.configureClient() = this
+        .addInterceptor(AOAPIInterceptor(network.client, apiUrl, baseUrl))
+        .addInterceptor(SearchInterceptor(network.client, baseUrl, searchUrl))
 
     private val preferences by getPreferencesLazy()
 
@@ -67,147 +68,114 @@ abstract class AnimeOnsen :
         get() = preferences.getString(PREF_TITLE_KEY, PREF_TITLE_DEFAULT)!!
 
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int) = GET("$apiUrl/content/index?start=${(page - 1) * 30}&limit=30", headers)
+    override suspend fun getPopularAnime(page: Int): AnimesPage = getIndexPage(page)
 
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        val responseJson = response.parseAs<AnimeListResponse>()
-        val animes = responseJson.content.map { it.toSAnime() }
-        val hasNextPage = responseJson.cursor.next.firstOrNull()?.jsonPrimitive?.boolean == true
-        return AnimesPage(animes, hasNextPage)
+    private suspend fun getIndexPage(page: Int): AnimesPage {
+        val start = (page - 1) * 30
+        val response = client.get("$apiUrl/content/index?start=$start&limit=30").parseAs<AnimeListResponse>()
+        return AnimesPage(response.content.map { it.toSAnime() }, response.hasNextPage)
     }
-
-    // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int) = throw UnsupportedOperationException()
-    override fun latestUpdatesParse(response: Response) = throw UnsupportedOperationException()
 
     // =============================== Search ===============================
     override fun getFilterList(): AnimeFilterList = AnimeOnsenFilters.FILTER_LIST
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.isNotBlank()) {
-            val postBody = buildJsonObject {
-                put("q", query)
-            }.toJsonRequestBody()
-
-            return POST("$searchUrl/indexes/content/search", headers, postBody)
+            val hits = client.post("$searchUrl/indexes/content/search", SearchRequest(query).toJsonRequestBody())
+                .parseAs<MeilisearchResponse>().hits
+            return AnimesPage(hits.map { it.toSAnime() }, false)
         }
 
         val genre = filters.firstInstanceOrNull<AnimeOnsenFilters.GenreFilter>()?.getValue()
+        if (genre.isNullOrBlank()) return getIndexPage(page)
 
-        return if (!genre.isNullOrBlank()) {
-            GET("$apiUrl/content/index/genre/$genre", headers)
-        } else {
-            val start = (page - 1) * 30
-            GET("$apiUrl/content/index?start=$start&limit=30", headers)
-        }
-    }
-
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        val requestUrl = response.request.url.toString()
-
-        return if (requestUrl.contains("indexes/content/search")) {
-            val searchResult = response.parseAs<MeilisearchResponse>().hits
-            val results = searchResult.map { it.toSAnime() }
-            AnimesPage(results, false)
-        } else if (requestUrl.contains("/genre/")) {
-            val searchResult = response.parseAs<SearchResponse>().result
-            val results = searchResult.map { it.toSAnime() }
-            AnimesPage(results, false)
-        } else {
-            val responseJson = response.parseAs<AnimeListResponse>()
-            val animes = responseJson.content.map { it.toSAnime() }
-            val hasNextPage = responseJson.cursor.next.firstOrNull()?.jsonPrimitive?.boolean == true
-            AnimesPage(animes, hasNextPage)
-        }
+        val results = client.get("$apiUrl/content/index/genre/$genre").parseAs<SearchResponse>().result
+        return AnimesPage(results.map { it.toSAnime() }, false)
     }
 
     // =========================== Anime Details ============================
-    override fun animeDetailsRequest(anime: SAnime) = GET("$apiUrl/content/${anime.url}/extensive", headers)
-
     override fun getAnimeUrl(anime: SAnime) = "$baseUrl/details/${anime.url}"
 
-    override fun animeDetailsParse(response: Response) = SAnime.create().apply {
-        val details = response.parseAs<AnimeDetails>()
-        url = details.content_id
-        title = when (preferredTitle) {
-            "english" -> details.content_title_en ?: details.content_title!!
-            else -> details.content_title ?: details.content_title_en!!
-        }
-        status = parseStatus(details.mal_data?.status)
-        author = details.mal_data?.studios?.joinToString { it.name }
-        genre = details.mal_data?.genres?.joinToString { it.name }
-        thumbnail_url = "$apiUrl/image/210x300/${details.content_id}"
+    override suspend fun fetchAnimeUpdate(
+        anime: SAnime,
+        episodes: List<SEpisode>,
+        fetchDetails: Boolean,
+        fetchEpisodes: Boolean,
+    ): SAnimeUpdate {
+        if (!fetchDetails && !fetchEpisodes) return SAnimeUpdate(anime, episodes)
 
-        val descBuilder = StringBuilder()
-
-        details.mal_data?.mean_score?.let { score ->
-            val starCount = (score / 2.0).roundToInt().coerceIn(0, 5)
-            val stars = "★".repeat(starCount) + "☆".repeat(5 - starCount)
-            descBuilder.append("$stars $score\n\n")
-        }
-
-        // Main synopsis
-        details.mal_data?.synopsis?.let { descBuilder.append(it) }
-
-        val subsList = try {
-            val epsResponse = client.newCall(GET("$apiUrl/content/${details.content_id}/episodes", headers)).execute()
-            val epsJson = epsResponse.parseAs<Map<String, EpisodeDto>>()
-
-            val firstEpNum = epsJson.keys.firstOrNull()
-            if (firstEpNum != null) {
-                val videoResponse = client.newCall(GET("$apiUrl/content/${details.content_id}/video/$firstEpNum", headers)).execute()
-                val videoData = videoResponse.parseAs<VideoData>()
-                videoData.metadata.subtitles.values
-            } else {
-                emptyList()
+        return coroutineScope {
+            val detailsDeferred = if (fetchDetails) async { fetchDetails(anime.url) } else null
+            val episodeMapDeferred = async {
+                if (fetchEpisodes) fetchEpisodeMap(anime.url) else runCatchingCancellable { fetchEpisodeMap(anime.url) }
             }
-        } catch (_: Exception) {
-            emptyList()
-        }
 
-        val extras = buildList {
-            details.mal_data?.rating?.let {
-                val formattedRating = it.replace("_", " ").uppercase()
-                add("**Rating:** $formattedRating")
-            }
-            if (subsList.isNotEmpty()) {
-                add("**Subtitles:** ${subsList.joinToString(", ")}")
-            }
-            details.mal_id?.let { add("[MAL](https://myanimelist.net/anime/$it)") }
-        }
+            val episodeMap = episodeMapDeferred.await()
+            val details = detailsDeferred?.await()
 
-        if (extras.isNotEmpty()) {
-            descBuilder.append("\n\n")
-            descBuilder.append(extras.joinToString("\n"))
+            SAnimeUpdate(
+                anime = details?.let { toSAnimeWithDescription(it, episodeMap) } ?: anime,
+                episodes = if (fetchEpisodes) episodeMap!!.toEpisodes(anime.url) else episodes,
+            )
         }
-
-        description = descBuilder.toString().trimEnd()
     }
 
-    // ============================== Episodes ==============================
-    override fun episodeListRequest(anime: SAnime) = GET("$apiUrl/content/${anime.url}/episodes", headers)
+    private suspend fun fetchDetails(contentId: String) = client.get("$apiUrl/content/$contentId/extensive").parseAs<AnimeDetails>()
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        val contentId = response.request.url.toString().removeSuffix("/")
-            .substringBeforeLast("/episodes")
-            .substringAfterLast("/")
-        val responseJson = response.parseAs<Map<String, EpisodeDto>>()
-        return responseJson.map { (epNum, item) ->
-            SEpisode.create().apply {
-                url = "$contentId/video/$epNum"
-                episode_number = epNum.toFloatOrNull() ?: -1f
-                name = when (preferredTitle) {
-                    "english" -> "Episode $epNum: ${item.nameEn ?: item.nameJp ?: ""}"
-                    else -> "Episode $epNum: ${item.nameJp ?: item.nameEn ?: ""}"
+    private suspend fun toSAnimeWithDescription(details: AnimeDetails, episodeMap: Map<String, EpisodeDto>?): SAnime {
+        val subtitles = episodeMap?.keys?.firstOrNull()?.let { fetchSubtitleLanguages(details.contentId, it) }.orEmpty()
+
+        return SAnime.create().apply {
+            url = details.contentId
+            title = details.title()
+            status = parseStatus(details.malData?.status)
+            author = details.malData?.studios?.joinToString { it.name }
+            genre = details.malData?.genres?.joinToString { it.name }
+            thumbnail_url = thumbnailUrl(details.contentId)
+            description = buildString {
+                details.malData?.meanScore?.let { score ->
+                    val starCount = (score / 2.0).roundToInt().coerceIn(0, 5)
+                    append("★".repeat(starCount), "☆".repeat(5 - starCount), " ", score, "\n\n")
                 }
+                details.malData?.synopsis?.let(::append)
+
+                val extras = buildList {
+                    details.malData?.rating?.let { add("**Rating:** ${it.replace("_", " ").uppercase()}") }
+                    if (subtitles.isNotEmpty()) add("**Subtitles:** ${subtitles.joinToString()}")
+                    details.malId?.let { add("[MAL](https://myanimelist.net/anime/$it)") }
+                }
+                if (extras.isNotEmpty()) append("\n\n", extras.joinToString("\n"))
+            }.trimEnd()
+        }
+    }
+
+    private suspend fun fetchSubtitleLanguages(contentId: String, episodeNumber: String): Collection<String> = runCatchingCancellable {
+        client.get("$apiUrl/content/$contentId/video/$episodeNumber").parseAs<VideoData>().metadata.subtitles.values
+    } ?: emptyList()
+
+    // ============================== Episodes ==============================
+    private suspend fun fetchEpisodeMap(contentId: String) = client.get("$apiUrl/content/$contentId/episodes").parseAs<Map<String, EpisodeDto>>()
+
+    private fun Map<String, EpisodeDto>.toEpisodes(contentId: String) = map { (epNum, item) ->
+        SEpisode.create().apply {
+            url = "$contentId/video/$epNum"
+            episode_number = epNum.toFloatOrNull() ?: -1f
+            name = when (preferredTitle) {
+                "english" -> "Episode $epNum: ${item.nameEn ?: item.nameJp ?: ""}"
+                else -> "Episode $epNum: ${item.nameJp ?: item.nameEn ?: ""}"
             }
-        }.sortedByDescending { it.episode_number }
+        }
+    }.sortedByDescending { it.episode_number }
+
+    override fun getEpisodeUrl(episode: SEpisode): String {
+        val contentId = episode.url.substringBefore("/video/")
+        val episodeNumber = episode.url.substringAfter("/video/")
+        return "$baseUrl/watch/$contentId?episode=$episodeNumber"
     }
 
     // ============================ Video Links =============================
-    override fun videoListParse(response: Response): List<Video> {
-        val videoData = response.parseAs<VideoData>()
-        val videoUrl = videoData.uri.stream
+    override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> {
+        val videoData = client.get("$apiUrl/content/${episode.url}").parseAs<VideoData>()
         val subtitleLangs = videoData.metadata.subtitles
 
         val subs = videoData.uri.subtitles.sortSubs().mapNotNull { (langPrefix, subUrl) ->
@@ -215,11 +183,32 @@ abstract class AnimeOnsen :
             Track(subUrl, language)
         }
 
-        val video = Video(videoUrl = videoUrl, videoTitle = "Default (720p)", headers = headers, subtitleTracks = subs)
-        return listOf(video)
+        return listOf(
+            Video(videoUrl = videoData.uri.stream, videoTitle = "Default (720p)", headers = headers, subtitleTracks = subs),
+        ).toHosterList()
     }
 
-    override fun videoListRequest(episode: SEpisode) = GET("$apiUrl/content/${episode.url}", headers)
+    // ========================== Related Anime =============================
+    override val hasRelatedAnime = true
+
+    override suspend fun fetchRelatedAnime(anime: SAnime): List<Related> {
+        val details = fetchDetails(anime.url)
+        val ids = listOfNotNull(details.previousSeason, details.nextSeason).filter { it.isNotEmpty() }
+        if (ids.isEmpty()) return emptyList()
+
+        // A season that fails to load doesn't hide the other
+        val seasons = coroutineScope {
+            ids.map { id -> async { runCatchingCancellable { fetchDetails(id) } } }.awaitAll()
+        }.filterNotNull().map { season ->
+            SAnime.create().apply {
+                url = season.contentId
+                title = season.title()
+                thumbnail_url = thumbnailUrl(season.contentId)
+            }
+        }
+
+        return listOf(Related("Seasons", seasons))
+    }
 
     // ============================== Settings ==============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -248,14 +237,28 @@ abstract class AnimeOnsen :
         else -> SAnime.ONGOING
     }
 
+    private fun thumbnailUrl(contentId: String) = "$apiUrl/image/210x300/$contentId"
+
+    private fun AnimeDetails.title() = when (preferredTitle) {
+        "english" -> contentTitleEn ?: contentTitle!!
+        else -> contentTitle ?: contentTitleEn!!
+    }
+
     private fun AnimeListItem.toSAnime() = SAnime.create().apply {
-        url = content_id
+        url = contentId
         title = when (preferredTitle) {
-            "english" -> content_title_en ?: content_title ?: content_title_jp!!
-            else -> content_title ?: content_title_jp ?: content_title_en!!
+            "english" -> contentTitleEn ?: contentTitle ?: contentTitleJp!!
+            else -> contentTitle ?: contentTitleJp ?: contentTitleEn!!
         }
-        // Reference way: dynamically construct the thumbnail URL from the ID if not provided directly by search
-        thumbnail_url = thumbnail ?: content_image ?: "$apiUrl/image/210x300/$content_id"
+        thumbnail_url = thumbnail ?: contentImage ?: thumbnailUrl(contentId)
+    }
+
+    private suspend inline fun <T> runCatchingCancellable(block: () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
     }
 
     private fun Map<String, String>.sortSubs(): List<Map.Entry<String, String>> {
