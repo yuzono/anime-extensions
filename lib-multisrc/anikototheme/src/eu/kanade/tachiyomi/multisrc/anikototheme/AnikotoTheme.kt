@@ -30,6 +30,7 @@ import keiyoushi.utils.parseAs
 import keiyoushi.utils.rc4
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import okhttp3.CacheControl
@@ -366,6 +367,8 @@ abstract class AnikotoTheme(
             .toDocument()
             .select(watchOrderItemSelector)
             .mapNotNull { relatedAnimeFromElement(it, watchOrderHref(it), currentAnimePath) }
+    } catch (e: CancellationException) {
+        throw e
     } catch (_: Exception) {
         emptyList()
     }
