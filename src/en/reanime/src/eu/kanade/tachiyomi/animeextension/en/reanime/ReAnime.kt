@@ -32,11 +32,11 @@ import keiyoushi.source.stream.StreamInterceptor
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.toJsonBody
 import keiyoushi.utils.tryParse
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -136,26 +136,22 @@ abstract class ReAnime :
 
             try {
                 client.get("$detailsFromApiUrl/$animeSlug", apiHeaders("$detailsUrl/$animeSlug")).use { res ->
-                    val dto = res.parseAs<AnimeDetailDto>()
-                    val sNum = if (dto.format?.equals("MOVIE", true) == true) {
-                        0
-                    } else {
-                        dto.externalSeasons?.tmdb?.takeIf { it > 0 } ?: 1
-                    }
-                    AnimeMeta(
-                        anilistId = dto.anilistId ?: 0,
-                        malId = dto.malId ?: 0,
-                        tmdbId = dto.tmdbId ?: 0,
-                        seasonNumber = sNum,
-                        subbed = dto.subbed ?: 0,
-                        dubbed = dto.dubbed ?: 0,
-                    ).also { animeMetaCache.put(animeSlug, it) }
+                    res.parseAs<AnimeDetailDto>().toMeta().also { animeMetaCache.put(animeSlug, it) }
                 }
             } catch (_: Exception) {
                 null
             }
         }
     }
+
+    private fun AnimeDetailDto.toMeta() = AnimeMeta(
+        anilistId = anilistId ?: 0,
+        malId = malId ?: 0,
+        tmdbId = tmdbId ?: 0,
+        seasonNumber = if (format?.equals("MOVIE", true) == true) 0 else externalSeasons?.tmdb?.takeIf { it > 0 } ?: 1,
+        subbed = subbed ?: 0,
+        dubbed = dubbed ?: 0,
+    )
 
     private var nextLatestCursor: String? = null
 
@@ -278,43 +274,33 @@ abstract class ReAnime :
         episodes: List<SEpisode>,
         fetchDetails: Boolean,
         fetchEpisodes: Boolean,
-    ): SAnimeUpdate {
-        // Details first: they cache the ids the episode list needs
-        val details = if (fetchDetails) client.newCall(detailsRequest(anime)).awaitSuccess().use(::detailsParse) else anime
-        return SAnimeUpdate(details, if (fetchEpisodes) fetchEpisodes(anime) else episodes)
+    ): SAnimeUpdate = coroutineScope {
+        val details = if (fetchDetails) {
+            async { client.newCall(detailsRequest(anime)).awaitSuccess().use { it.parseAs<AnimeDetailDto>() } }
+        } else {
+            null
+        }
+        val newEpisodes = if (fetchEpisodes) async { fetchEpisodes(anime, details) } else null
+        SAnimeUpdate(
+            anime = details?.await()?.let(::detailsParse) ?: anime,
+            episodes = newEpisodes?.await() ?: episodes,
+        )
     }
 
     private fun detailsRequest(anime: SAnime): Request = GET("$detailsFromApiUrl/${anime.url}", apiHeaders(getAnimeUrl(anime)))
 
-    private fun detailsParse(response: Response): SAnime {
-        val dto = response.parseAs<AnimeDetailDto>()
-
-        // Cache metadata for episode/video logic
-        val anilistId = dto.anilistId ?: 0
-        val malId = dto.malId ?: 0
-        val tmdbId = dto.tmdbId ?: 0
-        if (anilistId > 0 || tmdbId > 0 || malId > 0) {
-            val sNum = if (dto.format?.equals("MOVIE", true) == true) {
-                0
-            } else {
-                dto.externalSeasons?.tmdb?.takeIf { it > 0 } ?: 1
-            }
-            animeMetaCache.put(
-                dto.animeId,
-                AnimeMeta(
-                    anilistId = anilistId,
-                    malId = malId,
-                    tmdbId = tmdbId,
-                    seasonNumber = sNum,
-                    subbed = dto.subbed ?: 0,
-                    dubbed = dto.dubbed ?: 0,
-                ),
-            )
-        }
-
+    private fun detailsParse(dto: AnimeDetailDto): SAnime {
+        cacheMeta(dto)
         return dto.toSAnime(titleLanguage).apply {
             description = buildDescription(dto)
         }
+    }
+
+    // For the episode and video logic
+    private fun cacheMeta(dto: AnimeDetailDto): AnimeMeta {
+        val meta = dto.toMeta()
+        if (meta.anilistId > 0 || meta.malId > 0 || meta.tmdbId > 0) animeMetaCache.put(dto.animeId, meta)
+        return meta
     }
 
     private fun getOrdinal(n: Int): String = if (n in 11..13) {
@@ -558,16 +544,14 @@ abstract class ReAnime :
         return GET(url, apiHeaders("$detailsUrl/${anime.url}"))
     }
 
-    private suspend fun fetchEpisodes(anime: SAnime): List<SEpisode> {
-        val meta = animeMetaCache.get(anime.url) ?: fetchAnimeMeta(anime.url)
-
-        val response = client.newCall(episodesRequest(anime)).awaitSuccess()
-
-        if (!response.isSuccessful) {
-            response.close()
-            throw Exception("Failed to load episodes (HTTP ${response.code})")
+    // Episode previews need the ids from the details, fetched alongside when [details] is given
+    private suspend fun fetchEpisodes(anime: SAnime, details: Deferred<AnimeDetailDto>?): List<SEpisode> = coroutineScope {
+        val thumbnailsJob = async {
+            val meta = details?.await()?.let(::cacheMeta) ?: animeMetaCache.get(anime.url) ?: fetchAnimeMeta(anime.url)
+            meta?.takeIf { it.anilistId > 0 || it.malId > 0 }?.let { fetchThumbnails(it, "$baseUrl/watch/${anime.url}") }
         }
 
+        val response = client.newCall(episodesRequest(anime)).awaitSuccess()
         val dto = try {
             response.use { it.parseAs<EpisodeListDto>() }
         } catch (_: Exception) {
@@ -577,15 +561,9 @@ abstract class ReAnime :
         val visibleEpisodes = dto.data
         if (visibleEpisodes.isEmpty()) throw Exception("Could not find any episodes. Check if there are any in WebView.")
 
-        val thumbnails = coroutineScope {
-            meta?.takeIf { it.anilistId > 0 || it.malId > 0 }?.let { m ->
-                async {
-                    fetchThumbnails(m, "$baseUrl/watch/${anime.url}")
-                }
-            }?.await()
-        }
+        val thumbnails = thumbnailsJob.await()
 
-        return visibleEpisodes.map { ep ->
+        visibleEpisodes.map { ep ->
             SEpisode.create().apply {
                 val epNum = ep.episodeNumber
                 episode_number = epNum.toFloat()
@@ -786,36 +764,20 @@ abstract class ReAnime :
         }
 
         if (includeDirectDownloads) {
-            hosters.addAll(
-                parsed.servers.parallelCatchingFlatMap { server ->
-                    val serverName = if (server.hardsub) "H-SUB" else server.serverName
-                    if (isAudioExcluded(server.dataType, server.hardsub) || isExcluded(serverName, " Download")) return@parallelCatchingFlatMap emptyList()
-                    val dataLink = server.dataLink ?: return@parallelCatchingFlatMap emptyList()
-                    val aid = EMBED_AID_REGEX.find(dataLink)?.groupValues?.get(1) ?: return@parallelCatchingFlatMap emptyList()
+            parsed.servers.forEach { server ->
+                val serverName = if (server.hardsub) "H-SUB" else server.serverName
+                if (isAudioExcluded(server.dataType, server.hardsub) || isExcluded(serverName, " Download")) return@forEach
+                val dataLink = server.dataLink?.takeIf { EMBED_AID_REGEX.containsMatchIn(it) } ?: return@forEach
 
-                    val dlHeaders = headers.newBuilder()
-                        .set("Accept", "*/*")
-                        .set("Referer", "$flixCloudUrl/")
-                        .build()
+                val label = buildString {
+                    append(audioTagOf(server.dataType, server.hardsub))
+                    serverName?.let { append(" $it") }
+                    if (server.softsub) append(" [Softsub]")
+                }.trim()
 
-                    val ddlData = FlixCloudDdl.fetchMetadata(client, dlHeaders, aid, dataLink) ?: return@parallelCatchingFlatMap emptyList()
-
-                    val label = buildString {
-                        append(audioTagOf(server.dataType, server.hardsub))
-                        serverName?.let { append(" $it") }
-                        if (server.softsub) append(" [Softsub]")
-                    }.trim()
-
-                    val hosterName = "$label Download"
-
-                    listOf(
-                        Hoster(
-                            hosterName = hosterName,
-                            internalData = "mkv_flixcloud_res::${ddlData.base}|||${ddlData.fileId}|||${ddlData.token}|||${ddlData.resolution}",
-                        ),
-                    )
-                },
-            )
+                // The file's metadata is fetched when the hoster is opened
+                hosters.add(Hoster(hosterName = "$label Download", internalData = "mkv_flixcloud::$dataLink"))
+            }
         }
 
         return hosters
@@ -834,17 +796,16 @@ abstract class ReAnime :
 
         return this.sortedWith(
             compareByDescending<Hoster> { getBaseServer(it.hosterName) == preferredBase }
-                .thenByDescending {
-                    if (it.hosterName.contains("Download")) {
-                        it.internalData.substringAfterLast("|||").contains(preferredQuality, ignoreCase = true)
-                    } else {
-                        true
-                    }
-                }
                 .thenByDescending { getServerKey(it.hosterName) == preferredServer }
                 .thenByDescending { it.hosterName.matchesAudio(preferredAudio) },
         )
     }
+
+    private val ddlHeaders: Headers
+        get() = headers.newBuilder()
+            .set("Accept", "*/*")
+            .set("Referer", "$flixCloudUrl/")
+            .build()
 
     // ==================== Video Extraction & Sorting ======================
     override suspend fun fetchVideoList(hoster: Hoster): List<Video> {
@@ -855,14 +816,17 @@ abstract class ReAnime :
                 val dataLink = hoster.internalData.removePrefix("hls_flixcloud::")
                 extractFromServer(dataLink, hoster.hosterName)
             }
-            hoster.internalData.startsWith("mkv_flixcloud_res::") -> {
-                val rawResolution = hoster.internalData.substringAfterLast("|||").takeIf { it != "null" && it.isNotBlank() }
+            hoster.internalData.startsWith("mkv_flixcloud::") -> {
+                val dataLink = hoster.internalData.removePrefix("mkv_flixcloud::")
+                val aid = EMBED_AID_REGEX.find(dataLink)?.groupValues?.get(1) ?: return emptyList()
+                val ddlData = FlixCloudDdl.fetchMetadata(client, ddlHeaders, aid, dataLink) ?: return emptyList()
+                val rawResolution = ddlData.resolution?.takeIf { it != "null" && it.isNotBlank() }
                 val videoTitle = if (rawResolution != null) "$rawResolution MKV" else "MKV"
 
                 val video = Video(
                     videoUrl = "",
                     videoTitle = videoTitle,
-                    internalData = hoster.internalData,
+                    internalData = "mkv_flixcloud_res::${ddlData.base}|||${ddlData.fileId}|||${ddlData.token}|||${ddlData.resolution}",
                     initialized = false,
                 )
 
@@ -1101,18 +1065,13 @@ abstract class ReAnime :
                 resolution = parts.getOrNull(3),
             )
 
-            val dlHeaders = headers.newBuilder()
-                .set("Accept", "*/*")
-                .set("Referer", "$flixCloudUrl/")
-                .build()
-
-            val fileUrl = FlixCloudDdl.resolveUrl(client, dlHeaders, ddlData) ?: return null
+            val fileUrl = FlixCloudDdl.resolveUrl(client, ddlHeaders, ddlData) ?: return null
 
             return video.copy(
                 videoUrl = fileUrl,
                 internalData = "",
                 initialized = true,
-                headers = dlHeaders,
+                headers = ddlHeaders,
             )
         }
         return video
