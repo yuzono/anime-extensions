@@ -1083,28 +1083,9 @@ abstract class ReAnime :
     override suspend fun fetchVideoThumbnails(video: Video): VideoThumbnails? {
         val vttUrl = video.internalData.takeIf { it.startsWith(THUMBNAILS_PREFIX) }
             ?.removePrefix(THUMBNAILS_PREFIX)?.toHttpUrlOrNull() ?: return null
-        // The player resolves sprite paths against the vtt url as a directory
-        val base = vttUrl.newBuilder().addPathSegment("").build()
-        val imageUrls = mutableListOf<String>()
-        val tiles = client.get(vttUrl).body.string().lineSequence()
-            .zipWithNext()
-            .mapNotNull { (timing, image) ->
-                val start = VTT_TIMING_REGEX.find(timing)?.groupValues?.get(1)?.let(::vttTimeMs) ?: return@mapNotNull null
-                val area = VTT_XYWH_REGEX.find(image)?.groupValues?.drop(1)?.map { it.toIntOrNull() ?: return@mapNotNull null }
-                    ?: return@mapNotNull null
-                val imageUrl = base.resolve(image.substringBefore('#').trim())?.toString() ?: return@mapNotNull null
-                val index = imageUrls.indexOf(imageUrl).takeIf { it >= 0 } ?: imageUrls.size.also { imageUrls += imageUrl }
-                VideoThumbnails.Tile(index, start, area[0], area[1], area[2], area[3])
-            }
-            .toList()
-        return VideoThumbnails(tiles, imageUrls).takeIf { tiles.isNotEmpty() }
-    }
-
-    private fun vttTimeMs(time: String): Long? {
-        val clock = time.substringBefore('.')
-        val millis = time.substringAfter('.', "").padEnd(3, '0').take(3).toLongOrNull() ?: return null
-        val seconds = clock.split(':').fold(0L) { acc, part -> acc * 60 + (part.toLongOrNull() ?: return null) }
-        return seconds * 1000 + millis
+        // The site's player resolves sprite paths against the vtt url as a directory
+        val imageBase = vttUrl.newBuilder().addPathSegment("").build()
+        return VideoThumbnails.fromVtt(client.get(vttUrl).body.string(), imageBase)
     }
 
     override suspend fun fetchResolvedVideo(video: Video): Video? {
@@ -1308,8 +1289,6 @@ abstract class ReAnime :
         private val SUBBED_REGEX = Regex(""",\s*subbed:\s*(\d+)""")
         private val DUBBED_REGEX = Regex(""",\s*dubbed:\s*(\d+)""")
         private const val THUMBNAILS_PREFIX = "thumbnails_vtt::"
-        private val VTT_TIMING_REGEX = Regex("""^\s*((?:\d+:)?\d+:\d+(?:\.\d+)?)\s*-->""")
-        private val VTT_XYWH_REGEX = Regex("""#xywh=(\d+),(\d+),(\d+),(\d+)""")
         private val EMBED_DATA_REGEX = Regex("""type:\s*"data",\s*data:\s*(\{.*?\})\s*,\s*uses:""", RegexOption.DOT_MATCHES_ALL)
         private val JSON5_KEY_REGEX = Regex("""([{,]\s*)([\w_]+)(\s*:)""")
         private val JSON5_TRAILING_COMMA_REGEX = Regex(""",\s*([}\]])""")
