@@ -9,6 +9,7 @@ yuzono {
     versionCode = 25
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
+    torrent = true
 
     source {
         lang = "all"
