@@ -20,11 +20,16 @@ class VideoThumbnails(val tiles: List<Tile>, val imageUrls: List<String>, val he
         private val cueTiming = Regex("""^\s*((?:\d+:)?\d+:\d+(?:\.\d+)?)\s*-->""")
         private val spriteArea = Regex("""#xywh=(\d+),(\d+),(\d+),(\d+)""")
 
+        private val credentialHeaders = setOf("Authorization", "Proxy-Authorization", "Cookie")
+
         /**
          * [fromVtt] for a fetched track: relative image urls resolve against its final url, and the images
-         * are fetched with the headers the track was.
+         * are fetched with the headers the track was, minus credentials.
          */
-        fun fromVtt(response: Response): VideoThumbnails? = response.use { fromVtt(it.body.string(), it.request.url, it.request.headers) }
+        fun fromVtt(response: Response): VideoThumbnails? = response.use {
+            val headers = it.request.headers.newBuilder().apply { credentialHeaders.forEach(::removeAll) }.build()
+            fromVtt(it.body.string(), it.request.url, headers)
+        }
 
         /**
          * Parses a WebVTT thumbnail track, whose cues are sprite areas (`sprite.jpg#xywh=0,0,160,90`).

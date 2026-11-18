@@ -49,7 +49,7 @@ class VideoThumbnailsTest {
     @Test
     fun `resolves against the final url of a response`() {
         val response = Response.Builder()
-            .request(Request.Builder().url("https://cdn.com/thumbnails_vtt/abc/").header("Referer", "https://site.com/").build())
+            .request(Request.Builder().url("https://cdn.com/thumbnails_vtt/abc/").header("Referer", "https://site.com/").header("Authorization", "Bearer x").build())
             .protocol(Protocol.HTTP_1_1)
             .code(200)
             .message("OK")
@@ -58,6 +58,7 @@ class VideoThumbnailsTest {
         val thumbnails = VideoThumbnails.fromVtt(response)!!
         assertEquals("https://cdn.com/thumbnails_vtt/abc/thumbnails/sprite_0.webp", thumbnails.imageUrls[0])
         assertEquals("https://site.com/", thumbnails.headers?.get("Referer"))
+        assertNull(thumbnails.headers?.get("Authorization"))
     }
 
     @Test

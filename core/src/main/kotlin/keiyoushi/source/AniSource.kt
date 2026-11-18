@@ -163,20 +163,19 @@ abstract class AniSource : AniSourceBase() {
 
     final override suspend fun getVideoThumbnails(video: Video): ThumbnailInfo? {
         val thumbnails = fetchVideoThumbnails(video) ?: return null
-        thumbnails.headers?.let { tileHeaders -> synchronized(imageTileHeaders) { thumbnails.imageUrls.forEach { imageTileHeaders[it] = tileHeaders } } }
+        imageTileHeaders = thumbnails.headers?.let { tileHeaders -> thumbnails.imageUrls.associateWith { tileHeaders } }.orEmpty()
         return ThumbnailInfo(
             tileInfo = thumbnails.tiles.map { TileInfo(it.imageIndex, it.timeMs, it.x, it.y, it.width, it.height) },
             imageTileUrls = thumbnails.imageUrls,
         )
     }
 
-    // Headers of the latest previews' images, which the app fetches by url only
-    private val imageTileHeaders = object : LinkedHashMap<String, Headers>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Headers>?) = size > 64
-    }
+    // Headers for the images of the playing video's previews, which the app fetches by url only
+    @Volatile
+    private var imageTileHeaders = emptyMap<String, Headers>()
 
     final override suspend fun getImageTile(url: String): Bitmap? {
-        val tileHeaders = synchronized(imageTileHeaders) { imageTileHeaders[url] } ?: headers
+        val tileHeaders = imageTileHeaders[url] ?: headers
         return client.get(url, tileHeaders).use { BitmapFactory.decodeStream(it.body.byteStream()) }
     }
 
