@@ -132,17 +132,12 @@ internal object StreamPipeline {
         val kind = playlistKind(target, response) ?: return response
         val body = response.body.string()
         val playlistUrl = response.request.url
-        val rewrite = { raw: String ->
-            val url = playlistUrl.resolve(raw)
-            when {
-                url == null -> raw
-                source.handlesStream(url) -> ProxyUrl.encode(base, source.id, url).toString()
-                else -> url.toString()
-            }
+        val toUrl = { url: HttpUrl ->
+            if (source.handlesStream(url)) ProxyUrl.encode(base, source.id, url).toString() else url.toString()
         }
         val rewritten = when (kind) {
-            PlaylistKind.Hls -> rewriteHls(body, rewrite)
-            PlaylistKind.Dash -> rewriteDash(body, rewrite)
+            PlaylistKind.Hls -> rewriteHls(body) { raw -> playlistUrl.resolve(raw)?.let(toUrl) ?: raw }
+            PlaylistKind.Dash -> rewriteDash(body, playlistUrl, toUrl)
         }
         return response.newBuilder()
             .removeHeader("Content-Length")
@@ -181,21 +176,60 @@ internal object StreamPipeline {
         }
     }
 
-    private val dashBaseUrl = Regex("""(<BaseURL[^>]*>)([^<]+)(</BaseURL>)""")
+    private val xmlTag = Regex("""<(/?)([\w:]+)([^>]*?)(/?)>""")
     private val dashUrlAttribute = Regex("""\b(media|initialization|sourceURL|href)="([^"]+)"""")
 
-    internal fun rewriteDash(manifest: String, rewrite: (String) -> String): String {
-        val absolute = { raw: String -> raw.startsWith("/") || raw.startsWith("http://") || raw.startsWith("https://") }
-        return manifest
-            .replace(dashBaseUrl) { m ->
-                // A relative BaseURL resolves against its parent, already rewritten
-                val raw = m.groupValues[2].trim().xmlUnescape()
-                if (absolute(raw)) m.groupValues[1] + rewrite(raw).xmlEscape() + m.groupValues[3] else m.value
+    // A width like $Number%05d$ must reach the player as is, not escaped by the proxy encoding
+    private val escapedDashFormat = Regex("""\$(\w+)%25(0\d+d)\$""")
+
+    /**
+     * Makes every url in [manifest] absolute, resolved against the manifest and the `BaseURL`s
+     * above it, then [toUrl]: the player would otherwise resolve relative ones against the proxy url.
+     */
+    internal fun rewriteDash(manifest: String, manifestUrl: HttpUrl, toUrl: (HttpUrl) -> String): String {
+        val rewrite = { base: HttpUrl, raw: String ->
+            base.resolve(raw.xmlUnescape())
+                ?.let(toUrl)
+                ?.replace(escapedDashFormat) { "$" + it.groupValues[1] + "%" + it.groupValues[2] + "$" }
+                ?.xmlEscape()
+        }
+        // Base of each open element, set by its BaseURL children
+        val bases = ArrayDeque<HttpUrl>().apply { addLast(manifestUrl) }
+        val out = StringBuilder()
+        var last = 0
+        for (tag in xmlTag.findAll(manifest)) {
+            val text = manifest.substring(last, tag.range.first)
+            val inBaseUrl = bases.size > 1 && tag.groupValues[1] == "/" && tag.groupValues[2] == "BaseURL"
+            if (inBaseUrl && text.isNotBlank()) {
+                bases.removeLast()
+                val parent = bases.removeLast()
+                val baseUrl = parent.resolve(text.trim().xmlUnescape()) ?: parent
+                bases.addLast(baseUrl)
+                bases.addLast(baseUrl)
+                out.append(rewrite(parent, text.trim()) ?: text)
+            } else {
+                out.append(text)
             }
-            .replace(dashUrlAttribute) { m ->
-                val raw = m.groupValues[2].xmlUnescape()
-                if (absolute(raw)) "${m.groupValues[1]}=\"${rewrite(raw).xmlEscape()}\"" else m.value
+
+            val (closing, _, attributes, selfClosing) = tag.destructured
+            when {
+                closing == "/" -> {
+                    out.append(tag.value)
+                    if (bases.size > 1) bases.removeLast()
+                }
+                else -> {
+                    val current = bases.last()
+                    val rewritten = dashUrlAttribute.replace(attributes) { m ->
+                        rewrite(current, m.groupValues[2])?.let { "${m.groupValues[1]}=\"$it\"" } ?: m.value
+                    }
+                    out.append(if (attributes.isEmpty()) tag.value else tag.value.replace(attributes, rewritten))
+                    if (selfClosing.isEmpty()) bases.addLast(current)
+                }
             }
+            last = tag.range.last + 1
+        }
+        out.append(manifest.substring(last))
+        return out.toString()
     }
 
     private fun String.xmlUnescape() = replace("&amp;", "&")

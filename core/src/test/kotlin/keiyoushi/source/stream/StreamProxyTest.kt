@@ -83,13 +83,36 @@ class StreamProxyTest {
     }
 
     @Test
-    fun `rewrites only absolute dash urls`() {
-        val manifest = """<MPD><BaseURL>https://h.com/v/</BaseURL>""" +
-            """<SegmentTemplate media="${'$'}Number${'$'}.m4s" initialization="/i.mp4?a=1&amp;b=2"/></MPD>"""
-        val rewritten = StreamPipeline.rewriteDash(manifest) { "P[$it]" }
+    fun `resolves dash urls against their base`() {
+        val manifest = """<MPD><BaseURL>https://cdn.com/v/</BaseURL><Period><AdaptationSet>""" +
+            """<BaseURL>video/</BaseURL><SegmentTemplate media="seg-${'$'}Number%05d${'$'}.m4s" """ +
+            """initialization="../init.mp4?a=1&amp;b=2"/></AdaptationSet></Period></MPD>"""
+        val rewritten = StreamPipeline.rewriteDash(manifest, "https://h.com/a/b/manifest.mpd".toHttpUrl()) { it.toString() }
         assertEquals(
-            """<MPD><BaseURL>P[https://h.com/v/]</BaseURL>""" +
-                """<SegmentTemplate media="${'$'}Number${'$'}.m4s" initialization="P[/i.mp4?a=1&amp;b=2]"/></MPD>""",
+            """<MPD><BaseURL>https://cdn.com/v/</BaseURL><Period><AdaptationSet>""" +
+                """<BaseURL>https://cdn.com/v/video/</BaseURL><SegmentTemplate media="https://cdn.com/v/video/seg-${'$'}Number%05d${'$'}.m4s" """ +
+                """initialization="https://cdn.com/v/init.mp4?a=1&amp;b=2"/></AdaptationSet></Period></MPD>""",
+            rewritten,
+        )
+    }
+
+    @Test
+    fun `resolves dash urls above the manifest`() {
+        val rewritten = StreamPipeline.rewriteDash(
+            """<MPD><SegmentURL media="../../x/seg.m4s"/></MPD>""",
+            "https://h.com/a/manifest.mpd".toHttpUrl(),
+        ) { it.toString() }
+        assertEquals("""<MPD><SegmentURL media="https://h.com/x/seg.m4s"/></MPD>""", rewritten)
+    }
+
+    @Test
+    fun `keeps dash format tokens through the proxy`() {
+        val rewritten = StreamPipeline.rewriteDash(
+            """<MPD><SegmentTemplate media="seg-${'$'}Number%05d${'$'}.m4s"/></MPD>""",
+            "https://h.com/v/manifest.mpd".toHttpUrl(),
+        ) { ProxyUrl.encode(base, 1L, it).toString() }
+        assertEquals(
+            """<MPD><SegmentTemplate media="http://127.0.0.1:4321/_kp/1/https/h.com/v/seg-${'$'}Number%05d${'$'}.m4s"/></MPD>""",
             rewritten,
         )
     }
