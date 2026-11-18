@@ -3,5 +3,5 @@ plugins {
 }
 
 dependencies {
-    compileOnlyApi(libs.aniyomi.lib)
+    compileOnlyApi(project(":extensions-lib"))
 }
