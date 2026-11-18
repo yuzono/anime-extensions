@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.multisrc.anikototheme.dto.ServerResponseDto
 import keiyoushi.network.get
 import keiyoushi.utils.parseAs
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.jsoup.nodes.Document
 import java.nio.charset.StandardCharsets
 import javax.crypto.Cipher
@@ -108,10 +109,11 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         }
 
         val videos = when {
+            // A direct playlist, even under a /stream/ path, before the MegaPlay embed rule
+            isDirectPlaylist(embedLink) ->
+                extractDirectM3u8(embedLink, server)
             isMegaPlayServer(server.serverName) || isMegaPlayUrl(embedLink) ->
                 extractFromMegaPlay(embedLink, server)
-            embedLink.endsWith(".m3u8") || (embedLink.contains(".m3u8") && !embedLink.contains("/stream/")) ->
-                extractDirectM3u8(embedLink, server)
             else -> {
                 Log.w("AnikotoExtractor", "No extractor for ${server.serverName}: $embedLink")
                 emptyList()
@@ -143,6 +145,9 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             "hd2",
         ) || name.contains("vidstream") || name.contains("hd1") || name.contains("hd2")
     }
+
+    private fun isDirectPlaylist(url: String): Boolean = url.toHttpUrlOrNull()?.encodedPath?.endsWith(".m3u8", ignoreCase = true)
+        ?: url.substringBefore('?').endsWith(".m3u8", ignoreCase = true)
 
     // MegaPlay and its mirrors (e.g. VidPlay on vidtube.site) share the /stream/getSources API
     private fun isMegaPlayUrl(url: String): Boolean = url.contains("/stream/", ignoreCase = true)

@@ -349,6 +349,8 @@ abstract class AnikotoTheme(
 
             listOf(Related("Watch order", watchOrder), Related("Recommended", recommended))
                 .filter { it.animes.isNotEmpty() }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("AnikotoTheme", "Failed to parse related anime", e)
             emptyList()
