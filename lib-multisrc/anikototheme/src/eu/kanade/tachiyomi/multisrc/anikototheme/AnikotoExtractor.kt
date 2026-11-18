@@ -151,7 +151,6 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         embedUrl: String,
         server: AnikotoTheme.VideoData,
     ): List<Video> {
-        val preferAssSubtitles = theme.preferAssSubtitles
         val pageHeaders = theme.headers.newBuilder()
             .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .add("X-Requested-With", "XMLHttpRequest")
@@ -166,7 +165,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         val mediaId = parseMegaPlayMediaId(pageBody)
             ?: throw Exception("Failed to find MegaPlay media ID")
 
-        val getSourcesUrl = buildMegaPlayGetSourcesUrl(embedUrl, mediaId, preferAssSubtitles)
+        val getSourcesUrl = buildMegaPlayGetSourcesUrl(embedUrl, mediaId)
 
         val apiHeaders = theme.headers.newBuilder().apply {
             add("Accept", "application/json,*/*")
@@ -184,10 +183,8 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
 
         val tracks = sourcesDto.tracks
             ?.filter { it.label.isNotBlank() && it.kind != THUMBNAILS_KIND }
-            ?.sortedByDescending {
-                val isAss = it.file.substringBefore('?').endsWith(".ass", ignoreCase = true)
-                isAss == preferAssSubtitles
-            }
+            // Styled ASS over VTT for the same language; a language in one format only stays
+            ?.sortedByDescending { it.file.substringBefore('?').endsWith(".ass", ignoreCase = true) }
             ?.distinctBy { it.label.lowercase() }
             ?.map { Track(it.file, it.label) }
             .orEmpty()
@@ -247,7 +244,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         return FILE_ID_REGEX.find(html)?.groupValues?.get(1)
     }
 
-    private fun buildMegaPlayGetSourcesUrl(embedUrl: String, id: String, preferAssSubtitles: Boolean): String {
+    private fun buildMegaPlayGetSourcesUrl(embedUrl: String, id: String): String {
         val base = try {
             val u = embedUrl.toHttpUrl()
             "${u.scheme}://${u.host}/stream/getSources"
@@ -257,10 +254,8 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
 
         val urlBuilder = base.toHttpUrl().newBuilder()
             .addQueryParameter("id", id)
-
-        if (preferAssSubtitles) {
-            urlBuilder.addQueryParameter("st", "other")
-        }
+            // Adds the ASS tracks to the subtitle list
+            .addQueryParameter("st", "other")
 
         try {
             val original = embedUrl.toHttpUrl()

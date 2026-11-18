@@ -819,7 +819,6 @@ abstract class AnikotoTheme(
     protected val scorePosition by preferences.delegate(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)
     protected val markFiller by preferences.delegate(PREF_MARK_FILLER_KEY, PREF_MARK_FILLER_DEFAULT)
     protected val hideFiller by preferences.delegate(PREF_HIDE_FILLER_KEY, PREF_HIDE_FILLER_DEFAULT)
-    internal val preferAssSubtitles by preferences.delegate(PREF_PREFER_ASS_KEY, PREF_PREFER_ASS_DEFAULT)
 
     // ============================== Preferences ===========================
 
@@ -948,13 +947,6 @@ abstract class AnikotoTheme(
         }.also(screen::addPreference)
 
         androidx.preference.SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_PREFER_ASS_KEY
-            title = "Prefer ASS Subtitles"
-            summary = "Use styled ASS tracks instead of VTT when both are available"
-            setDefaultValue(PREF_PREFER_ASS_DEFAULT)
-        }.also(screen::addPreference)
-
-        androidx.preference.SwitchPreferenceCompat(screen.context).apply {
             key = PREF_MARK_FILLER_KEY
             title = "Mark Filler Episodes"
             summary = "Mark filler episodes in the episode list"
@@ -1028,9 +1020,6 @@ abstract class AnikotoTheme(
 
         private const val PREF_HIDE_FILLER_KEY = "hide_fillers"
         private const val PREF_HIDE_FILLER_DEFAULT = false
-
-        private const val PREF_PREFER_ASS_KEY = "prefer_ass_subtitles"
-        private const val PREF_PREFER_ASS_DEFAULT = false
 
         private const val PREF_DISCOVERED_TYPES_KEY = "discovered_types"
         private const val PREF_DISCOVERED_HTML_SERVERS_KEY = "discovered_html_servers"
