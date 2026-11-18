@@ -82,33 +82,43 @@ class StreamProxyTest {
         )
     }
 
+    private fun dash(manifest: String, url: String = "https://h.com/v/manifest.mpd") = StreamPipeline.rewriteDash(manifest, url.toHttpUrl()) { it.toString() }
+
     @Test
-    fun `resolves dash urls against their base`() {
-        val manifest = """<MPD><BaseURL>https://cdn.com/v/</BaseURL><Period><AdaptationSet>""" +
-            """<BaseURL>video/</BaseURL><SegmentTemplate media="seg-${'$'}Number%05d${'$'}.m4s" """ +
-            """initialization="../init.mp4?a=1&amp;b=2"/></AdaptationSet></Period></MPD>"""
-        val rewritten = StreamPipeline.rewriteDash(manifest, "https://h.com/a/b/manifest.mpd".toHttpUrl()) { it.toString() }
+    fun `makes dash base urls absolute`() {
         assertEquals(
-            """<MPD><BaseURL>https://cdn.com/v/</BaseURL><Period><AdaptationSet>""" +
-                """<BaseURL>https://cdn.com/v/video/</BaseURL><SegmentTemplate media="https://cdn.com/v/video/seg-${'$'}Number%05d${'$'}.m4s" """ +
-                """initialization="https://cdn.com/v/init.mp4?a=1&amp;b=2"/></AdaptationSet></Period></MPD>""",
-            rewritten,
+            """<MPD><BaseURL>https://cdn.com/v/</BaseURL><Period><BaseURL>https://cdn.com/v/p/</BaseURL></Period></MPD>""",
+            dash("""<MPD><BaseURL>https://cdn.com/v/</BaseURL><Period><BaseURL>p/</BaseURL></Period></MPD>"""),
+        )
+        assertEquals(
+            """<MPD><Period><BaseURL>https://h.com/v/a/</BaseURL><BaseURL>https://h.com/v/b/</BaseURL></Period></MPD>""",
+            dash("""<MPD><Period><BaseURL>a/</BaseURL><BaseURL>b/</BaseURL></Period></MPD>"""),
         )
     }
 
     @Test
-    fun `resolves dash urls above the manifest`() {
-        val rewritten = StreamPipeline.rewriteDash(
-            """<MPD><SegmentURL media="../../x/seg.m4s"/></MPD>""",
-            "https://h.com/a/manifest.mpd".toHttpUrl(),
-        ) { it.toString() }
-        assertEquals("""<MPD><SegmentURL media="https://h.com/x/seg.m4s"/></MPD>""", rewritten)
+    fun `leaves inherited dash templates relative`() {
+        val manifest = """<MPD><AdaptationSet><SegmentTemplate media="${'$'}Number${'$'}.m4s" initialization="../init.mp4"/>""" +
+            """<Representation><BaseURL>r1/</BaseURL></Representation></AdaptationSet></MPD>"""
+        assertEquals(
+            """<MPD><AdaptationSet><SegmentTemplate media="${'$'}Number${'$'}.m4s" initialization="../init.mp4"/>""" +
+                """<Representation><BaseURL>https://h.com/v/r1/</BaseURL></Representation></AdaptationSet></MPD>""",
+            dash(manifest),
+        )
+    }
+
+    @Test
+    fun `resolves dash urls that climb above the root`() {
+        assertEquals(
+            """<MPD><SegmentURL media="https://h.com/x/seg.m4s" sourceURL="https://h.com/abs.m4s"/></MPD>""",
+            dash("""<MPD><SegmentURL media="../../x/seg.m4s" sourceURL="/abs.m4s"/></MPD>""", "https://h.com/a/manifest.mpd"),
+        )
     }
 
     @Test
     fun `keeps dash format tokens through the proxy`() {
         val rewritten = StreamPipeline.rewriteDash(
-            """<MPD><SegmentTemplate media="seg-${'$'}Number%05d${'$'}.m4s"/></MPD>""",
+            """<MPD><SegmentTemplate media="https://h.com/v/seg-${'$'}Number%05d${'$'}.m4s"/></MPD>""",
             "https://h.com/v/manifest.mpd".toHttpUrl(),
         ) { ProxyUrl.encode(base, 1L, it).toString() }
         assertEquals(

@@ -182,9 +182,16 @@ internal object StreamPipeline {
     // A width like $Number%05d$ must reach the player as is, not escaped by the proxy encoding
     private val escapedDashFormat = Regex("""\$(\w+)%25(0\d+d)\$""")
 
+    /** Base urls of an open element: from its parent, and after its own first `BaseURL`. */
+    private class DashScope(val inherited: HttpUrl) {
+        var effective = inherited
+        var hasBaseUrl = false
+    }
+
     /**
-     * Makes every url in [manifest] absolute, resolved against the manifest and the `BaseURL`s
-     * above it, then [toUrl]: the player would otherwise resolve relative ones against the proxy url.
+     * Rewrites `BaseURL`s and absolute or root-relative urls in [manifest] with [toUrl], resolved
+     * against the `BaseURL`s above them. Other relative urls stay relative, so the player still
+     * applies them per `Representation`, unless their `..` would climb out of the proxy path.
      */
     internal fun rewriteDash(manifest: String, manifestUrl: HttpUrl, toUrl: (HttpUrl) -> String): String {
         val rewrite = { base: HttpUrl, raw: String ->
@@ -193,43 +200,48 @@ internal object StreamPipeline {
                 ?.replace(escapedDashFormat) { "$" + it.groupValues[1] + "%" + it.groupValues[2] + "$" }
                 ?.xmlEscape()
         }
-        // Base of each open element, set by its BaseURL children
-        val bases = ArrayDeque<HttpUrl>().apply { addLast(manifestUrl) }
+        val scopes = ArrayDeque<DashScope>().apply { addLast(DashScope(manifestUrl)) }
         val out = StringBuilder()
         var last = 0
         for (tag in xmlTag.findAll(manifest)) {
             val text = manifest.substring(last, tag.range.first)
-            val inBaseUrl = bases.size > 1 && tag.groupValues[1] == "/" && tag.groupValues[2] == "BaseURL"
-            if (inBaseUrl && text.isNotBlank()) {
-                bases.removeLast()
-                val parent = bases.removeLast()
-                val baseUrl = parent.resolve(text.trim().xmlUnescape()) ?: parent
-                bases.addLast(baseUrl)
-                bases.addLast(baseUrl)
-                out.append(rewrite(parent, text.trim()) ?: text)
+            val (closing, name, attributes, selfClosing) = tag.destructured
+            if (closing == "/" && name == "BaseURL" && scopes.size > 2 && text.isNotBlank()) {
+                // Siblings are alternatives: each resolves against the parent's inherited base
+                val parent = scopes[scopes.size - 2]
+                val raw = text.trim()
+                if (!parent.hasBaseUrl) {
+                    parent.effective = parent.inherited.resolve(raw.xmlUnescape()) ?: parent.inherited
+                    parent.hasBaseUrl = true
+                }
+                out.append(rewrite(parent.inherited, raw) ?: text)
             } else {
                 out.append(text)
             }
 
-            val (closing, _, attributes, selfClosing) = tag.destructured
-            when {
-                closing == "/" -> {
-                    out.append(tag.value)
-                    if (bases.size > 1) bases.removeLast()
+            if (closing == "/") {
+                out.append(tag.value)
+                if (scopes.size > 1) scopes.removeLast()
+            } else {
+                val base = scopes.last().effective
+                val rewritten = dashUrlAttribute.replace(attributes) { m ->
+                    val raw = m.groupValues[2]
+                    val keep = !raw.startsWith("/") && !raw.contains("://") && !climbsAboveRoot(base, raw)
+                    if (keep) m.value else rewrite(base, raw)?.let { "${m.groupValues[1]}=\"$it\"" } ?: m.value
                 }
-                else -> {
-                    val current = bases.last()
-                    val rewritten = dashUrlAttribute.replace(attributes) { m ->
-                        rewrite(current, m.groupValues[2])?.let { "${m.groupValues[1]}=\"$it\"" } ?: m.value
-                    }
-                    out.append(if (attributes.isEmpty()) tag.value else tag.value.replace(attributes, rewritten))
-                    if (selfClosing.isEmpty()) bases.addLast(current)
-                }
+                out.append(if (attributes.isEmpty()) tag.value else tag.value.replace(attributes, rewritten))
+                if (selfClosing.isEmpty()) scopes.addLast(DashScope(base))
             }
             last = tag.range.last + 1
         }
         out.append(manifest.substring(last))
         return out.toString()
+    }
+
+    // More ".." than directories above it: the player would climb into the proxy path itself
+    private fun climbsAboveRoot(base: HttpUrl, raw: String): Boolean {
+        val ups = raw.split('/').takeWhile { it == ".." }.size
+        return ups > 0 && ups > base.pathSegments.size - 1
     }
 
     private fun String.xmlUnescape() = replace("&amp;", "&")
