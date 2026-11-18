@@ -27,6 +27,7 @@ import keiyoushi.network.rateLimit
 import keiyoushi.source.AniSource
 import keiyoushi.source.model.Related
 import keiyoushi.source.model.SAnimeUpdate
+import keiyoushi.source.model.VideoThumbnails
 import keiyoushi.source.stream.StreamInterceptor
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.get
@@ -49,6 +50,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -1046,7 +1048,10 @@ abstract class ReAnime :
                 videoNameGen = { quality -> quality },
                 subtitleList = subtitleTracks,
             ).map { video ->
-                if (skipTimeStamps.isNotEmpty()) video.copy(timestamps = skipTimeStamps) else video
+                video.copy(
+                    timestamps = skipTimeStamps.ifEmpty { video.timestamps },
+                    internalData = embedDataDto.thumbnailsVtt?.let { THUMBNAILS_PREFIX + it } ?: video.internalData,
+                )
             }
 
             val qualitiesList = PREF_QUALITY_VALUES.reversed()
@@ -1073,6 +1078,31 @@ abstract class ReAnime :
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    override suspend fun fetchVideoThumbnails(video: Video): VideoThumbnails? {
+        val vttUrl = video.internalData.takeIf { it.startsWith(THUMBNAILS_PREFIX) }
+            ?.removePrefix(THUMBNAILS_PREFIX)?.toHttpUrlOrNull() ?: return null
+        // The player resolves sprite paths against the vtt url as a directory
+        val base = vttUrl.newBuilder().addPathSegment("").build()
+        val imageUrls = mutableListOf<String>()
+        val tiles = client.get(vttUrl).body.string().lineSequence()
+            .zipWithNext()
+            .mapNotNull { (timing, image) ->
+                val start = VTT_TIMING_REGEX.find(timing)?.groupValues?.get(1)?.let(::vttTimeMs) ?: return@mapNotNull null
+                val (x, y, w, h) = VTT_XYWH_REGEX.find(image)?.destructured ?: return@mapNotNull null
+                val imageUrl = base.resolve(image.substringBefore('#').trim())?.toString() ?: return@mapNotNull null
+                val index = imageUrls.indexOf(imageUrl).takeIf { it >= 0 } ?: imageUrls.size.also { imageUrls += imageUrl }
+                VideoThumbnails.Tile(index, start, x.toInt(), y.toInt(), w.toInt(), h.toInt())
+            }
+            .toList()
+        return VideoThumbnails(tiles, imageUrls).takeIf { tiles.isNotEmpty() }
+    }
+
+    private fun vttTimeMs(time: String): Long {
+        val (clock, millis) = time.split('.').let { it[0] to (it.getOrNull(1)?.padEnd(3, '0')?.take(3)?.toLong() ?: 0) }
+        val seconds = clock.split(':').fold(0L) { acc, part -> acc * 60 + part.toLong() }
+        return seconds * 1000 + millis
     }
 
     override suspend fun fetchResolvedVideo(video: Video): Video? {
@@ -1275,6 +1305,9 @@ abstract class ReAnime :
         private val FORMAT_MOVIE_REGEX = Regex("""(?<!\w)"?format"?\s*:\s*"MOVIE"""", RegexOption.IGNORE_CASE)
         private val SUBBED_REGEX = Regex(""",\s*subbed:\s*(\d+)""")
         private val DUBBED_REGEX = Regex(""",\s*dubbed:\s*(\d+)""")
+        private const val THUMBNAILS_PREFIX = "thumbnails_vtt::"
+        private val VTT_TIMING_REGEX = Regex("""^\s*((?:\d+:)?\d+:\d+(?:\.\d+)?)\s*-->""")
+        private val VTT_XYWH_REGEX = Regex("""#xywh=(\d+),(\d+),(\d+),(\d+)""")
         private val EMBED_DATA_REGEX = Regex("""type:\s*"data",\s*data:\s*(\{.*?\})\s*,\s*uses:""", RegexOption.DOT_MATCHES_ALL)
         private val JSON5_KEY_REGEX = Regex("""([{,]\s*)([\w_]+)(\s*:)""")
         private val JSON5_TRAILING_COMMA_REGEX = Regex(""",\s*([}\]])""")
