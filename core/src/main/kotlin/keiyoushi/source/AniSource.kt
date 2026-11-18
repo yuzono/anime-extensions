@@ -3,6 +3,8 @@
 
 package keiyoushi.source
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimeRelation
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -17,6 +19,7 @@ import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import keiyoushi.annotation.AnikkuOnly
 import keiyoushi.annotation.AnimiruOnly
+import keiyoushi.network.get
 import keiyoushi.source.model.Related
 import keiyoushi.source.model.SAnimeSeasonUpdate
 import keiyoushi.source.model.SAnimeUpdate
@@ -27,6 +30,7 @@ import keiyoushi.source.stream.SelfProxy
 import keiyoushi.source.stream.StreamDispatchInterceptor
 import keiyoushi.source.stream.StreamInterceptor
 import keiyoushi.source.stream.StreamSources
+import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -159,10 +163,20 @@ abstract class AniSource : AniSourceBase() {
 
     final override suspend fun getVideoThumbnails(video: Video): ThumbnailInfo? {
         val thumbnails = fetchVideoThumbnails(video) ?: return null
+        imageTileHeaders = thumbnails.headers?.let { tileHeaders -> thumbnails.imageUrls.associateWith { tileHeaders } }.orEmpty()
         return ThumbnailInfo(
             tileInfo = thumbnails.tiles.map { TileInfo(it.imageIndex, it.timeMs, it.x, it.y, it.width, it.height) },
             imageTileUrls = thumbnails.imageUrls,
         )
+    }
+
+    // Headers for the images of the playing video's previews, which the app fetches by url only
+    @Volatile
+    private var imageTileHeaders = emptyMap<String, Headers>()
+
+    final override suspend fun getImageTile(url: String): Bitmap? {
+        val tileHeaders = imageTileHeaders[url] ?: headers
+        return client.get(url, tileHeaders).use { BitmapFactory.decodeStream(it.body.byteStream()) }
     }
 
     protected open val homePageUrl: String get() = baseUrl

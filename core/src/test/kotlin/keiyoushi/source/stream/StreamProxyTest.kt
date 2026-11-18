@@ -61,6 +61,42 @@ class StreamProxyTest {
     }
 
     @Test
+    fun `keeps hls byte ranges and non-http uris`() {
+        val base = "http://127.0.0.1:1234/".toHttpUrl()
+        val playlistUrl = "https://cdn.com/v/index.m3u8".toHttpUrl()
+        val playlist = """
+            #EXTM3U
+            #EXT-X-MAP:URI="init.mp4",BYTERANGE="720@0"
+            #EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://key",KEYFORMAT="com.apple.streamingkeydelivery"
+            #EXT-X-KEY:METHOD=AES-128,URI="data:text/plain;base64,AAEC"
+            #EXT-X-SESSION-KEY:METHOD=AES-128,URI="urn:uuid:1234"
+            #EXT-X-BYTERANGE:1000@720
+            media.mp4
+            #EXT-X-BYTERANGE:2000
+            media.mp4
+            data:video/mp2t;base64,AAAA
+        """.trimIndent()
+        val rewritten = StreamPipeline.rewriteHls(playlist) { raw ->
+            playlistUrl.resolve(raw)?.let { ProxyUrl.encode(base, 7L, it).toString() } ?: raw
+        }
+        assertEquals(
+            """
+            #EXTM3U
+            #EXT-X-MAP:URI="http://127.0.0.1:1234/_kp/7/https/cdn.com/v/init.mp4",BYTERANGE="720@0"
+            #EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://key",KEYFORMAT="com.apple.streamingkeydelivery"
+            #EXT-X-KEY:METHOD=AES-128,URI="data:text/plain;base64,AAEC"
+            #EXT-X-SESSION-KEY:METHOD=AES-128,URI="urn:uuid:1234"
+            #EXT-X-BYTERANGE:1000@720
+            http://127.0.0.1:1234/_kp/7/https/cdn.com/v/media.mp4
+            #EXT-X-BYTERANGE:2000
+            http://127.0.0.1:1234/_kp/7/https/cdn.com/v/media.mp4
+            data:video/mp2t;base64,AAAA
+            """.trimIndent(),
+            rewritten,
+        )
+    }
+
+    @Test
     fun `rewrites hls uris and attributes`() {
         val playlist = """
             #EXTM3U
