@@ -1,6 +1,7 @@
 package keiyoushi.source.model
 
 import okhttp3.HttpUrl
+import okhttp3.Response
 
 class VideoThumbnails(val tiles: List<Tile>, val imageUrls: List<String>) {
     /** [imageIndex] is the index in [imageUrls]. */
@@ -17,12 +18,15 @@ class VideoThumbnails(val tiles: List<Tile>, val imageUrls: List<String>) {
         private val cueTiming = Regex("""^\s*((?:\d+:)?\d+:\d+(?:\.\d+)?)\s*-->""")
         private val spriteArea = Regex("""#xywh=(\d+),(\d+),(\d+),(\d+)""")
 
+        /** [fromVtt] for a fetched track: relative image urls resolve against its final url. */
+        fun fromVtt(response: Response): VideoThumbnails? = response.use { fromVtt(it.body.string(), it.request.url) }
+
         /**
          * Parses a WebVTT thumbnail track, whose cues are sprite areas (`sprite.jpg#xywh=0,0,160,90`).
-         * Relative image urls resolve against [baseUrl], usually the vtt's own url. Cues without an
+         * Relative image urls resolve against [imageBase], usually the vtt's own url. Cues without an
          * area or that don't parse are skipped; returns null when none is left.
          */
-        fun fromVtt(vtt: String, baseUrl: HttpUrl): VideoThumbnails? {
+        fun fromVtt(vtt: String, imageBase: HttpUrl): VideoThumbnails? {
             val imageUrls = mutableListOf<String>()
             val tiles = vtt.lineSequence()
                 .zipWithNext()
@@ -30,7 +34,7 @@ class VideoThumbnails(val tiles: List<Tile>, val imageUrls: List<String>) {
                     val start = cueTiming.find(timing)?.groupValues?.get(1)?.let(::timeMs) ?: return@mapNotNull null
                     val area = spriteArea.find(image)?.groupValues?.drop(1)?.map { it.toIntOrNull() ?: return@mapNotNull null }
                         ?: return@mapNotNull null
-                    val imageUrl = baseUrl.resolve(image.substringBefore('#').trim())?.toString() ?: return@mapNotNull null
+                    val imageUrl = imageBase.resolve(image.substringBefore('#').trim())?.toString() ?: return@mapNotNull null
                     val index = imageUrls.indexOf(imageUrl).takeIf { it >= 0 } ?: imageUrls.size.also { imageUrls += imageUrl }
                     Tile(index, start, area[0], area[1], area[2], area[3])
                 }

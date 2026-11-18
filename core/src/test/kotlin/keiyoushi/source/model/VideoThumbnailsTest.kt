@@ -1,6 +1,10 @@
 package keiyoushi.source.model
 
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Protocol
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -43,8 +47,15 @@ class VideoThumbnailsTest {
     }
 
     @Test
-    fun `resolves against the given base`() {
-        val thumbnails = VideoThumbnails.fromVtt(vtt, "https://cdn.com/thumbnails_vtt/abc/".toHttpUrl())!!
+    fun `resolves against the final url of a response`() {
+        val response = Response.Builder()
+            .request(Request.Builder().url("https://cdn.com/thumbnails_vtt/abc/").build())
+            .protocol(Protocol.HTTP_1_1)
+            .code(200)
+            .message("OK")
+            .body(vtt.toResponseBody())
+            .build()
+        val thumbnails = VideoThumbnails.fromVtt(response)!!
         assertEquals("https://cdn.com/thumbnails_vtt/abc/thumbnails/sprite_0.webp", thumbnails.imageUrls[0])
     }
 
