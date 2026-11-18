@@ -1,9 +1,11 @@
 package keiyoushi.source.model
 
+import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.Response
 
-class VideoThumbnails(val tiles: List<Tile>, val imageUrls: List<String>) {
+/** [headers] are sent when fetching [imageUrls]; the source's headers when null. */
+class VideoThumbnails(val tiles: List<Tile>, val imageUrls: List<String>, val headers: Headers? = null) {
     /** [imageIndex] is the index in [imageUrls]. */
     class Tile(
         val imageIndex: Int,
@@ -18,15 +20,18 @@ class VideoThumbnails(val tiles: List<Tile>, val imageUrls: List<String>) {
         private val cueTiming = Regex("""^\s*((?:\d+:)?\d+:\d+(?:\.\d+)?)\s*-->""")
         private val spriteArea = Regex("""#xywh=(\d+),(\d+),(\d+),(\d+)""")
 
-        /** [fromVtt] for a fetched track: relative image urls resolve against its final url. */
-        fun fromVtt(response: Response): VideoThumbnails? = response.use { fromVtt(it.body.string(), it.request.url) }
+        /**
+         * [fromVtt] for a fetched track: relative image urls resolve against its final url, and the images
+         * are fetched with the headers the track was.
+         */
+        fun fromVtt(response: Response): VideoThumbnails? = response.use { fromVtt(it.body.string(), it.request.url, it.request.headers) }
 
         /**
          * Parses a WebVTT thumbnail track, whose cues are sprite areas (`sprite.jpg#xywh=0,0,160,90`).
          * Relative image urls resolve against [imageBase], usually the vtt's own url. Cues without an
          * area or that don't parse are skipped; returns null when none is left.
          */
-        fun fromVtt(vtt: String, imageBase: HttpUrl): VideoThumbnails? {
+        fun fromVtt(vtt: String, imageBase: HttpUrl, headers: Headers? = null): VideoThumbnails? {
             val imageUrls = mutableListOf<String>()
             val tiles = vtt.lineSequence()
                 .zipWithNext()
@@ -39,7 +44,7 @@ class VideoThumbnails(val tiles: List<Tile>, val imageUrls: List<String>) {
                     Tile(index, start, area[0], area[1], area[2], area[3])
                 }
                 .toList()
-            return VideoThumbnails(tiles, imageUrls).takeIf { tiles.isNotEmpty() }
+            return VideoThumbnails(tiles, imageUrls, headers).takeIf { tiles.isNotEmpty() }
         }
 
         private fun timeMs(time: String): Long? {

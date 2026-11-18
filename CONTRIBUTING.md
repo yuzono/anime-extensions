@@ -1124,7 +1124,8 @@ abstract class MySource : AniSource() {
 - Related anime: set `hasRelatedAnime = true` and return groups from `fetchRelatedAnime`. Anikku
   shows them as one list, and only searches by title when `relatedAnimeBySearch` is set.
 - Seek previews (Animiru only): `fetchVideoThumbnails`. Parse a WebVTT thumbnail track with
-  `VideoThumbnails.fromVtt`.
+  `VideoThumbnails.fromVtt`; the images are fetched with `VideoThumbnails.headers`, which
+  `fromVtt(response)` sets to the headers the track was fetched with.
   `VideoThumbnails.fromVtt`.
 - `client` is final: customize it in `configureClient()`.
 - The request/parse helpers are final and throw: implement the methods above directly.
