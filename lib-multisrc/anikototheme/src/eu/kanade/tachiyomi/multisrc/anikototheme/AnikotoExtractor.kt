@@ -10,7 +10,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.MapperServerDto
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.MegaPlaySourcesDto
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.ServerResponseDto
-import eu.kanade.tachiyomi.network.get
+import keiyoushi.network.get
 import keiyoushi.utils.parseAs
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.nodes.Document
@@ -184,13 +184,18 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             ?: throw Exception("Failed to decrypt/find MegaPlay source")
 
         val tracks = sourcesDto.tracks
-            ?.filter { it.label.isNotBlank() }
+            ?.filter { it.label.isNotBlank() && it.kind != THUMBNAILS_KIND }
             ?.sortedByDescending {
                 val isAss = it.file.substringBefore('?').endsWith(".ass", ignoreCase = true)
                 isAss == preferAssSubtitles
             }
             ?.distinctBy { it.label.lowercase() }
             ?.map { Track(it.file, it.label) }
+            .orEmpty()
+
+        val thumbnailsVtt = sourcesDto.tracks
+            ?.firstOrNull { it.kind == THUMBNAILS_KIND }
+            ?.file
             .orEmpty()
 
         val skipTimeStamps = buildList {
@@ -227,10 +232,11 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             videoHeaders = vidHeaders,
         )
 
-        return if (skipTimeStamps.isNotEmpty()) {
-            videos.map { it.copy(timestamps = skipTimeStamps) }
-        } else {
-            videos
+        return videos.map {
+            it.copy(
+                timestamps = skipTimeStamps.ifEmpty { it.timestamps },
+                internalData = thumbnailsVtt,
+            )
         }
     }
 
@@ -431,6 +437,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         private const val MEGAPLAY_AES_KEY = "i?LMTAx0Q6,:}50U"
         private const val MEGAPLAY_AES_IV = "W0;27ToaUpl_P%'c"
         private const val MEGAPLAY_TOKEN_SECRET = "MpCdnT0k3n!9f2K#xQ7vL5mR8wN1pY4s"
+        private const val THUMBNAILS_KIND = "thumbnails"
 
         private val MEGAPLAY_HOST_REGEX = Regex("""megaplay\.[^/]+/stream/""", RegexOption.IGNORE_CASE)
 
