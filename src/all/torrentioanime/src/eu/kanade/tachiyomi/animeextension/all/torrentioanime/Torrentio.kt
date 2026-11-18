@@ -707,13 +707,13 @@ abstract class Torrentio :
         private const val PREF_PROVIDER_KEY = "provider_selection"
         private val PREF_PROVIDERS = arrayOf(
             "YTS", "EZTV", "RARBG", "1337x", "EXT", "ThePirateBay", "KickassTorrents", "TorrentGalaxy", "MagnetDL",
-            "HorribleSubs", "NyaaSi", "TokyoTosho", "AniDex", "nekoBT", "🇷🇺 Rutor", "🇷🇺 Rutracker", "🇵🇹 Comando",
+            "HorribleSubs", "NyaaSi", "TokyoTosho", "AniDex", "nekoBT", "UIndex", "Knaben", "🇷🇺 Rutor", "🇷🇺 Rutracker", "🇵🇹 Comando",
             "🇵🇹 BluDV", "🇵🇹 MicoLeaoDublado", "🇫🇷 Torrent9", "🇮🇹 ilCorSaRoNero", "🇪🇸 MejorTorrent", "🇪🇸 Wolfmax4k",
             "🇲🇽 Cinecalidad", "🇵🇱 BestTorrents",
         )
         private val PREF_PROVIDERS_VALUE = arrayOf(
             "yts", "eztv", "rarbg", "1337x", "ext", "thepiratebay", "kickasstorrents", "torrentgalaxy", "magnetdl",
-            "horriblesubs", "nyaasi", "tokyotosho", "anidex", "nekobt", "rutor", "rutracker", "comando",
+            "horriblesubs", "nyaasi", "tokyotosho", "anidex", "nekobt","uindex", "knaben", "rutor", "rutracker", "comando",
             "bludv", "micoleaodublado", "torrent9", "ilcorsaronero", "mejortorrent", "wolfmax4k", "cinecalidad",
             "besttorrents",
         )
