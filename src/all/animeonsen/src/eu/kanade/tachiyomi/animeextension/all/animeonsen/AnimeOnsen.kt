@@ -196,9 +196,10 @@ abstract class AnimeOnsen :
         val ids = listOfNotNull(details.previousSeason, details.nextSeason).filter { it.isNotEmpty() }
         if (ids.isEmpty()) return emptyList()
 
+        // A season that fails to load doesn't hide the other
         val seasons = coroutineScope {
-            ids.map { id -> async { fetchDetails(id) } }.awaitAll()
-        }.map { season ->
+            ids.map { id -> async { runCatchingCancellable { fetchDetails(id) } } }.awaitAll()
+        }.filterNotNull().map { season ->
             SAnime.create().apply {
                 url = season.contentId
                 title = season.title()
