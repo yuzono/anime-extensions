@@ -17,7 +17,7 @@ internal object AppFeatures {
             val nanoHttpd = type("fi.iki.elonen.NanoHTTPD")
             val session = type("fi.iki.elonen.NanoHTTPD\$IHTTPSession")
             val status = type("fi.iki.elonen.NanoHTTPD\$Response\$IStatus")
-            listOf("getUri", "getMethod", "getHeaders", "getQueryParameterString").forEach { session.getMethod(it) }
+            listOf("getUri", "getMethod", "getHeaders", "getQueryParameterString", "getParameters").forEach { session.getMethod(it) }
             listOf("getDescription", "getRequestStatus").forEach { status.getMethod(it) }
             val response = type("fi.iki.elonen.NanoHTTPD\$Response")
             response.getMethod("addHeader", String::class.java, String::class.java)

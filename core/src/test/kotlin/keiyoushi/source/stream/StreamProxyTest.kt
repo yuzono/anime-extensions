@@ -135,6 +135,30 @@ class StreamProxyTest {
     }
 
     @Test
+    fun `rewrites dash attributes in any quoting`() {
+        assertEquals(
+            """<MPD><SegmentURL media = 'https://h.com/seg.m4s'/></MPD>""",
+            dash("""<MPD><SegmentURL media = '/seg.m4s'/></MPD>"""),
+        )
+    }
+
+    @Test
+    fun `escapes kept dash paths for the local server`() {
+        assertEquals(
+            """<MPD><SegmentTemplate media="a%252Fb%2B${'$'}Number%08d${'$'}.m4s?t=a%2F"/></MPD>""",
+            dash("""<MPD><SegmentTemplate media="a%2Fb+${'$'}Number%08d${'$'}.m4s?t=a%2F"/></MPD>"""),
+        )
+    }
+
+    @Test
+    fun `keeps fragments through the proxy`() {
+        val target = "https://cdn.com/v.mp4?a=1#variant=jp".toHttpUrl()
+        val proxy = ProxyUrl.encode("http://127.0.0.1:8000/".toHttpUrl(), 7L, target)
+        assertEquals("variant=jp", proxy.fragment)
+        assertEquals(7L to target, ProxyUrl.decode(proxy))
+    }
+
+    @Test
     fun `keeps dash format tokens through the proxy`() {
         val rewritten = StreamPipeline.rewriteDash(
             """<MPD><SegmentTemplate media="https://h.com/v/seg-${'$'}Number%05d${'$'}.m4s"/></MPD>""",

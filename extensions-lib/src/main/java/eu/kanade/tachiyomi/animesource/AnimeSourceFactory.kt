@@ -4,8 +4,8 @@ package eu.kanade.tachiyomi.animesource
  * A factory for creating multiple sources at runtime. Use this in case of a source
  * that supports multiple languages or mirrors of the same website.
  *
- * **Note:** Your animesource factory classname must be used in the `extClass` param
- * of your `build.gradle` file instead of the true animesource class.
+ * **Note:** Prefer several `source { }` blocks with a `@Source` class. A legacy factory is set with
+ * `className` in the `yuzono { }` block, with `source { }` blocks matching its sources for the index.
  *
  * **Example usage:**
  * ```kotlin

@@ -26,11 +26,15 @@ internal object SelfProxy {
         return lastPort
     }
 
-    private fun start(port: Int): SelfProxyServer? = try {
-        SelfProxyServer(port).apply { start(NanoHTTPD.SOCKET_READ_TIMEOUT, true) }
-    } catch (e: Exception) {
-        if (port != 0) Log.w("StreamProxy", "Port $port unavailable, picking another", e)
-        null
+    private fun start(port: Int): SelfProxyServer? {
+        val server = SelfProxyServer(port)
+        return try {
+            server.apply { start(NanoHTTPD.SOCKET_READ_TIMEOUT, true) }
+        } catch (e: Exception) {
+            server.stop() // the socket is open even when binding failed
+            if (port != 0) Log.w("StreamProxy", "Port $port unavailable, picking another", e)
+            null
+        }
     }
 }
 
@@ -40,7 +44,8 @@ internal class SelfProxyServer(port: Int) : NanoHTTPD("127.0.0.1", port) {
             base = "http://127.0.0.1:$listeningPort/".toHttpUrl(),
             method = session.method.name,
             path = session.uri,
-            query = session.queryParameterString,
+            // Kept from an earlier request on the same connection when this one has none
+            query = session.queryParameterString.takeIf { session.parameters.isNotEmpty() },
             headers = session.headers,
         )
         val status = object : IStatus {

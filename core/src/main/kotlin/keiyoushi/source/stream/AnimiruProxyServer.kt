@@ -18,7 +18,7 @@ internal class AnimiruProxyServer : HttpServer() {
             base = "http://localhost:$listeningPort/".toHttpUrl(),
             method = session.method.name,
             path = session.uri,
-            query = session.queryParameterString,
+            query = session.queryParameterString.takeIf { session.parameters.isNotEmpty() },
             headers = session.headers,
         )
         val status = object : NanoHTTPD.Response.IStatus {

@@ -33,6 +33,7 @@ internal object ProxyUrl {
             .addPathSegment(authority)
             .apply { target.encodedPathSegments.forEach { addEncodedPathSegment(escape(it)) } }
             .encodedQuery(target.encodedQuery)
+            .encodedFragment(target.encodedFragment)
             .build()
     }
 
@@ -49,13 +50,14 @@ internal object ProxyUrl {
         val authority = url.pathSegments[3]
         val path = segments.drop(4).joinToString("/") { if (escaped) unescape(it) else it }
         val query = url.encodedQuery?.let { "?$it" }.orEmpty()
-        val target = "$scheme://$authority/$path$query".toHttpUrlOrNull() ?: return null
+        val fragment = url.encodedFragment?.let { "#$it" }.orEmpty()
+        val target = "$scheme://$authority/$path$query$fragment".toHttpUrlOrNull() ?: return null
         return sourceId to target
     }
 
     private val escaped = Regex("%25|%2B")
 
-    private fun escape(segment: String) = segment.replace("%", "%25").replace("+", "%2B")
+    fun escape(segment: String) = segment.replace("%", "%25").replace("+", "%2B")
 
     private fun unescape(segment: String) = escaped.replace(segment) { if (it.value == "%25") "%" else "+" }
 
@@ -214,7 +216,8 @@ internal object StreamPipeline {
     }
 
     private val xmlTag = Regex("""<(/?)([\w:]+)([^>]*?)(/?)>""")
-    private val dashUrlAttribute = Regex("""\b(media|initialization|sourceURL|href)="([^"]+)"""")
+    private val dashUrlAttribute = Regex("""\b(media|initialization|sourceURL|href)(\s*=\s*)(["'])(.+?)\3""")
+    private val dashToken = Regex("""\$[^$]*\$""")
 
     // A width like $Number%05d$ must reach the player as is, not escaped by the proxy encoding
     private val escapedDashFormat = Regex("""\$(\w+)%25(0\d+d)\$""")
@@ -271,9 +274,10 @@ internal object StreamPipeline {
             } else {
                 val base = scopes.last().effective
                 val rewritten = dashUrlAttribute.replace(attributes) { m ->
-                    val raw = m.groupValues[2]
+                    val (attribute, equals, quote, raw) = m.destructured
                     val keep = !raw.startsWith("/") && !raw.contains("://") && !climbsAboveRoot(base, raw)
-                    if (keep) m.value else rewrite(base, raw)?.let { "${m.groupValues[1]}=\"$it\"" } ?: m.value
+                    val url = if (keep) escapeKept(raw) else rewrite(base, raw)
+                    url?.let { "$attribute$equals$quote$it$quote" } ?: m.value
                 }
                 out.append(if (attributes.isEmpty()) tag.value else tag.value.replace(attributes, rewritten))
                 if (addBase && name == "MPD" && selfClosing.isEmpty()) {
@@ -285,6 +289,20 @@ internal object StreamPipeline {
         }
         out.append(manifest.substring(last))
         return out.toString()
+    }
+
+    // The player appends a kept url to the proxy path, which the local server decodes once
+    private fun escapeKept(raw: String): String {
+        val path = raw.substringBefore('?')
+        val escaped = buildString {
+            var last = 0
+            dashToken.findAll(path).forEach {
+                append(ProxyUrl.escape(path.substring(last, it.range.first))).append(it.value)
+                last = it.range.last + 1
+            }
+            append(ProxyUrl.escape(path.substring(last)))
+        }
+        return escaped + raw.substring(path.length)
     }
 
     // Climbs above the directories of base at any point: the player would land in the proxy path
@@ -326,8 +344,8 @@ internal class ServedResponse(
                 StreamPipeline.fetch(base, method, path, query, headers)
             } catch (e: Exception) {
                 Log.e("StreamProxy", "Failed to fetch $path", e)
-                return text(502, "Bad Gateway", e.toString())
-            } ?: return text(404, "Not Found", "Not a stream proxy url")
+                return text(502, "Bad Gateway", e.toString(), method)
+            } ?: return text(404, "Not Found", "Not a stream proxy url", method)
             val isHead = method.equals("HEAD", ignoreCase = true)
             val length = if (isHead) response.header("Content-Length")?.toLongOrNull() ?: -1 else response.body.contentLength()
             return ServedResponse(
@@ -340,8 +358,9 @@ internal class ServedResponse(
             )
         }
 
-        private fun text(code: Int, reason: String, message: String): ServedResponse {
-            val bytes = message.toByteArray()
+        // The local servers write a body even for HEAD
+        private fun text(code: Int, reason: String, message: String, method: String): ServedResponse {
+            val bytes = if (method.equals("HEAD", ignoreCase = true)) ByteArray(0) else message.toByteArray()
             return ServedResponse(code, "$code $reason", "text/plain", emptyList(), ByteArrayInputStream(bytes), bytes.size.toLong())
         }
     }

@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animesource.online
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import keiyoushi.annotation.AnikkuOnly
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -117,6 +118,7 @@ abstract class ParsedAnimeHttpSource : AnimeHttpSource() {
      * @since anikku/extensions-lib 15
      * @param response the response from the site.
      */
+    @AnikkuOnly
     override fun relatedAnimeListParse(response: Response): List<SAnime> = throw Exception("Stub!")
 
     /**
@@ -124,6 +126,7 @@ abstract class ParsedAnimeHttpSource : AnimeHttpSource() {
      *
      * @since anikku/extensions-lib 15
      */
+    @AnikkuOnly
     protected open fun relatedAnimeListSelector(): String = throw Exception("Stub!")
 
     /**
@@ -132,6 +135,7 @@ abstract class ParsedAnimeHttpSource : AnimeHttpSource() {
      * @since anikku/extensions-lib 15
      * @param element an element obtained from [relatedAnimeListSelector].
      */
+    @AnikkuOnly
     protected open fun relatedAnimeFromElement(element: Element): SAnime = throw Exception("Stub!")
     // KMK <--
 

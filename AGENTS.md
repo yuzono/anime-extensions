@@ -68,7 +68,8 @@ See `CONTRIBUTING.md` for full rules. Critical for agents:
   App-specific members are marked `@AnimiruOnly` / `@AnikkuOnly`; extensions reach them through
   `keiyoushi.source.AniSource`, and serve streams that need an interceptor with `StreamInterceptor` instead of
   their own local server. See `CONTRIBUTING.md#anikku-and-animiru-anisource`.
-- New or migrated extensions target extensions-lib 16: extend `AnimeHttpSource` directly (not the `keiyoushi.utils.AnimeHttpLegacySource`/`ParsedAnimeHttpLegacySource` shims), implement hosters (`getHosterList`/`getVideoList(hoster)`), use the named `Video(videoUrl =, videoTitle =, ...)` constructor, and set `libVersion = "16"` in `build.gradle.kts`. See `CONTRIBUTING.md#extensions-lib-16`.
+- New or migrated extensions target extensions-lib 16: extend `AnimeHttpSource` directly, or `AniSource` when they
+  need the app-specific APIs or a `StreamInterceptor` (not the `keiyoushi.utils.AnimeHttpLegacySource`/`ParsedAnimeHttpLegacySource` shims), implement hosters (`getHosterList`/`getVideoList(hoster)`), use the named `Video(videoUrl =, videoTitle =, ...)` constructor, and set `libVersion = "16"` in `build.gradle.kts`. See `CONTRIBUTING.md#extensions-lib-16`.
 
 ### `keiyoushi.network` client helpers
 

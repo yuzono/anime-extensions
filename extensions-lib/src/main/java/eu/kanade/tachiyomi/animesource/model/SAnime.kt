@@ -23,7 +23,7 @@ interface SAnime {
     var genre: String?
 
     /**
-     * An "enum" value. Refer to the values in the [SAnime companion object](https://github.com/jmir1/extensions-lib/blob/a2afb04d892e94d21cd4ade7094dca27f4c0c180/library/src/main/java/eu/kanade/tachiyomi/animesource/model/SAnime.kt#L25).
+     * An "enum" value. Refer to the values in [SAnime.Companion].
      */
     var status: Int
 

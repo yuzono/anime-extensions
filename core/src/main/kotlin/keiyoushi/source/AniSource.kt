@@ -117,9 +117,11 @@ abstract class AniSource : AniSourceBase() {
         return AppSAnimeSeasonUpdate(update.anime, update.seasons)
     }
 
-    override fun getAnimeUrl(anime: SAnime): String = baseUrl + anime.url
+    override fun getAnimeUrl(anime: SAnime): String = absolute(anime.url)
 
-    override fun getEpisodeUrl(episode: SEpisode): String = baseUrl + episode.url
+    override fun getEpisodeUrl(episode: SEpisode): String = absolute(episode.url)
+
+    private fun absolute(url: String) = if (url.startsWith("http://") || url.startsWith("https://")) url else baseUrl + url
 
     protected open val hasRelatedAnime: Boolean = false
 

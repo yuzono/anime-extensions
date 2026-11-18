@@ -7,5 +7,5 @@ data class TorrentFile(
     private val torrentHash: String,
     private val trackers: List<String> = emptyList(),
 ) {
-    fun toMagnetURI(): String = throw Exception("Please KYS! This is a stub!")
+    fun toMagnetURI(): String = throw Exception("Stub!")
 }
