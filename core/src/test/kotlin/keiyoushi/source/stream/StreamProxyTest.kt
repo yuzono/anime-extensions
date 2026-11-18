@@ -116,6 +116,25 @@ class StreamProxyTest {
     }
 
     @Test
+    fun `catches hidden climbs above the root`() {
+        assertEquals(
+            """<MPD><SegmentURL media="https://h.com/x/seg.m4s"/><SegmentURL media="b/../seg.m4s"/></MPD>""",
+            dash("""<MPD><SegmentURL media="./../../x/seg.m4s"/><SegmentURL media="b/../seg.m4s"/></MPD>""", "https://h.com/a/manifest.mpd"),
+        )
+    }
+
+    @Test
+    fun `adds the final location of a redirected dash manifest`() {
+        val manifest = """<MPD><Period><SegmentTemplate media="seg-${'$'}Number${'$'}.m4s"/></Period></MPD>"""
+        assertEquals(
+            """<MPD><BaseURL>https://h.com/v/manifest.mpd</BaseURL><Period><SegmentTemplate media="seg-${'$'}Number${'$'}.m4s"/></Period></MPD>""",
+            StreamPipeline.rewriteDash(manifest, "https://h.com/v/manifest.mpd".toHttpUrl(), redirected = true) { it.toString() },
+        )
+        val withBase = """<MPD><BaseURL>https://cdn.com/</BaseURL><Period/></MPD>"""
+        assertEquals(withBase, StreamPipeline.rewriteDash(withBase, "https://h.com/v/manifest.mpd".toHttpUrl(), redirected = true) { it.toString() })
+    }
+
+    @Test
     fun `keeps dash format tokens through the proxy`() {
         val rewritten = StreamPipeline.rewriteDash(
             """<MPD><SegmentTemplate media="https://h.com/v/seg-${'$'}Number%05d${'$'}.m4s"/></MPD>""",

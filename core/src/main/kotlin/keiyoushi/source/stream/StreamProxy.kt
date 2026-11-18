@@ -137,7 +137,7 @@ internal object StreamPipeline {
         }
         val rewritten = when (kind) {
             PlaylistKind.Hls -> rewriteHls(body) { raw -> playlistUrl.resolve(raw)?.let(toUrl) ?: raw }
-            PlaylistKind.Dash -> rewriteDash(body, playlistUrl, toUrl)
+            PlaylistKind.Dash -> rewriteDash(body, playlistUrl, redirected = playlistUrl != target, toUrl = toUrl)
         }
         return response.newBuilder()
             .removeHeader("Content-Length")
@@ -193,7 +193,12 @@ internal object StreamPipeline {
      * against the `BaseURL`s above them. Other relative urls stay relative, so the player still
      * applies them per `Representation`, unless their `..` would climb out of the proxy path.
      */
-    internal fun rewriteDash(manifest: String, manifestUrl: HttpUrl, toUrl: (HttpUrl) -> String): String {
+    internal fun rewriteDash(
+        manifest: String,
+        manifestUrl: HttpUrl,
+        redirected: Boolean = false,
+        toUrl: (HttpUrl) -> String,
+    ): String {
         val rewrite = { base: HttpUrl, raw: String ->
             base.resolve(raw.xmlUnescape())
                 ?.let(toUrl)
@@ -201,6 +206,10 @@ internal object StreamPipeline {
                 ?.xmlEscape()
         }
         val scopes = ArrayDeque<DashScope>().apply { addLast(DashScope(manifestUrl)) }
+        // The player resolves kept relative urls against the url it requested, so after a redirect
+        // the manifest needs its final location as a base, unless it declares its own
+        val firstPeriod = manifest.indexOf("<Period").takeIf { it >= 0 } ?: manifest.length
+        val addBase = redirected && !manifest.substring(0, firstPeriod).contains("<BaseURL")
         val out = StringBuilder()
         var last = 0
         for (tag in xmlTag.findAll(manifest)) {
@@ -230,6 +239,9 @@ internal object StreamPipeline {
                     if (keep) m.value else rewrite(base, raw)?.let { "${m.groupValues[1]}=\"$it\"" } ?: m.value
                 }
                 out.append(if (attributes.isEmpty()) tag.value else tag.value.replace(attributes, rewritten))
+                if (addBase && name == "MPD" && selfClosing.isEmpty()) {
+                    out.append("<BaseURL>").append(rewrite(manifestUrl, manifestUrl.toString())).append("</BaseURL>")
+                }
                 if (selfClosing.isEmpty()) scopes.addLast(DashScope(base))
             }
             last = tag.range.last + 1
@@ -238,10 +250,18 @@ internal object StreamPipeline {
         return out.toString()
     }
 
-    // More ".." than directories above it: the player would climb into the proxy path itself
+    // Climbs above the directories of base at any point: the player would land in the proxy path
     private fun climbsAboveRoot(base: HttpUrl, raw: String): Boolean {
-        val ups = raw.split('/').takeWhile { it == ".." }.size
-        return ups > 0 && ups > base.pathSegments.size - 1
+        var depth = 0
+        var lowest = 0
+        raw.substringBefore('?').substringBefore('#').split('/').forEach { segment ->
+            when (segment) {
+                "", "." -> Unit
+                ".." -> lowest = minOf(lowest, --depth)
+                else -> depth++
+            }
+        }
+        return -lowest > base.pathSegments.size - 1
     }
 
     private fun String.xmlUnescape() = replace("&amp;", "&")
