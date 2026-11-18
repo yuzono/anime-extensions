@@ -450,7 +450,6 @@ abstract class AnikotoTheme(
         return try {
             val episodeAnimeUrl = (baseUrl + animeUrl).toHttpUrl().encodedPath
             response.parseAs<ResultResponse>().toDocument().select(episodeListSelector())
-                .filter { !hideFiller || !isFiller(it) }
                 .map { episodeFromElement(it, episodeAnimeUrl) }
                 .reversed()
         } catch (e: Exception) {
@@ -478,11 +477,9 @@ abstract class AnikotoTheme(
         val slug = element.attr("data-slug")
         val timestamp = element.attr("data-timestamp").toLongOrNull()
 
-        val isFiller = isFiller(element) && markFiller
-        val fillerTag = if (isFiller) " [Filler]" else ""
-
         return SEpisode.create().apply {
-            this.name = "Episode $epNum" + (if (name.isNotEmpty() && name != "Episode $epNum") ": $name" else "") + fillerTag
+            this.name = "Episode $epNum" + (if (name.isNotEmpty() && name != "Episode $epNum") ": $name" else "")
+            fillermark = isFiller(element)
             this.url = buildString {
                 append("$ids&epurl=${EP_URL_SUFFIX_REGEX.replace(animeUrl, "")}/ep-$epNum")
                 if (malId.isNotEmpty()) append("&mal=$malId")
@@ -819,8 +816,6 @@ abstract class AnikotoTheme(
     protected val prefServer by preferences.delegate(PREF_SERVER_KEY, hosterNames.firstOrNull() ?: "")
     protected val prefType by preferences.delegate(PREF_TYPE_KEY, PREF_TYPE_DEFAULT)
     protected val scorePosition by preferences.delegate(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)
-    protected val markFiller by preferences.delegate(PREF_MARK_FILLER_KEY, PREF_MARK_FILLER_DEFAULT)
-    protected val hideFiller by preferences.delegate(PREF_HIDE_FILLER_KEY, PREF_HIDE_FILLER_DEFAULT)
 
     // ============================== Preferences ===========================
 
@@ -948,20 +943,6 @@ abstract class AnikotoTheme(
             summary = "%s"
         }.also(screen::addPreference)
 
-        androidx.preference.SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_MARK_FILLER_KEY
-            title = "Mark Filler Episodes"
-            summary = "Mark filler episodes in the episode list"
-            setDefaultValue(PREF_MARK_FILLER_DEFAULT)
-        }.also(screen::addPreference)
-
-        androidx.preference.SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_HIDE_FILLER_KEY
-            title = "Hide Filler Episodes"
-            summary = "Hides detected filler episodes from episode list"
-            setDefaultValue(PREF_HIDE_FILLER_DEFAULT)
-        }.also(screen::addPreference)
-
         val excludeServerEntries = discoveredServers.map { getHosterDisplayName(it) }.toTypedArray()
         val excludeServerValues = discoveredServers.toTypedArray()
 
@@ -1016,12 +997,6 @@ abstract class AnikotoTheme(
         private const val PREF_SCORE_POSITION_DEFAULT = SCORE_POS_TOP
         private val PREF_SCORE_POSITION_ENTRIES = arrayOf("Top of description", "Bottom of description", "Don't show")
         private val PREF_SCORE_POSITION_VALUES = arrayOf(SCORE_POS_TOP, SCORE_POS_BOTTOM, SCORE_POS_NONE)
-
-        private const val PREF_MARK_FILLER_KEY = "mark_fillers"
-        private const val PREF_MARK_FILLER_DEFAULT = true
-
-        private const val PREF_HIDE_FILLER_KEY = "hide_fillers"
-        private const val PREF_HIDE_FILLER_DEFAULT = false
 
         private const val PREF_DISCOVERED_TYPES_KEY = "discovered_types"
         private const val PREF_DISCOVERED_HTML_SERVERS_KEY = "discovered_html_servers"
