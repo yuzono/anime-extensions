@@ -19,7 +19,11 @@ internal object AppFeatures {
             val status = type("fi.iki.elonen.NanoHTTPD\$Response\$IStatus")
             listOf("getUri", "getMethod", "getHeaders", "getQueryParameterString").forEach { session.getMethod(it) }
             listOf("getDescription", "getRequestStatus").forEach { status.getMethod(it) }
-            type("fi.iki.elonen.NanoHTTPD\$Response").getMethod("addHeader", String::class.java, String::class.java)
+            val response = type("fi.iki.elonen.NanoHTTPD\$Response")
+            response.getMethod("addHeader", String::class.java, String::class.java)
+            response.getMethod("setGzipEncoding", Boolean::class.javaPrimitiveType)
+            nanoHttpd.getMethod("newFixedLengthResponse", status, String::class.java, String::class.java)
+            type("fi.iki.elonen.NanoHTTPD\$Response\$Status").getField("FORBIDDEN")
             nanoHttpd.getMethod("newChunkedResponse", status, String::class.java, InputStream::class.java)
             nanoHttpd.getMethod("newFixedLengthResponse", status, String::class.java, InputStream::class.java, Long::class.javaPrimitiveType)
             true

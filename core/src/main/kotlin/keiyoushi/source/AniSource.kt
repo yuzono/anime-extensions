@@ -21,7 +21,6 @@ import keiyoushi.source.model.Related
 import keiyoushi.source.model.SAnimeSeasonUpdate
 import keiyoushi.source.model.SAnimeUpdate
 import keiyoushi.source.model.VideoThumbnails
-import keiyoushi.source.stream.PlayerTracker
 import keiyoushi.source.stream.ProxyUrl
 import keiyoushi.source.stream.ProxyUrlInterceptor
 import keiyoushi.source.stream.SelfProxy
@@ -49,11 +48,7 @@ abstract class AniSource : AniSourceBase() {
 
     final override val client: OkHttpClient by lazy {
         // Not in init: the generated id isn't set yet
-        if (streamInterceptors.isNotEmpty()) {
-            StreamSources.register(this)
-            // Before any player opens, which the tracker can then see
-            if (!AppFeatures.animiruHttpServer) PlayerTracker.ensureRegistered()
-        }
+        if (streamInterceptors.isNotEmpty()) StreamSources.register(this)
         network.client.newBuilder()
             .configureClient()
             .apply {

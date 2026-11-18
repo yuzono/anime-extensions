@@ -10,7 +10,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import java.io.ByteArrayInputStream
-import java.io.FilterInputStream
+import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.ConcurrentHashMap
 
@@ -78,8 +78,11 @@ internal class ProxyUrlInterceptor : Interceptor {
         val request = chain.request()
         val (sourceId, target) = ProxyUrl.decode(request.url) ?: return chain.proceed(request)
         val source = StreamSources[sourceId] ?: return chain.proceed(request.newBuilder().url(target).build())
-        val response = chain.proceed(request.newBuilder().url(target).build())
-        return StreamPipeline.rewritePlaylist(source, ProxyUrl.baseOf(request.url), target, response)
+        val targetRequest = request.newBuilder().url(target).build()
+        val response = chain.proceed(targetRequest)
+        return StreamPipeline.rewritePlaylist(source, ProxyUrl.baseOf(request.url), target, response) {
+            chain.proceed(targetRequest.newBuilder().removeHeader("Range").build())
+        }
     }
 }
 
@@ -122,14 +125,47 @@ internal object StreamPipeline {
             .method(if (method.equals("HEAD", ignoreCase = true)) "HEAD" else "GET", null)
             .build()
         val response = source.client.newCall(request).execute()
-        return rewritePlaylist(source, base, target, response)
+        return rewritePlaylist(source, base, target, response) {
+            source.client.newCall(request.newBuilder().removeHeader("Range").build()).execute()
+        }
     }
 
     // Urls a StreamInterceptor handles become proxy urls, the rest absolute
     // (a root-relative url would escape the proxy path)
-    fun rewritePlaylist(source: AniSource, base: HttpUrl, target: HttpUrl, response: Response): Response {
-        if (response.code != 200 || response.request.method != "GET") return response
-        val kind = playlistKind(target, response) ?: return response
+    fun rewritePlaylist(
+        source: AniSource,
+        base: HttpUrl,
+        target: HttpUrl,
+        response: Response,
+        fetchWhole: () -> Response,
+    ): Response = try {
+        rewritePlaylistOrNull(source, base, target, response, fetchWhole) ?: response
+    } catch (e: Exception) {
+        response.close()
+        throw e
+    }
+
+    private fun rewritePlaylistOrNull(
+        source: AniSource,
+        base: HttpUrl,
+        target: HttpUrl,
+        original: Response,
+        fetchWhole: () -> Response,
+    ): Response? {
+        if (original.request.method != "GET" || (original.code != 200 && original.code != 206)) return null
+        val kind = playlistKind(target, original) ?: return null
+        // A playlist must be rewritten whole: fetch it again without the player's Range
+        val response = if (original.code == 206) {
+            original.close()
+            fetchWhole().also {
+                if (it.code != 200) {
+                    it.close()
+                    throw IOException("Playlist $target not available in full")
+                }
+            }
+        } else {
+            original
+        }
         val body = response.body.string()
         val playlistUrl = response.request.url
         val toUrl = { url: HttpUrl ->
@@ -142,6 +178,7 @@ internal object StreamPipeline {
         return response.newBuilder()
             .removeHeader("Content-Length")
             .removeHeader("Content-Encoding")
+            .removeHeader("Content-Range")
             .body(rewritten.toResponseBody(response.body.contentType() ?: kind.mimeType.toMediaTypeOrNull()))
             .build()
     }
@@ -284,38 +321,21 @@ internal class ServedResponse(
             path: String,
             query: String?,
             headers: Map<String, String>,
-            onDone: () -> Unit,
         ): ServedResponse {
             val response = try {
                 StreamPipeline.fetch(base, method, path, query, headers)
             } catch (e: Exception) {
                 Log.e("StreamProxy", "Failed to fetch $path", e)
-                onDone()
                 return text(502, "Bad Gateway", e.toString())
-            } ?: run {
-                onDone()
-                return text(404, "Not Found", "Not a stream proxy url")
-            }
+            } ?: return text(404, "Not Found", "Not a stream proxy url")
             val isHead = method.equals("HEAD", ignoreCase = true)
             val length = if (isHead) response.header("Content-Length")?.toLongOrNull() ?: -1 else response.body.contentLength()
-            val body = object : FilterInputStream(response.body.byteStream()) {
-                private var closed = false
-                override fun close() {
-                    if (closed) return
-                    closed = true
-                    try {
-                        response.close()
-                    } finally {
-                        onDone()
-                    }
-                }
-            }
             return ServedResponse(
                 code = response.code,
                 status = "${response.code} ${response.message.ifEmpty { "Status" }}",
                 mimeType = response.body.contentType()?.toString(),
                 headers = StreamPipeline.passedResponseHeaders.mapNotNull { name -> response.header(name)?.let { name to it } },
-                body = body,
+                body = response.body.byteStream(),
                 length = length,
             )
         }

@@ -1140,9 +1140,13 @@ override val streamInterceptors = listOf(
 ```
 
 Return the real urls. Videos, tracks and HLS/DASH playlist entries it `handles` are played through a
-local proxy: Animiru's own server when it can start one, otherwise one the extension starts and
-stops itself. The proxy only serves urls `handles` accepts, so it must also cover the segments and
-keys of a handled playlist.
+local proxy: Animiru's own server when it can start one, otherwise one the extension starts itself.
+The proxy only serves urls `handles` accepts, so it must also cover the segments and keys of a handled
+playlist, and a master playlist that lists handled urls must be handled itself. Match only stream
+urls (a CDN host, not the whole site): any app on the device can read what the proxy serves.
+
+`client` is built from `configureClient()` and `streamInterceptors` on first use, so don't read it
+from a property initializer or `init` block of the class or a theme: the overrides aren't set yet.
 
 ### HTML and Video Processing
 
