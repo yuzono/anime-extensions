@@ -58,7 +58,27 @@ class SeriesDetailDto(
     @SerialName("has_more") val hasMore: Boolean = false,
     @SerialName("episode_count") val episodeCount: Int? = null,
     val seo: SeoDto? = null,
+    val versions: List<VersionDto> = emptyList(),
+    val collection: List<SeriesDto> = emptyList(),
 )
+
+/** Another season or audio version of the same title on the site. */
+@Serializable
+class VersionDto(
+    @SerialName("series_id") val seriesId: Long,
+    val title: String,
+    @SerialName("season_label") val seasonLabel: String? = null,
+    val audio: String? = null,
+) {
+    fun toSAnime() = SAnime.create().apply {
+        url = seriesId.toString()
+        title = buildString {
+            append(this@VersionDto.title)
+            seasonLabel?.takeIf { it.isNotBlank() }?.let { append(" - ").append(it) }
+            if (audio == "dublado") append(" (Dublado)")
+        }
+    }
+}
 
 @Serializable
 class SeoDto(

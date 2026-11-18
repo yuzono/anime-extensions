@@ -7,80 +7,101 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.network.GET
 import keiyoushi.annotation.Source
+import keiyoushi.network.get
 import keiyoushi.network.rateLimit
-import keiyoushi.utils.get
+import keiyoushi.source.AniSource
+import keiyoushi.source.model.Related
+import keiyoushi.source.model.SAnimeUpdate
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Request
-import okhttp3.Response
+import okhttp3.OkHttpClient
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 
 @Source
-abstract class AnimesFHD : AnimeHttpSource() {
+abstract class AnimesFHD : AniSource() {
 
     override val supportsLatest = true
 
-    override val client = network.client.newBuilder()
-        .rateLimit(2)
-        .build()
+    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = rateLimit(2)
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
 
-    private fun seriesListRequest(page: Int, sort: String, query: String = ""): Request {
+    // ============================== Catalog ===============================
+
+    override suspend fun getPopularAnime(page: Int): AnimesPage = seriesList(page, "popular")
+
+    override suspend fun getLatestUpdates(page: Int): AnimesPage = seriesList(page, "new_episodes")
+
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = seriesList(page, "popular", query.trim())
+
+    private suspend fun seriesList(page: Int, sort: String, query: String = ""): AnimesPage {
         val url = "$baseUrl/api/series".toHttpUrl().newBuilder()
             .addQueryParameter("pagination", "1")
             .addQueryParameter("page", page.toString())
             .addQueryParameter("per_page", PAGE_SIZE.toString())
             .addQueryParameter("sort", sort)
         if (query.isNotBlank()) url.addQueryParameter("q", query)
-        return GET(url.build(), headers)
+        val dto = client.get(url.build().toString(), headers).parseAs<SeriesPageDto>()
+        return AnimesPage(dto.series.map { it.toSAnime() }, dto.hasMore)
     }
 
-    private fun seriesListParse(response: Response): AnimesPage {
-        val page = response.parseAs<SeriesPageDto>()
-        return AnimesPage(page.series.map { it.toSAnime() }, page.hasMore)
-    }
-
-    override fun popularAnimeRequest(page: Int) = seriesListRequest(page, "popular")
-
-    override fun popularAnimeParse(response: Response) = seriesListParse(response)
-
-    override fun latestUpdatesRequest(page: Int) = seriesListRequest(page, "new_episodes")
-
-    override fun latestUpdatesParse(response: Response) = seriesListParse(response)
-
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList) = seriesListRequest(page, "popular", query.trim())
-
-    override fun searchAnimeParse(response: Response) = seriesListParse(response)
+    // ============================== Details ===============================
 
     override fun getAnimeUrl(anime: SAnime) = "$baseUrl/serie/${anime.url}"
 
-    override fun animeDetailsRequest(anime: SAnime) = GET("$baseUrl/api/series/${anime.url}?per_page=1", headers)
-
-    override fun animeDetailsParse(response: Response): SAnime {
-        val dto = response.parseAs<SeriesDetailDto>()
-        return dto.series.toSAnime(dto.seo?.heading).apply { initialized = true }
+    /** Details and episodes are fetched only when asked: Anikku requests them separately. */
+    override suspend fun fetchAnimeUpdate(
+        anime: SAnime,
+        episodes: List<SEpisode>,
+        fetchDetails: Boolean,
+        fetchEpisodes: Boolean,
+    ): SAnimeUpdate {
+        val details = if (fetchDetails) seriesDetail(anime.url).let { it.series.toSAnime(it.seo?.heading) } else anime
+        val episodeList = if (fetchEpisodes) fetchEpisodes(anime.url) else episodes
+        return SAnimeUpdate(details, episodeList)
     }
 
-    override fun seasonListParse(response: Response) = throw UnsupportedOperationException()
+    private suspend fun seriesDetail(seriesId: String): SeriesDetailDto = client.get("$baseUrl/api/series/$seriesId?per_page=1", headers).parseAs()
+
+    // ============================== Related ===============================
+
+    override val hasRelatedAnime = true
+
+    /** The site's other seasons and audio versions of this title, then the rest of its franchise. */
+    override suspend fun fetchRelatedAnime(anime: SAnime): List<Related> {
+        val dto = seriesDetail(anime.url)
+        val current = anime.url
+        val versions = dto.versions
+            .filter { it.seriesId.toString() != current }
+            .map { it.toSAnime() }
+        val franchise = dto.collection
+            .filter { it.id.toString() != current }
+            .map { it.toSAnime() }
+        return listOfNotNull(
+            versions.takeIf { it.isNotEmpty() }?.let { Related("Temporadas e versões", it) },
+            franchise.takeIf { it.isNotEmpty() }?.let { Related("Da mesma franquia", it) },
+        )
+    }
+
+    // ============================== Episodes ==============================
+
+    override fun getEpisodeUrl(episode: SEpisode) = "$baseUrl/episod/${episode.url}"
 
     /**
      * Fetches every episode page of the series. If the result has fewer episodes than the
      * count reported by the API (an episode was added while paging, shifting the offsets),
      * the listing is read once more and both passes are merged.
      */
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+    private suspend fun fetchEpisodes(seriesId: String): List<SEpisode> {
         val episodes = LinkedHashMap<Long, EpisodeDto>()
         var attempts = 0
         do {
-            val expected = fetchEpisodePages(anime.url, episodes)
+            val expected = fetchEpisodePages(seriesId, episodes)
             attempts++
         } while (expected != null && episodes.size < expected && attempts < MAX_LISTING_ATTEMPTS)
 
@@ -133,12 +154,10 @@ abstract class AnimesFHD : AnimeHttpSource() {
         return formats.firstNotNullOfOrNull { format -> format.tryParse(value).takeIf { it != 0L } } ?: 0L
     }
 
-    override fun episodeListParse(response: Response) = throw UnsupportedOperationException()
-
-    override fun getEpisodeUrl(episode: SEpisode) = "$baseUrl/episod/${episode.url}"
+    // ============================== Videos ================================
 
     /** Returns a single hoster with the episode's direct video sources and its subtitle, if any. */
-    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
+    override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> {
         val dto = client.get("$baseUrl/api/episodes/${episode.url}", headers)
             .parseAs<EpisodeDetailDto>()
 
@@ -165,11 +184,8 @@ abstract class AnimesFHD : AnimeHttpSource() {
         return listOf(Hoster(hosterUrl = "", hosterName = "AnimesFHD", videoList = videos))
     }
 
-    override fun hosterListParse(response: Response) = throw UnsupportedOperationException()
-
-    override suspend fun getVideoList(hoster: Hoster): List<Video> = hoster.videoList ?: emptyList()
-
-    override fun videoListParse(response: Response, hoster: Hoster) = throw UnsupportedOperationException()
+    /** The videos are already resolved in [fetchHosterList]. */
+    override suspend fun fetchVideoList(hoster: Hoster): List<Video> = hoster.videoList ?: emptyList()
 
     /** Resolves absolute, protocol-relative ("//cdn/...") and relative URLs against [baseUrl]. */
     private fun absolute(url: String): String = baseUrlHttp.resolve(url.trim())?.toString() ?: url
