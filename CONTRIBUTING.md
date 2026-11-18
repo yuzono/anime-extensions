@@ -1073,8 +1073,9 @@ Extensions that only use the shims stay on `libVersion = "14"`.
 When writing a new extension, or migrating an existing one:
 
 - Extend `keiyoushi.source.AniSource` (or a lib 16 theme), not `AnimeHttpSource` directly or a legacy shim.
-- Implement the [hoster flow](#hosters-and-videos); implement [seasons](#seasons) only if the site
-  needs them, otherwise throw `UnsupportedOperationException()` from `seasonListParse`.
+- Implement the [hoster flow](#hosters-and-videos) (`fetchHosterList` / `fetchVideoList(hoster)` on
+  `AniSource`); implement [seasons](#seasons) (`fetchAnimeSeasonUpdate`) only if the site needs them.
+  On a theme, use the theme's own hooks.
 - Build videos with the [new `Video` constructor](#hosters-and-videos).
 - Set `libVersion = "16"` in the `yuzono` block of `build.gradle.kts`, and bump the version code as usual.
   This also applies when only the extension implements the hoster flow on top of a theme that still

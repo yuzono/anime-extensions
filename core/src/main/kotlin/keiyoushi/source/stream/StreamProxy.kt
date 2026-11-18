@@ -319,7 +319,22 @@ internal object StreamPipeline {
         return -lowest > base.pathSegments.size - 1
     }
 
-    private fun String.xmlUnescape() = replace("&amp;", "&")
+    private val xmlEntity = Regex("""&(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);""")
+
+    // One pass, so "&amp;#38;" stays "&#38;"
+    private fun String.xmlUnescape() = xmlEntity.replace(this) { m ->
+        when (val entity = m.groupValues[1]) {
+            "amp" -> "&"
+            "lt" -> "<"
+            "gt" -> ">"
+            "quot" -> "\""
+            "apos" -> "'"
+            else -> {
+                val code = if (entity.startsWith("#x")) entity.drop(2).toIntOrNull(16) else entity.drop(1).toIntOrNull()
+                code?.takeIf(Character::isValidCodePoint)?.let { String(Character.toChars(it)) } ?: m.value
+            }
+        }
+    }
     private fun String.xmlEscape() = replace("&", "&amp;")
 }
 

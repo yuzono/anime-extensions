@@ -70,7 +70,7 @@ data class Video(
         message = "Use the new Video constructor",
         level = DeprecationLevel.WARNING,
         replaceWith = ReplaceWith(
-            expression = "Video(videoTitle = quality, videoUrl = videoUrl, headers = headers, subtitleTracks = subtitleTracks, audioTracks = audioTracks)",
+            expression = "Video(videoTitle = quality, videoUrl = videoUrl ?: \"null\", headers = headers, subtitleTracks = subtitleTracks, audioTracks = audioTracks)",
         ),
     )
     constructor(

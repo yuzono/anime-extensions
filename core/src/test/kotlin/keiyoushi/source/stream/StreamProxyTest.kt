@@ -151,6 +151,14 @@ class StreamProxyTest {
     }
 
     @Test
+    fun `decodes xml character references in dash urls`() {
+        assertEquals(
+            """<MPD><SegmentURL media="https://h.com/seg.m4s?a=1&amp;b=2&amp;c=&amp;#38;"/></MPD>""",
+            dash("""<MPD><SegmentURL media="/seg.m4s?a=1&#38;b=2&#x26;c=&amp;#38;"/></MPD>"""),
+        )
+    }
+
+    @Test
     fun `keeps fragments through the proxy`() {
         val target = "https://cdn.com/v.mp4?a=1#variant=jp".toHttpUrl()
         val proxy = ProxyUrl.encode("http://127.0.0.1:8000/".toHttpUrl(), 7L, target)

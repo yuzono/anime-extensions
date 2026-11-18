@@ -70,7 +70,7 @@ See `CONTRIBUTING.md` for full rules. Critical for agents:
   their own local server. See `CONTRIBUTING.md#anikku-and-animiru-anisource`.
 - New or migrated extensions target extensions-lib 16: they must extend `keiyoushi.source.AniSource` (or a lib 16
   theme), not `AnimeHttpSource` directly nor the `keiyoushi.utils.AnimeHttpLegacySource`/`ParsedAnimeHttpLegacySource`
-  shims; implement hosters (`fetchHosterList`/`fetchVideoList(hoster)`), use the named `Video(videoUrl =, videoTitle =, ...)` constructor, and set `libVersion = "16"` in `build.gradle.kts`. See `CONTRIBUTING.md#extensions-lib-16`.
+  shims; implement hosters (`fetchHosterList`/`fetchVideoList(hoster)` on `AniSource`, the theme's hooks on a theme), use the named `Video(videoUrl =, videoTitle =, ...)` constructor, and set `libVersion = "16"` in `build.gradle.kts`. See `CONTRIBUTING.md#extensions-lib-16`.
 
 ### `keiyoushi.network` client helpers
 

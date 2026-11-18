@@ -99,7 +99,7 @@ interface AnimeSource {
      *
      * @since anikku/extensions-lib 15
      * @param anime the current anime to get related animes.
-     * @return a list of <keyword, related animes>
+     * @param pushResults called with each (keyword, related animes) group, and `completed` on the last one.
      */
     @AnikkuOnly
     suspend fun getRelatedAnimeList(

@@ -441,7 +441,7 @@ abstract class AnimeHttpSource : AnimeCatalogueSource {
      * override fun List<Video>.sortVideos(): List<Video> {
      *     val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
      *     return sortedWith(
-     *         compareBy { it.quality.contains(quality) }
+     *         compareBy { it.videoTitle.contains(quality) }
      *     ).reversed()
      * }
      * ```
@@ -452,8 +452,8 @@ abstract class AnimeHttpSource : AnimeCatalogueSource {
      *    val lang = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT)!!
      *    return sortedWith(
      *        compareBy(
-     *            { it.quality.contains(quality) },
-     *            { it.quality.contains(lang) },
+     *            { it.videoTitle.contains(quality) },
+     *            { it.videoTitle.contains(lang) },
      *        ),
      *    ).reversed()
      * }
