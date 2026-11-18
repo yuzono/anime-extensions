@@ -1042,11 +1042,12 @@ The class annotated with `@Source` (see [Source declaration](#source-declaration
 a theme or shim based on it. Multiple sources are declared with several `source {}` blocks, so you don't write an
 `AnimeSourceFactory` yourself.
 
-| Class                   | Description                                                                                                                              |
-|-------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
-| `AnimeHttpSource`       | For online source, where requests are made using HTTP. New extensions should extend it directly and implement the lib 16 API.            |
-| `AnimeHttpLegacySource` | `keiyoushi.utils` shim that keeps the pre-lib 16 `videoListRequest(episode)` / `videoListParse(response)` flow. Do not use for new code. |
-| `ParsedAnimeHttpSource` | Deprecated, use `AnimeHttpSource` instead (`ParsedAnimeHttpLegacySource` is its legacy shim).                                            |
+| Class                   | Description                                                                                                                                       |
+|-------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| `AniSource`             | `keiyoushi.source` base for online sources on lib 16. New and migrated extensions must extend it, see [AniSource](#anikku-and-animiru-anisource). |
+| `AnimeHttpSource`       | The app's base for online sources, where requests are made using HTTP. Don't extend it directly in new code.                                      |
+| `AnimeHttpLegacySource` | `keiyoushi.utils` shim that keeps the pre-lib 16 `videoListRequest(episode)` / `videoListParse(response)` flow. Do not use for new code.          |
+| `ParsedAnimeHttpSource` | Deprecated, use `AniSource` instead (`ParsedAnimeHttpLegacySource` is its legacy shim).                                                           |
 
 #### Main class key variables
 
@@ -1071,7 +1072,7 @@ Extensions that only use the shims stay on `libVersion = "14"`.
 
 When writing a new extension, or migrating an existing one:
 
-- Extend `AnimeHttpSource` (or a lib 16 theme) directly instead of a legacy shim.
+- Extend `keiyoushi.source.AniSource` (or a lib 16 theme), not `AnimeHttpSource` directly or a legacy shim.
 - Implement the [hoster flow](#hosters-and-videos); implement [seasons](#seasons) only if the site
   needs them, otherwise throw `UnsupportedOperationException()` from `seasonListParse`.
 - Build videos with the [new `Video` constructor](#hosters-and-videos).
@@ -1092,8 +1093,9 @@ overrides only the hoster flow.
 
 `extensions-lib` also declares the extensions-lib 17 API that only Animiru implements (combined
 updates, related anime groups, seek previews, `createHttpServer`), marked `@AnimiruOnly`. Komikku's
-related anime API, which only Anikku implements, is marked `@AnikkuOnly`. Don't override these
-directly: extend `keiyoushi.source.AniSource`, which implements both apps from one set of methods.
+related anime API, which only Anikku implements, is marked `@AnikkuOnly`. Every new or migrated
+extension extends `keiyoushi.source.AniSource`, which implements both apps from one set of methods;
+don't override the app-specific members directly.
 
 ```kotlin
 @Source
