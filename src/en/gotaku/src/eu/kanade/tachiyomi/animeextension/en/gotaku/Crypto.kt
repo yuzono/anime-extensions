@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.en.gotaku
 
 import android.util.Base64
 import keiyoushi.utils.decodeHex
+import keiyoushi.utils.parseAs
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -118,6 +119,32 @@ object Crypto {
         ) ?: return null
 
         return plain.toString(Charsets.UTF_8)
+    }
+
+    fun decryptCaption(body: String, nonce: ByteArray): String? {
+        val blob = b64UrlDecode(body) ?: return null
+        if (blob.size < 12 + 16) return null // IV + minimum tag
+
+        val iv = blob.copyOfRange(0, 12)
+        val ct = blob.copyOfRange(12, blob.size)
+
+        val candidateInfos = listOf(
+            "captions-resp|v1",
+            "manifest-resp|v1",
+        )
+
+        for (info in candidateInfos) {
+            val key = hkdfSha256(MANIFEST_SEED, nonce, info.toByteArray(), 32)
+            val plain = gcmDecrypt(SecretKeySpec(key, "AES"), iv, ct) ?: continue
+            val inflated = try {
+                inflate(plain)
+            } catch (_: Exception) {
+                null
+            } ?: plain.toString(Charsets.UTF_8)
+            val vtt = runCatching { inflated.parseAs<CaptionEnvelopeDto>().vtt }.getOrNull() ?: inflated
+            return vtt
+        }
+        return null
     }
 
     // ============================= Segments ===============================

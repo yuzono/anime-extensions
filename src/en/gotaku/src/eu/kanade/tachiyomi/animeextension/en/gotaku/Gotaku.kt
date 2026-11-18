@@ -622,29 +622,40 @@ abstract class Gotaku :
         emptyList()
     }
 
-    private fun extractManifestAttrs(html: String, pageUrl: String): Pair<String, String>? {
+    private data class ManifestAttrs(
+        val base: String,
+        val stamp: String,
+        val captionsBase: String?,
+    )
+
+    private fun extractManifestAttrs(html: String, pageUrl: String): ManifestAttrs? {
         val doc = Jsoup.parseBodyFragment(html, pageUrl)
         val element = doc.selectFirst("[data-manifest-base][data-manifest-stamp]")
         if (element != null) {
             val base = element.attr("data-manifest-base").trim()
             val stamp = element.attr("data-manifest-stamp").trim()
+            val captionsBase = element.attr("data-captions-base").trim().takeIf { it.startsWith("https://") }
             if (base.startsWith("https://") && stamp.isNotEmpty()) {
-                return Pair(base, stamp)
+                return ManifestAttrs(base, stamp, captionsBase)
             }
         }
         val forwardMatch = MANIFEST_ATTRS_REGEX.find(html)
         if (forwardMatch != null) {
             val (base, stamp) = forwardMatch.destructured
+            val captionsBase = CAPTIONS_BASE_REGEX.find(html)?.groupValues?.get(1)?.trim()
+                ?.takeIf { it.startsWith("https://") }
             if (base.startsWith("https://") && stamp.isNotEmpty()) {
-                return Pair(base, stamp)
+                return ManifestAttrs(base, stamp, captionsBase)
             }
         }
         val reverseMatch = MANIFEST_ATTRS_REVERSE_REGEX.find(html)
         if (reverseMatch != null) {
             val stamp = reverseMatch.groupValues[1]
             val base = reverseMatch.groupValues[2]
+            val captionsBase = CAPTIONS_BASE_REGEX.find(html)?.groupValues?.get(1)?.trim()
+                ?.takeIf { it.startsWith("https://") }
             if (base.startsWith("https://") && stamp.isNotEmpty()) {
-                return Pair(base, stamp)
+                return ManifestAttrs(base, stamp, captionsBase)
             }
         }
         return null
@@ -659,7 +670,9 @@ abstract class Gotaku :
         val html = client.get(embedUrl, apiHeaders(watchReferer))
             .readBodyBoundedString(MAX_HTML_BODY_BYTES) ?: return emptyList()
 
-        val (base, stamp) = extractManifestAttrs(html, embedUrl) ?: return emptyList()
+        val attrs = extractManifestAttrs(html, embedUrl) ?: return emptyList()
+        val base = attrs.base
+        val stamp = attrs.stamp
 
         // Handshake: the nonce salts the response key, so the same
         // object must build the request and decrypt the response.
@@ -684,11 +697,15 @@ abstract class Gotaku :
         val server = getProxyServer()
         val localManifest = server.createProxyUrl(streamUrl, keySeed, segmentBytes, isManifest = true)
 
+        val numericId = EMBED_ID_REGEX.find(html)?.groupValues?.get(1)
+        val capBase = attrs.captionsBase ?: "$baseUrl/embed/$numericId/captions"
         val subtitleTracks = manifest.subtitles.orEmpty().mapNotNull { s ->
-            s.url?.takeIf { it.isNotBlank() }?.let {
+            val subtitleLang = s.lang ?: return@mapNotNull null
+            val subUrl = s.url ?: s.file ?: handshake.requestPath()?.let { "$capBase/$it/$subtitleLang" }
+            subUrl?.takeIf { it.isNotBlank() }?.let {
                 Track(
-                    server.createSubtitleProxyUrl(it),
-                    s.language ?: s.lang ?: s.label ?: s.name ?: "Unknown",
+                    server.createSubtitleProxyUrl(it, handshake.nonce),
+                    s.label ?: s.name ?: s.language ?: s.lang,
                 )
             }
         }
@@ -777,7 +794,9 @@ abstract class Gotaku :
         }
 
         // 5. Scrape manifest attrs + quality options
-        val (dlBase, dlStamp) = extractManifestAttrs(downloadHtml, finalDownloadUrl) ?: return emptyList()
+        val attrs = extractManifestAttrs(downloadHtml, finalDownloadUrl) ?: return emptyList()
+        val dlBase = attrs.base
+        val dlStamp = attrs.stamp
         val qualitiesByHeight = parseDownloadQualities(downloadHtml).associateBy { it.height }
 
         // 6. Handshake + manifest fetch
@@ -810,6 +829,19 @@ abstract class Gotaku :
             referer = downloadReferer,
         )
 
+        val numericId = EMBED_ID_REGEX.find(downloadHtml)?.groupValues?.get(1)
+        val capBase = attrs.captionsBase ?: "$baseUrl/embed/$numericId/captions"
+        val subtitleTracks = manifest.subtitles.orEmpty().mapNotNull { s ->
+            val subtitleLang = s.lang ?: return@mapNotNull null
+            val subUrl = s.url ?: s.file ?: handshake.requestPath()?.let { "$capBase/$it/$subtitleLang" }
+            subUrl?.takeIf { it.isNotBlank() }?.let {
+                Track(
+                    server.createSubtitleProxyUrl(it, handshake.nonce),
+                    s.label ?: s.name ?: s.language ?: s.lang,
+                )
+            }
+        }
+
         // 8. Extract HLS variants, labeling each with its file size
         val videos = playlistUtils.extractFromHls(
             playlistUrl = localManifest,
@@ -825,7 +857,7 @@ abstract class Gotaku :
                     qualityLabel
                 }
             },
-            subtitleList = emptyList(),
+            subtitleList = subtitleTracks,
         )
 
         val preferredLabel = HOSTER_LABELS[preferredAudio] ?: "Soft Sub"
@@ -1012,6 +1044,10 @@ abstract class Gotaku :
             Regex("""data-manifest-base=["']([^"']+)["'][^>]*data-manifest-stamp=["']([^"']+)["']""")
         private val MANIFEST_ATTRS_REVERSE_REGEX =
             Regex("""data-manifest-stamp=["']([^"']+)["'][^>]*data-manifest-base=["']([^"']+)["']""")
+        private val CAPTIONS_BASE_REGEX =
+            Regex("""data-captions-base=["']([^"']+)["']""")
+        private val EMBED_ID_REGEX =
+            Regex("""(?:data-(?:embed-)?id=["']?|id["']?\s*:\s*["']?|/embed/)(\d+)""", RegexOption.IGNORE_CASE)
         private val BR_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
         private val HTML_TAG_REGEX = Regex("""</?(i|b|em)>""", RegexOption.IGNORE_CASE)
     }
