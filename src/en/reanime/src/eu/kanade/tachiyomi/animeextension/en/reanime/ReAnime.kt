@@ -1090,18 +1090,20 @@ abstract class ReAnime :
             .zipWithNext()
             .mapNotNull { (timing, image) ->
                 val start = VTT_TIMING_REGEX.find(timing)?.groupValues?.get(1)?.let(::vttTimeMs) ?: return@mapNotNull null
-                val (x, y, w, h) = VTT_XYWH_REGEX.find(image)?.destructured ?: return@mapNotNull null
+                val area = VTT_XYWH_REGEX.find(image)?.groupValues?.drop(1)?.map { it.toIntOrNull() ?: return@mapNotNull null }
+                    ?: return@mapNotNull null
                 val imageUrl = base.resolve(image.substringBefore('#').trim())?.toString() ?: return@mapNotNull null
                 val index = imageUrls.indexOf(imageUrl).takeIf { it >= 0 } ?: imageUrls.size.also { imageUrls += imageUrl }
-                VideoThumbnails.Tile(index, start, x.toInt(), y.toInt(), w.toInt(), h.toInt())
+                VideoThumbnails.Tile(index, start, area[0], area[1], area[2], area[3])
             }
             .toList()
         return VideoThumbnails(tiles, imageUrls).takeIf { tiles.isNotEmpty() }
     }
 
-    private fun vttTimeMs(time: String): Long {
-        val (clock, millis) = time.split('.').let { it[0] to (it.getOrNull(1)?.padEnd(3, '0')?.take(3)?.toLong() ?: 0) }
-        val seconds = clock.split(':').fold(0L) { acc, part -> acc * 60 + part.toLong() }
+    private fun vttTimeMs(time: String): Long? {
+        val clock = time.substringBefore('.')
+        val millis = time.substringAfter('.', "").padEnd(3, '0').take(3).toLongOrNull() ?: return null
+        val seconds = clock.split(':').fold(0L) { acc, part -> acc * 60 + (part.toLongOrNull() ?: return null) }
         return seconds * 1000 + millis
     }
 
