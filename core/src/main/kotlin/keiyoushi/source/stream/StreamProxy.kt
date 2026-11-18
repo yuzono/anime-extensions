@@ -15,7 +15,8 @@ import java.io.InputStream
 import java.util.concurrent.ConcurrentHashMap
 
 // http://127.0.0.1:<port>/_kp/<source id>/<scheme>/<host[:port]>/<path>?<query>
-// The real url stays in the path so relative playlist urls resolve inside the proxy
+// The real url stays in the path so relative playlist urls resolve inside the proxy. Its path is
+// escaped once more, so it survives the percent-decoding NanoHTTPD applies to request paths.
 internal object ProxyUrl {
     private const val MARKER = "_kp"
 
@@ -30,7 +31,7 @@ internal object ProxyUrl {
             .addPathSegment(sourceId.toString())
             .addPathSegment(target.scheme)
             .addPathSegment(authority)
-            .apply { target.encodedPathSegments.forEach(::addEncodedPathSegment) }
+            .apply { target.encodedPathSegments.forEach { addEncodedPathSegment(escape(it)) } }
             .encodedQuery(target.encodedQuery)
             .build()
     }
@@ -38,18 +39,25 @@ internal object ProxyUrl {
     fun isProxyUrl(url: HttpUrl): Boolean = (url.host == "localhost" || url.host == "127.0.0.1") &&
         url.pathSegments.firstOrNull() == MARKER
 
-    fun decode(url: HttpUrl): Pair<Long, HttpUrl>? {
+    /** [escaped] is false for a url whose path a local server already decoded once. */
+    fun decode(url: HttpUrl, escaped: Boolean = true): Pair<Long, HttpUrl>? {
         if (!isProxyUrl(url)) return null
         val segments = url.encodedPathSegments
         if (segments.size < 5) return null
         val sourceId = segments[1].toLongOrNull() ?: return null
         val scheme = segments[2].takeIf { it == "http" || it == "https" } ?: return null
         val authority = url.pathSegments[3]
-        val path = segments.drop(4).joinToString("/")
+        val path = segments.drop(4).joinToString("/") { if (escaped) unescape(it) else it }
         val query = url.encodedQuery?.let { "?$it" }.orEmpty()
         val target = "$scheme://$authority/$path$query".toHttpUrlOrNull() ?: return null
         return sourceId to target
     }
+
+    private val escaped = Regex("%25|%2B")
+
+    private fun escape(segment: String) = segment.replace("%", "%25").replace("+", "%2B")
+
+    private fun unescape(segment: String) = escaped.replace(segment) { if (it.value == "%25") "%" else "+" }
 
     fun baseOf(url: HttpUrl): HttpUrl = url.newBuilder().encodedPath("/").query(null).fragment(null).build()
 }
@@ -58,7 +66,7 @@ internal object StreamSources {
     private val sources = ConcurrentHashMap<Long, AniSource>()
 
     fun register(source: AniSource) {
-        sources.putIfAbsent(source.id, source)
+        sources[source.id] = source
     }
 
     operator fun get(id: Long): AniSource? = sources[id]
@@ -101,8 +109,9 @@ internal object StreamPipeline {
 
     fun fetch(base: HttpUrl, method: String, path: String, query: String?, headers: Map<String, String>): Response? {
         val url = base.newBuilder().encodedPath(path).encodedQuery(query).build()
-        val (sourceId, target) = ProxyUrl.decode(url) ?: return null
+        val (sourceId, target) = ProxyUrl.decode(url, escaped = false) ?: return null
         val source = StreamSources[sourceId] ?: return null
+        if (!source.handlesStream(target)) return null
         val request = Request.Builder()
             .url(target)
             .apply {
@@ -122,8 +131,9 @@ internal object StreamPipeline {
         if (response.code != 200 || response.request.method != "GET") return response
         val kind = playlistKind(target, response) ?: return response
         val body = response.body.string()
+        val playlistUrl = response.request.url
         val rewrite = { raw: String ->
-            val url = target.resolve(raw)
+            val url = playlistUrl.resolve(raw)
             when {
                 url == null -> raw
                 source.handlesStream(url) -> ProxyUrl.encode(base, source.id, url).toString()
@@ -177,7 +187,11 @@ internal object StreamPipeline {
     internal fun rewriteDash(manifest: String, rewrite: (String) -> String): String {
         val absolute = { raw: String -> raw.startsWith("/") || raw.startsWith("http://") || raw.startsWith("https://") }
         return manifest
-            .replace(dashBaseUrl) { m -> m.groupValues[1] + rewrite(m.groupValues[2].trim().xmlUnescape()).xmlEscape() + m.groupValues[3] }
+            .replace(dashBaseUrl) { m ->
+                // A relative BaseURL resolves against its parent, already rewritten
+                val raw = m.groupValues[2].trim().xmlUnescape()
+                if (absolute(raw)) m.groupValues[1] + rewrite(raw).xmlEscape() + m.groupValues[3] else m.value
+            }
             .replace(dashUrlAttribute) { m ->
                 val raw = m.groupValues[2].xmlUnescape()
                 if (absolute(raw)) "${m.groupValues[1]}=\"${rewrite(raw).xmlEscape()}\"" else m.value

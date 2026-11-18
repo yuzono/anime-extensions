@@ -21,6 +21,7 @@ import keiyoushi.source.model.Related
 import keiyoushi.source.model.SAnimeSeasonUpdate
 import keiyoushi.source.model.SAnimeUpdate
 import keiyoushi.source.model.VideoThumbnails
+import keiyoushi.source.stream.PlayerTracker
 import keiyoushi.source.stream.ProxyUrl
 import keiyoushi.source.stream.ProxyUrlInterceptor
 import keiyoushi.source.stream.SelfProxy
@@ -48,11 +49,15 @@ abstract class AniSource : AniSourceBase() {
 
     final override val client: OkHttpClient by lazy {
         // Not in init: the generated id isn't set yet
-        if (streamInterceptors.isNotEmpty()) StreamSources.register(this)
+        if (streamInterceptors.isNotEmpty()) {
+            StreamSources.register(this)
+            // Before any player opens, which the tracker can then see
+            if (!AppFeatures.animiruHttpServer) PlayerTracker.ensureRegistered()
+        }
         network.client.newBuilder()
+            .configureClient()
             .apply {
                 interceptors().add(0, ProxyUrlInterceptor())
-                configureClient()
                 if (streamInterceptors.isNotEmpty()) addInterceptor(StreamDispatchInterceptor(streamInterceptors))
             }
             .build()
@@ -177,8 +182,10 @@ abstract class AniSource : AniSourceBase() {
 
     private fun proxied(url: String, base: Lazy<HttpUrl>): String {
         val httpUrl = url.toHttpUrlOrNull() ?: return url
-        if (ProxyUrl.isProxyUrl(httpUrl) || !handlesStream(httpUrl)) return url
-        return ProxyUrl.encode(base.value, id, httpUrl).toString()
+        // Already proxied, e.g. a resolved video: re-encode, the proxy may have restarted elsewhere
+        val target = ProxyUrl.decode(httpUrl)?.takeIf { it.first == id }?.second ?: httpUrl
+        if (ProxyUrl.isProxyUrl(target) || !handlesStream(target)) return url
+        return ProxyUrl.encode(base.value, id, target).toString()
     }
 
     private fun proxied(track: Track, base: Lazy<HttpUrl>): Track {
@@ -186,12 +193,18 @@ abstract class AniSource : AniSourceBase() {
         return if (url == track.url) track else Track(url, track.lang)
     }
 
-    // Full constructors instead of copy(): both apps have exactly these
+    // Every argument instead of copy(): both apps have exactly these constructors
     private fun proxied(hoster: Hoster): Hoster {
         val videos = hoster.videoList ?: return hoster
         val proxiedVideos = videos.map(::proxied)
         if (proxiedVideos.indices.all { proxiedVideos[it] === videos[it] }) return hoster
-        return Hoster(hoster.hosterUrl, hoster.hosterName, proxiedVideos, hoster.internalData, hoster.lazy)
+        return Hoster(
+            hosterUrl = hoster.hosterUrl,
+            hosterName = hoster.hosterName,
+            videoList = proxiedVideos,
+            internalData = hoster.internalData,
+            lazy = hoster.lazy,
+        )
     }
 
     private fun proxied(video: Video): Video {
@@ -204,20 +217,20 @@ abstract class AniSource : AniSourceBase() {
 
         StreamSources.register(this)
         return Video(
-            videoUrl,
-            video.videoTitle,
-            video.resolution,
-            video.bitrate,
-            video.headers,
-            video.preferred,
-            subtitles,
-            audios,
-            video.timestamps,
-            video.mpvArgs,
-            video.ffmpegStreamArgs,
-            video.ffmpegVideoArgs,
-            video.internalData,
-            video.initialized,
+            videoUrl = videoUrl,
+            videoTitle = video.videoTitle,
+            resolution = video.resolution,
+            bitrate = video.bitrate,
+            headers = video.headers,
+            preferred = video.preferred,
+            subtitleTracks = subtitles,
+            audioTracks = audios,
+            timestamps = video.timestamps,
+            mpvArgs = video.mpvArgs,
+            ffmpegStreamArgs = video.ffmpegStreamArgs,
+            ffmpegVideoArgs = video.ffmpegVideoArgs,
+            internalData = video.internalData,
+            initialized = video.initialized,
         )
     }
 

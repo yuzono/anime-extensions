@@ -10,6 +10,8 @@ import org.nanohttpd.protocols.http.NanoHTTPD
 import org.nanohttpd.protocols.http.response.IStatus
 import org.nanohttpd.protocols.http.response.Response
 import uy.kohesive.injekt.injectLazy
+import java.util.Collections
+import java.util.WeakHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -60,6 +62,8 @@ internal object SelfProxy {
         null
     }
 
+    // Same lock as stopIfIdle, so a request can't start while the server stops
+    @Synchronized
     fun requestStarted() {
         activeRequests.incrementAndGet()
         lastActivity = System.currentTimeMillis()
@@ -112,47 +116,50 @@ internal class SelfProxyServer(port: Int) : NanoHTTPD("127.0.0.1", port) {
 /** Keeps the proxy up while a player is open, even if paused. */
 internal object PlayerTracker {
     private val application: Application by injectLazy()
-    private val openPlayers = AtomicInteger()
+    private val players: MutableSet<Activity> = Collections.newSetFromMap(WeakHashMap())
 
     @Volatile
     private var registered = false
 
-    val isPlayerOpen: Boolean get() = openPlayers.get() > 0
+    val isPlayerOpen: Boolean get() = synchronized(players) { players.isNotEmpty() }
 
     fun ensureRegistered() {
         if (registered) return
         synchronized(this) {
             if (registered) return
-            registered = true
             try {
-                openPlayers.set(countOpenPlayers())
+                // Callbacks first: a player opened meanwhile is in both, which the set absorbs
                 application.registerActivityLifecycleCallbacks(Callbacks)
+                registered = true
             } catch (e: Exception) {
                 Log.e("StreamProxy", "Failed to track the player", e)
+                return
             }
+            synchronized(players) { players.addAll(openPlayers()) }
         }
     }
 
-    private fun isPlayer(activity: Any) = activity.javaClass.name.endsWith(".ui.player.PlayerActivity")
+    private fun isPlayer(activity: Activity) = activity.javaClass.name.endsWith(".ui.player.PlayerActivity")
 
+    // Players opened before tracking started
     @Suppress("PrivateApi", "DiscouragedPrivateApi")
-    private fun countOpenPlayers(): Int = runCatching {
+    private fun openPlayers(): List<Activity> = runCatching {
         val threadClass = Class.forName("android.app.ActivityThread")
         val thread = threadClass.getMethod("currentActivityThread").invoke(null)
         val records = threadClass.getDeclaredField("mActivities").apply { isAccessible = true }.get(thread) as Map<*, *>
-        records.values.count { record ->
+        records.values.mapNotNull { record ->
             val activity = record!!.javaClass.getDeclaredField("activity").apply { isAccessible = true }.get(record)
-            activity != null && isPlayer(activity)
+            (activity as? Activity)?.takeIf { isPlayer(it) && !it.isDestroyed }
         }
-    }.getOrDefault(0)
+    }.getOrDefault(emptyList())
 
     private object Callbacks : Application.ActivityLifecycleCallbacks {
         override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
-            if (isPlayer(activity)) openPlayers.incrementAndGet()
+            if (isPlayer(activity)) synchronized(players) { players.add(activity) }
         }
 
         override fun onActivityDestroyed(activity: Activity) {
-            if (isPlayer(activity) && openPlayers.decrementAndGet() < 0) openPlayers.set(0)
+            synchronized(players) { players.remove(activity) }
         }
 
         override fun onActivityStarted(activity: Activity) = Unit

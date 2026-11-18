@@ -141,7 +141,7 @@ navigate and build. This will also reduce disk usage and network traffic.
    ```bash
    git sparse-checkout set --cone --sparse-index
    # add project folders
-   git sparse-checkout add common compiler core gradle lib lib-multisrc
+   git sparse-checkout add common compiler core extensions-lib gradle lib lib-multisrc
    # add a single source
    git sparse-checkout add src/<lang>/<source>
    ```
@@ -1141,7 +1141,8 @@ override val streamInterceptors = listOf(
 
 Return the real urls. Videos, tracks and HLS/DASH playlist entries it `handles` are played through a
 local proxy: Animiru's own server when it can start one, otherwise one the extension starts and
-stops itself.
+stops itself. The proxy only serves urls `handles` accepts, so it must also cover the segments and
+keys of a handled playlist.
 
 ### HTML and Video Processing
 

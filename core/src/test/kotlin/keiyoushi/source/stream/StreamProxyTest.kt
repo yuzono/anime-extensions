@@ -4,6 +4,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.net.URLDecoder
 
 class StreamProxyTest {
     private val base = "http://127.0.0.1:4321/".toHttpUrl()
@@ -21,6 +22,22 @@ class StreamProxyTest {
         roundTrip("http://cdn.example.com:8080/a/b/")
         roundTrip("https://cdn.example.com/seg%20one.ts")
         roundTrip("https://[2001:db8::1]:8443/v.mp4")
+    }
+
+    @Test
+    fun `survives the server decoding the path`() {
+        listOf(
+            "https://cdn.example.com/a%2Fb/seg.ts",
+            "https://cdn.example.com/100%25/seg.ts",
+            "https://cdn.example.com/a+b/seg%20one.ts",
+        ).forEach { url ->
+            val target = url.toHttpUrl()
+            val encoded = ProxyUrl.encode(base, 3L, target)
+            // What NanoHTTPD hands to the server: the path percent-decoded once
+            val path = URLDecoder.decode(encoded.encodedPath, "UTF-8")
+            val served = base.newBuilder().encodedPath(path).encodedQuery(encoded.encodedQuery).build()
+            assertEquals(3L to target, ProxyUrl.decode(served, escaped = false))
+        }
     }
 
     @Test

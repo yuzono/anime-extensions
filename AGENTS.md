@@ -24,7 +24,7 @@ Module paths are colon-separated and mirror the directory layout: `:src:en:mirur
 
 ### Tests
 
-The repo's only unit tests are in `core/src/test/kotlin/keiyoushi/utils/`, `lib/unpacker/test/kotlin/`
+The repo's only unit tests are in `core/src/test/kotlin/keiyoushi/` (`utils/`, `source/stream/`), `lib/unpacker/test/kotlin/`
 and `lib/megaextractor/test/`. Extensions have none – they are verified by compiling and running
 against the live site (`CONTRIBUTING.md#submitting-the-changes` ~ `1768`).
 
