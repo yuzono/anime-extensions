@@ -10,9 +10,10 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.MapperServerDto
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.MegaPlaySourcesDto
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.ServerResponseDto
-import eu.kanade.tachiyomi.network.get
+import keiyoushi.network.get
 import keiyoushi.utils.parseAs
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.jsoup.nodes.Document
 import java.nio.charset.StandardCharsets
 import javax.crypto.Cipher
@@ -108,12 +109,11 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         }
 
         val videos = when {
+            // A direct playlist, even under a /stream/ path, before the MegaPlay embed rule
+            isDirectPlaylist(embedLink) ->
+                extractDirectM3u8(embedLink, server)
             isMegaPlayServer(server.serverName) || isMegaPlayUrl(embedLink) ->
                 extractFromMegaPlay(embedLink, server)
-            embedLink.contains("mewcdn.online/player/plyr.php") ->
-                extractFromMewcdnPlayer(embedLink, server)
-            embedLink.endsWith(".m3u8") || (embedLink.contains(".m3u8") && !embedLink.contains("/stream/")) ->
-                extractDirectM3u8(embedLink, server)
             else -> {
                 Log.w("AnikotoExtractor", "No extractor for ${server.serverName}: $embedLink")
                 emptyList()
@@ -146,13 +146,16 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         ) || name.contains("vidstream") || name.contains("hd1") || name.contains("hd2")
     }
 
-    private fun isMegaPlayUrl(url: String): Boolean = MEGAPLAY_HOST_REGEX.containsMatchIn(url)
+    private fun isDirectPlaylist(url: String): Boolean = url.toHttpUrlOrNull()?.encodedPath?.endsWith(".m3u8", ignoreCase = true)
+        ?: url.substringBefore('?').endsWith(".m3u8", ignoreCase = true)
+
+    // MegaPlay and its mirrors (e.g. VidPlay on vidtube.site) share the /stream/getSources API
+    private fun isMegaPlayUrl(url: String): Boolean = url.contains("/stream/", ignoreCase = true)
 
     private suspend fun extractFromMegaPlay(
         embedUrl: String,
         server: AnikotoTheme.VideoData,
     ): List<Video> {
-        val preferAssSubtitles = theme.preferAssSubtitles
         val pageHeaders = theme.headers.newBuilder()
             .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .add("X-Requested-With", "XMLHttpRequest")
@@ -167,7 +170,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         val mediaId = parseMegaPlayMediaId(pageBody)
             ?: throw Exception("Failed to find MegaPlay media ID")
 
-        val getSourcesUrl = buildMegaPlayGetSourcesUrl(embedUrl, mediaId, preferAssSubtitles)
+        val getSourcesUrl = buildMegaPlayGetSourcesUrl(embedUrl, mediaId)
 
         val apiHeaders = theme.headers.newBuilder().apply {
             add("Accept", "application/json,*/*")
@@ -184,13 +187,16 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             ?: throw Exception("Failed to decrypt/find MegaPlay source")
 
         val tracks = sourcesDto.tracks
-            ?.filter { it.label.isNotBlank() }
-            ?.sortedByDescending {
-                val isAss = it.file.substringBefore('?').endsWith(".ass", ignoreCase = true)
-                isAss == preferAssSubtitles
-            }
+            ?.filter { it.label.isNotBlank() && it.kind != THUMBNAILS_KIND }
+            // Styled ASS over VTT for the same language; a language in one format only stays
+            ?.sortedByDescending { it.file.substringBefore('?').endsWith(".ass", ignoreCase = true) }
             ?.distinctBy { it.label.lowercase() }
             ?.map { Track(it.file, it.label) }
+            .orEmpty()
+
+        val thumbnailsVtt = sourcesDto.tracks
+            ?.firstOrNull { it.kind == THUMBNAILS_KIND }
+            ?.file
             .orEmpty()
 
         val skipTimeStamps = buildList {
@@ -227,10 +233,11 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
             videoHeaders = vidHeaders,
         )
 
-        return if (skipTimeStamps.isNotEmpty()) {
-            videos.map { it.copy(timestamps = skipTimeStamps) }
-        } else {
-            videos
+        return videos.map {
+            it.copy(
+                timestamps = skipTimeStamps.ifEmpty { it.timestamps },
+                internalData = thumbnailsVtt,
+            )
         }
     }
 
@@ -242,7 +249,7 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         return FILE_ID_REGEX.find(html)?.groupValues?.get(1)
     }
 
-    private fun buildMegaPlayGetSourcesUrl(embedUrl: String, id: String, preferAssSubtitles: Boolean): String {
+    private fun buildMegaPlayGetSourcesUrl(embedUrl: String, id: String): String {
         val base = try {
             val u = embedUrl.toHttpUrl()
             "${u.scheme}://${u.host}/stream/getSources"
@@ -252,10 +259,8 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
 
         val urlBuilder = base.toHttpUrl().newBuilder()
             .addQueryParameter("id", id)
-
-        if (preferAssSubtitles) {
-            urlBuilder.addQueryParameter("st", "other")
-        }
+            // Adds the ASS tracks to the subtitle list
+            .addQueryParameter("st", "other")
 
         try {
             val original = embedUrl.toHttpUrl()
@@ -369,78 +374,16 @@ class AnikotoExtractor(private val theme: AnikotoTheme) {
         return videos
     }
 
-    private suspend fun extractFromMewcdnPlayer(serverUrl: String, server: AnikotoTheme.VideoData): List<Video> {
-        val fragment = serverUrl.substringAfter("#").substringBefore("#").takeIf { it.isNotEmpty() }
-            ?: throw Exception("No fragment found in mewcdn player URL")
-
-        val rawM3u8 = String(Base64.decode(fragment, Base64.DEFAULT), Charsets.UTF_8).trim()
-        if (!rawM3u8.startsWith("http")) {
-            throw Exception("Invalid m3u8 URL decoded from mewcdn fragment")
-        }
-
-        val pageHeaders = theme.headers.newBuilder()
-            .add("Referer", "${theme.baseUrl}/")
-            .build()
-
-        val hostMap = theme.client.get(serverUrl, pageHeaders).use { response ->
-            parseHostMap(response.body.string())
-        }
-
-        val m3u8 = applyHostMap(rawM3u8, hostMap)
-
-        val displayName = theme.getServerDisplayName(server.serverName)
-        val typeSuffix = server.type.takeIf { it.isNotEmpty() }?.let { " - $it" } ?: ""
-
-        val vidHeaders = theme.headers.newBuilder()
-            .set("Referer", "https://mewcdn.online/")
-            .set("Origin", "https://mewcdn.online")
-            .build()
-
-        val videos = theme.playlistUtils.extractFromHls(
-            m3u8,
-            videoNameGen = { quality ->
-                "$displayName$typeSuffix - ${theme.cleanHlsQuality(quality)}"
-            },
-            referer = "https://mewcdn.online/",
-            masterHeaders = vidHeaders,
-            videoHeaders = vidHeaders,
-        )
-
-        return videos
-    }
-
-    private fun parseHostMap(html: String): Map<String, String> {
-        val mapMatch = HOST_MAP_REGEX.find(html) ?: return emptyMap()
-        return HOST_ENTRY_REGEX.findAll(mapMatch.groupValues[1]).associate {
-            it.groupValues[1] to it.groupValues[2]
-        }
-    }
-
-    private fun applyHostMap(url: String, hostMap: Map<String, String>): String {
-        var result = url
-        for ((origin, proxy) in hostMap) {
-            if (result.contains(origin)) {
-                result = result.replace(origin, proxy)
-                break
-            }
-        }
-        return result
-    }
-
     companion object {
         private const val MEGAPLAY_AES_KEY = "i?LMTAx0Q6,:}50U"
         private const val MEGAPLAY_AES_IV = "W0;27ToaUpl_P%'c"
         private const val MEGAPLAY_TOKEN_SECRET = "MpCdnT0k3n!9f2K#xQ7vL5mR8wN1pY4s"
-
-        private val MEGAPLAY_HOST_REGEX = Regex("""megaplay\.[^/]+/stream/""", RegexOption.IGNORE_CASE)
+        private const val THUMBNAILS_KIND = "thumbnails"
 
         private val DATA_ID_REGEX = Regex("""data-id=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
         private val FILE_ID_REGEX = Regex("""File\s+(\d+)""", RegexOption.IGNORE_CASE)
         private val FILE_JSON_REGEX = Regex(""""file"\s*:\s*"([^"]+)"""")
         private val TOKEN_PARAM_REGEX = Regex("""[?&]token=""", RegexOption.IGNORE_CASE)
         private val PATH_KEY_REGEX = Regex("""/([a-f0-9]{32})/([a-f0-9]{32})/""", RegexOption.IGNORE_CASE)
-
-        private val HOST_MAP_REGEX = Regex("""var HOST_MAP\s*=\s*\{([^}]+)\}""")
-        private val HOST_ENTRY_REGEX = Regex("""'([^']+)'\s*:\s*'([^']+)'""")
     }
 }
