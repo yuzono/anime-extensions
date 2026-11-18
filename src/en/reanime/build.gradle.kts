@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "Re:ANIME"
-    versionCode = 19
+    versionCode = 20
     contentWarning = ContentWarning.MIXED
     libVersion = "16"
 
@@ -24,6 +24,5 @@ yuzono {
 }
 
 dependencies {
-    implementation("com.github.komikku-app.nanohttpd:nanohttpd:gradle-upgrade-SNAPSHOT")
     implementation(project(":lib:playlistutils"))
 }
