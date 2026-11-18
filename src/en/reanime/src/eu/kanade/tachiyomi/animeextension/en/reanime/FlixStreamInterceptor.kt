@@ -177,7 +177,7 @@ class FlixStreamInterceptor(private val sourceHeaders: () -> Headers) : StreamIn
                 trimmed.startsWith("#") -> {
                     val cleanedLine = if (trimmed.startsWith("#EXT-X-STREAM-INF")) fixBandwidth(trimmed) else trimmed
                     val uri = URI_REGEX.find(cleanedLine)?.groupValues?.get(1).orEmpty()
-                    if (uri.isNotEmpty()) cleanedLine.replace(URI_REGEX, "URI=\"${resolve(uri)}\"") else cleanedLine
+                    if (uri.isNotEmpty()) cleanedLine.replace(URI_REGEX) { "URI=\"${resolve(uri)}\"" } else cleanedLine
                 }
                 else -> resolve(trimmed)
             }
