@@ -694,7 +694,7 @@ abstract class Torrentio :
         )
         private val PREF_PROVIDERS_VALUE = arrayOf(
             "yts", "eztv", "rarbg", "1337x", "ext", "thepiratebay", "kickasstorrents", "torrentgalaxy", "magnetdl",
-            "horriblesubs", "nyaasi", "tokyotosho", "anidex", "nekobt", "uindex", "knaben","rutor", "rutracker", "comando",
+            "horriblesubs", "nyaasi", "tokyotosho", "anidex", "nekobt", "uindex", "knaben", "rutor", "rutracker", "comando",
             "bludv", "micoleaodublado", "torrent9", "ilcorsaronero", "mejortorrent", "wolfmax4k", "cinecalidad", "besttorrents",
         )
         private val PREF_DEFAULT_PROVIDERS_VALUE = arrayOf(
