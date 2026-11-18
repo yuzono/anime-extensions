@@ -1,5 +1,7 @@
 package keiyoushi.source.model
 
+import okhttp3.HttpUrl
+
 class VideoThumbnails(val tiles: List<Tile>, val imageUrls: List<String>) {
     /** [imageIndex] is the index in [imageUrls]. */
     class Tile(
@@ -10,4 +12,36 @@ class VideoThumbnails(val tiles: List<Tile>, val imageUrls: List<String>) {
         val width: Int,
         val height: Int,
     )
+
+    companion object {
+        private val cueTiming = Regex("""^\s*((?:\d+:)?\d+:\d+(?:\.\d+)?)\s*-->""")
+        private val spriteArea = Regex("""#xywh=(\d+),(\d+),(\d+),(\d+)""")
+
+        /**
+         * Parses a WebVTT thumbnail track, whose cues are sprite areas (`sprite.jpg#xywh=0,0,160,90`).
+         * Relative image urls resolve against [baseUrl], usually the vtt's own url. Cues without an
+         * area or that don't parse are skipped; returns null when none is left.
+         */
+        fun fromVtt(vtt: String, baseUrl: HttpUrl): VideoThumbnails? {
+            val imageUrls = mutableListOf<String>()
+            val tiles = vtt.lineSequence()
+                .zipWithNext()
+                .mapNotNull { (timing, image) ->
+                    val start = cueTiming.find(timing)?.groupValues?.get(1)?.let(::timeMs) ?: return@mapNotNull null
+                    val area = spriteArea.find(image)?.groupValues?.drop(1)?.map { it.toIntOrNull() ?: return@mapNotNull null }
+                        ?: return@mapNotNull null
+                    val imageUrl = baseUrl.resolve(image.substringBefore('#').trim())?.toString() ?: return@mapNotNull null
+                    val index = imageUrls.indexOf(imageUrl).takeIf { it >= 0 } ?: imageUrls.size.also { imageUrls += imageUrl }
+                    Tile(index, start, area[0], area[1], area[2], area[3])
+                }
+                .toList()
+            return VideoThumbnails(tiles, imageUrls).takeIf { tiles.isNotEmpty() }
+        }
+
+        private fun timeMs(time: String): Long? {
+            val millis = time.substringAfter('.', "").padEnd(3, '0').take(3).toLongOrNull() ?: return null
+            val seconds = time.substringBefore('.').split(':').fold(0L) { acc, part -> acc * 60 + (part.toLongOrNull() ?: return null) }
+            return seconds * 1000 + millis
+        }
+    }
 }
