@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.multisrc.dooplay.DooPlay
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.parallelCatchingFlatMapBlocking
@@ -280,8 +281,18 @@ abstract class AnimesDrive : DooPlay() {
         )
 
     // ============================= Utilities ==============================
-    override val animeMenuSelector = ".pag_episodes .aq-nav-icon:has(.fa-list)"
+    override val animeMenuSelector = ".pag_episodes a:has(.fa-list)"
 
+    override fun getRealAnimeDoc(document: Document): Document {
+        val menu = document.selectFirst(animeMenuSelector)
+        return if (menu != null) {
+            val originalUrl = menu.attr("href")
+            val req = client.newCall(GET(originalUrl, headers)).execute()
+            req.asJsoup()
+        } else {
+            document
+        }
+    }
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(videoSortPrefKey, videoSortPrefDefault)!!
 
