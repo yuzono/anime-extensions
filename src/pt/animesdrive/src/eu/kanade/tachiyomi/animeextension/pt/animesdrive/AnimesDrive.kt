@@ -116,12 +116,11 @@ abstract class AnimesDrive : DooPlay() {
     override fun episodeListSelector(): String = ".episodios-grid > .episode-card"
 
     override fun episodeFromElement(element: Element, seasonName: String): SEpisode = SEpisode.create().apply {
-        val epTitle = element.selectFirst(".episode-title")!!
-        val href = epTitle.selectFirst("a[href]")!!
-        val episodeName = href.ownText()
-        episode_number = episodeName.substringBefore(" - ").toFloatOrNull() ?: 0F
+        val anchor = element.selectFirst(".episode-title a")!!
+        val episodeName = anchor.ownText()
         name = "$episodeSeasonPrefix $seasonName x $episodeName"
-        setUrlWithoutDomain(href.attr("href"))
+        episode_number = element.attr("data-episode-number").toFloatOrNull() ?: 0F
+        setUrlWithoutDomain(anchor.attr("href"))
     }
 
     // ============================ Video Links =============================
