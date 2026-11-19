@@ -44,7 +44,7 @@ class ProxyServer(
     private val cdnHeaders: Headers = siteHeaders.newBuilder()
         .set("Accept", "*/*")
         .set("Referer", "$refererRoot/")
-        .removeAll("Origin")
+        .set("Origin", refererRoot)
         .removeAll("Accept-Encoding")
         .build()
     private val proxyClient by lazy {
@@ -81,7 +81,10 @@ class ProxyServer(
 
     fun createPlainProxyUrl(originalUrl: String): String = "http://$hostname:$listeningPort/proxy/key.bin?url=${URLEncoder.encode(originalUrl, "UTF-8")}&plain=1"
 
-    fun createSubtitleProxyUrl(originalUrl: String): String = "http://$hostname:$listeningPort/proxy/subtitles.vtt?url=${URLEncoder.encode(originalUrl, "UTF-8")}&sub=1"
+    fun createSubtitleProxyUrl(originalUrl: String, nonce: ByteArray? = null): String {
+        val nonceParam = nonce?.let { "&nonce=${Crypto.b64UrlEncode(it)}" }.orEmpty()
+        return "http://$hostname:$listeningPort/proxy/subtitles.vtt?url=${URLEncoder.encode(originalUrl, "UTF-8")}&sub=1$nonceParam"
+    }
 
     // ============================== Dispatch ==============================
     override fun handle(session: IHTTPSession): Response {
@@ -109,7 +112,7 @@ class ProxyServer(
 
         return try {
             when {
-                params["sub"]?.firstOrNull() == "1" -> serveSubtitle(url)
+                params["sub"]?.firstOrNull() == "1" -> serveSubtitle(url, params["nonce"]?.firstOrNull(), upstreamHeaders)
                 params["m3u8"]?.firstOrNull() == "1" -> serveManifest(
                     url,
                     params["key"]?.firstOrNull().orEmpty(),
@@ -362,43 +365,44 @@ class ProxyServer(
         }
     }
 
-    private fun serveSubtitle(url: String): Response = proxyClient.newCall(Request.Builder().url(url).headers(cdnHeaders).build()).execute().use { response ->
-        if (!response.isSuccessful) {
-            val code = response.code
-            return@use newFixedLengthResponse(
-                Status.lookup(code) ?: Status.INTERNAL_ERROR,
-                "text/plain",
-                "Subtitle Error: $code",
-            )
-        }
-        val body = response.body
-        val contentType = when {
-            url.endsWith(".ass", true) -> "text/x-ass"
-            url.endsWith(".srt", true) -> "application/x-subrip"
-            url.endsWith(".vtt", true) -> "text/vtt"
-            else -> body.contentType()?.toString() ?: "text/plain"
-        }
-        val maxBytes = 512 * 1024
-        val bytes = try {
-            body.byteStream().use { input ->
-                val out = java.io.ByteArrayOutputStream()
-                val buf = ByteArray(8192)
-                var total = 0
-                while (true) {
-                    val n = input.read(buf)
-                    if (n == -1) break
-                    total += n
-                    if (total > maxBytes) error("too large")
-                    out.write(buf, 0, n)
-                }
-                out.toByteArray()
+    private fun serveSubtitle(url: String, nonceParam: String?, headers: Headers): Response {
+        val reqHeaders = headers.newBuilder()
+            .set("Accept", "text/plain, */*")
+            .build()
+        return proxyClient.newCall(Request.Builder().url(url).headers(reqHeaders).build()).execute().use { response ->
+            if (!response.isSuccessful) {
+                val code = response.code
+                return@use newFixedLengthResponse(
+                    Status.lookup(code) ?: Status.INTERNAL_ERROR,
+                    "text/plain",
+                    "Subtitle Error: $code",
+                )
             }
-        } catch (_: Exception) {
-            return@use newFixedLengthResponse(Status.INTERNAL_ERROR, "text/plain", "Subtitle too large / read error")
-        }
-        newFixedLengthResponse(Status.OK, contentType, bytes.inputStream(), bytes.size.toLong()).apply {
-            addHeader("Access-Control-Allow-Origin", "*")
-            addHeader("Access-Control-Allow-Headers", "*")
+            val bodyString = try {
+                response.body.string().trim()
+            } catch (_: Exception) {
+                return@use newFixedLengthResponse(Status.INTERNAL_ERROR, "text/plain", "Read error")
+            }
+            val plaintext = if (nonceParam != null) {
+                val nonceBytes = Crypto.b64UrlDecode(nonceParam)
+                if (nonceBytes != null) {
+                    Crypto.decryptCaption(bodyString, nonceBytes) ?: Crypto.decryptManifest(bodyString, nonceBytes) ?: bodyString
+                } else {
+                    bodyString
+                }
+            } else {
+                bodyString
+            }
+            val bytes = plaintext.toByteArray(Charsets.UTF_8)
+            val contentType = when {
+                url.endsWith(".ass", true) -> "text/x-ass"
+                url.endsWith(".srt", true) -> "application/x-subrip"
+                else -> "text/vtt"
+            }
+            newFixedLengthResponse(Status.OK, contentType, bytes.inputStream(), bytes.size.toLong()).apply {
+                addHeader("Access-Control-Allow-Origin", "*")
+                addHeader("Access-Control-Allow-Headers", "*")
+            }
         }
     }
 

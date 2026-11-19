@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.en.gotaku
 
+import android.util.Log
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import keiyoushi.utils.applicationContext
@@ -24,12 +25,13 @@ object Filters {
         val seasons: List<Pair<String, String>>,
         val ratings: List<Pair<String, String>>,
         val years: List<Pair<String, String>>,
+        val countries: List<Pair<String, String>>,
     )
 
     fun hasCache(): Boolean = cacheFile.exists()
 
     fun getFilterList(): AnimeFilterList {
-        val data = loadCachedFilters() ?: return AnimeFilterList(AnimeFilter.Header("Press 'Reset' to load filters"))
+        val data = loadCachedFilters() ?: return AnimeFilterList(SortFilter(), TrackFilter())
         return buildList(data)
     }
 
@@ -41,14 +43,19 @@ object Filters {
                 .build()
 
             filterClient.newCall(Request.Builder().url("$apiUrl/filters").headers(headers).build()).execute().use { response ->
-                if (!response.isSuccessful) return
+                if (!response.isSuccessful) {
+                    Log.w("Gotaku", "Failed to fetch filters: ${response.code}")
+                    return
+                }
                 val jsonString = response.body.string()
                 runCatching { jsonString.parseAs<FiltersResponseDto>() }.getOrNull()?.data ?: return
                 if (!cacheFile.exists() || cacheFile.readText() != jsonString) {
                     cacheFile.writeText(jsonString)
                 }
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            Log.e("Gotaku", "Error fetching filters", e)
+        }
     }
 
     private fun loadCachedFilters(): FilterData? {
@@ -63,6 +70,7 @@ object Filters {
                 seasons = dto.seasons.map { it.label to it.value }.distinct(),
                 ratings = dto.ratings.map { it.label to it.value }.distinct(),
                 years = dto.years.map { it.label to it.value }.distinct(),
+                countries = dto.countries.map { it.label to it.value }.distinct(),
             )
         } catch (_: Exception) {
             cacheFile.delete()
@@ -137,6 +145,7 @@ object Filters {
         SelectFilter("Status", "status", d.statuses),
         SelectFilter("Season", "season", d.seasons),
         SelectFilter("Year", "year", d.years),
+        SelectFilter("Country", "country", d.countries),
         TrackFilter(),
         SelectFilter("Content Rating", "rating", d.ratings),
         TriStateGroup("Genres", GENRE_PARAM, d.genres),

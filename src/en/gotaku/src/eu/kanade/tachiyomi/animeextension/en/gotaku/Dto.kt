@@ -17,6 +17,7 @@ class FiltersDataDto(
     val seasons: List<ValueLabelDto> = emptyList(),
     val ratings: List<ValueLabelDto> = emptyList(),
     val years: List<ValueLabelDto> = emptyList(),
+    val countries: List<ValueLabelDto> = emptyList(),
 )
 
 @Serializable
@@ -182,7 +183,7 @@ class ManifestDto(
     val token: String? = null,
     @SerialName("expiresAt") val expiresAt: Long? = null,
     val obf: ObfDto? = null,
-    val subtitles: List<ManifestSubtitleDto>? = null,
+    @SerialName("captions") val subtitles: List<ManifestSubtitleDto>? = null,
 )
 
 @Serializable
@@ -194,10 +195,16 @@ class ObfDto(
 @Serializable
 class ManifestSubtitleDto(
     val url: String? = null,
+    val file: String? = null,
     val language: String? = null,
     val lang: String? = null,
     val label: String? = null,
     val name: String? = null,
+)
+
+@Serializable
+class CaptionEnvelopeDto(
+    val vtt: String? = null,
 )
 
 // ========================= WebHook Resolution DTO =========================
