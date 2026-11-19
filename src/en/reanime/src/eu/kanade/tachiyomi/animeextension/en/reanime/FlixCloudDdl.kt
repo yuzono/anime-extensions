@@ -16,7 +16,10 @@ object FlixCloudDdl {
         val fileId: String,
         val token: String,
         val resolution: String?,
-    )
+    ) {
+        // Same sprites the HLS player shows for this file
+        val thumbnailsVtt get() = "$base/thumbnails_vtt/$fileId"
+    }
 
     private val PROGRESS_STATUS_REGEX = Regex(""""status":\s*"(\w+)"""")
     private val FILE_ID_REGEX = Regex("""[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}""")
