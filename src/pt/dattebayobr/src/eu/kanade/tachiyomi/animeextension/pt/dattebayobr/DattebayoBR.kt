@@ -46,7 +46,6 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
                     title = element
                         .selectFirst(".ultimosAnimesHomeItemInfosNome")
                         ?.text()
-                        ?.trim()
                         ?: "Sem título"
 
                     setUrlWithoutDomain(anchor.attr("href"))
@@ -105,7 +104,6 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
                     title = element
                         .selectFirst(".ultimosAnimesHomeItemInfosNome")
                         ?.text()
-                        ?.trim()
                         ?: "Sem título"
 
                     setUrlWithoutDomain(anchor.attr("href"))
@@ -144,7 +142,6 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
         return SAnime.create().apply {
             title = document.selectFirst(".tituloPage h1")
                 ?.text()
-                ?.trim()
                 ?: "Sem título"
 
             thumbnail_url = document
@@ -154,7 +151,6 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
             description = document
                 .selectFirst(".aniInfosSingleSinopse p")
                 ?.text()
-                ?.trim()
 
             genre = document
                 .select(".aniInfosSingleGeneros span")
@@ -180,7 +176,6 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
             val episodeNumText = element.selectFirst(".ultimosEpisodiosHomeItemInfosNum")
                 ?.text()
                 ?.replace("Episódio", "")
-                ?.trim()
                 ?: return null
 
             val episodeNumber = episodeNumText
