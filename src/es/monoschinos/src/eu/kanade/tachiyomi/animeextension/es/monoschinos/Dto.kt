@@ -1,8 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.es.monoschinos
 
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonPrimitive
 
 @Serializable
 class EpisodesDto(
@@ -12,7 +11,7 @@ class EpisodesDto(
 
 @Serializable
 class EpsDto(
-    val num: JsonElement,
+    val num: JsonPrimitive,
 ) {
-    val numStr: String get() = num.jsonPrimitive.content
+    val numStr: String get() = num.content
 }
