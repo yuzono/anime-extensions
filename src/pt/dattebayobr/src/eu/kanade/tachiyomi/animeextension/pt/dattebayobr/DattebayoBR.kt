@@ -71,9 +71,8 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
                     val anchor = element.selectFirst("a")!!
 
                     title = element
-                        .selectFirst(".ultimosEpisodiosHomeItemInfosNome")
-                        ?.text()
-                        ?: "Sem título"
+                        .selectFirst(".ultimosEpisodiosHomeItemInfosNome")!!
+                        .text()
 
                     setUrlWithoutDomain(anchor.attr("href"))
 
