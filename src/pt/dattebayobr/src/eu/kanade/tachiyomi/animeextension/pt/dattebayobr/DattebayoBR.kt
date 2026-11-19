@@ -17,7 +17,6 @@ import keiyoushi.utils.useAsJsoup
 import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONArray
-import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -125,9 +124,23 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
         return AnimesPage(animes, hasNextPage)
     }
 
+    override fun animeDetailsRequest(anime: SAnime): Request {
+        val animeMenuSelector = ".controlesBoxItem a[title='Lista de Episódios']"
+
+        val animeUrl = if ("videos" in anime.url) {
+            val doc = client.newCall(GET(baseUrl + anime.url, headers)).execute().asJsoup()
+            val menu = doc.selectFirst(animeMenuSelector)
+            menu!!.attr("href")
+        } else {
+            baseUrl + anime.url
+        }
+
+        return GET(animeUrl, headers)
+    }
+
     // Details
     override fun animeDetailsParse(response: Response): SAnime {
-        val document = getRealAnimeDoc(response.useAsJsoup())
+        val document = response.useAsJsoup()
 
         return SAnime.create().apply {
             title = document.selectFirst(".tituloPage h1")
@@ -186,12 +199,13 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
         }
     }
 
+    override fun episodeListRequest(anime: SAnime): Request = animeDetailsRequest(anime)
+
     override fun episodeListParse(response: Response): List<SEpisode> {
         val episodes = mutableListOf<SEpisode>()
         val seenUrls = mutableSetOf<String>()
 
         val baseAnimeUrl = response.request.url.toString()
-            .getRealAnimeUrl()
             .substringBefore("/page/")
             .removeSuffix("/")
 
@@ -289,27 +303,5 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
             emptyList()
         }
             .sortedByDescending { it.videoTitle }
-    }
-
-    // Utilities
-    private val animeMenuSelector = ".controlesBoxItem a[href] i.iconLista"
-
-    private fun getRealAnimeDoc(doc: Document): Document {
-        val menu = doc.selectFirst(animeMenuSelector)
-        return if (menu != null) {
-            val originalUrl = menu.parent()!!.attr("href")
-            val req = client.newCall(GET(originalUrl, headers)).execute()
-            req.asJsoup()
-        } else {
-            doc
-        }
-    }
-
-    private fun String.getRealAnimeUrl(): String = if ("videos" in this) {
-        val doc = client.newCall(GET(this, headers)).execute().asJsoup()
-        val menu = doc.selectFirst(animeMenuSelector)!!
-        menu.parent()!!.attr("href")
-    } else {
-        this
     }
 }
