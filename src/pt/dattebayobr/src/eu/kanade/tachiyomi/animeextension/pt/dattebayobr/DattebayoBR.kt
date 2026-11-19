@@ -74,7 +74,6 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
                     title = element
                         .selectFirst(".ultimosEpisodiosHomeItemInfosNome")
                         ?.text()
-                        ?.trim()
                         ?: "Sem título"
 
                     setUrlWithoutDomain(anchor.attr("href"))
