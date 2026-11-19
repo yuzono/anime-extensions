@@ -68,11 +68,11 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
             .select("div.ultimosEpisodiosHomeItem")
             .mapNotNull { element ->
                 SAnime.create().apply {
-                    val anchor = element.selectFirst("a")!!
-
                     title = element
                         .selectFirst(".ultimosEpisodiosHomeItemInfosNome")
-                        ?.text() ?: return@mapNotNull null
+                        ?.text()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+
+                    val anchor = element.selectFirst("a")!!
 
                     setUrlWithoutDomain(anchor.attr("href"))
 
