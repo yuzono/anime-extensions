@@ -65,7 +65,7 @@ object HanimeWasmBinary {
      * @return The raw WASM binary bytes.
      * @throws WasmExtractionException if the binary cannot be extracted after all retries.
      */
-    suspend fun fetchWasmBinary(client: OkHttpClient): ByteArray {
+    suspend fun fetchWasmBinary(client: OkHttpClient, userAgent: String? = null): ByteArray {
         var lastException: Exception? = null
         repeat(MAX_FETCH_RETRIES) { attempt ->
             val attemptNum = attempt + 1
@@ -73,11 +73,11 @@ object HanimeWasmBinary {
             try {
                 return withContext(Dispatchers.IO) {
                     Log.d(TAG, "fetchWasmBinary: fetching homepage $HANIME_HOME")
-                    val html = fetchPage(client, HANIME_HOME)
+                    val html = fetchPage(client, HANIME_HOME, userAgent)
                     val vendorJsUrl = extractVendorJsUrl(html)
                         ?: throw WasmExtractionException("Could not find vendor.js URL in hanime.tv HTML")
                     Log.d(TAG, "fetchWasmBinary: resolved vendor.js URL: $vendorJsUrl")
-                    val vendorJs = fetchPage(client, vendorJsUrl)
+                    val vendorJs = fetchPage(client, vendorJsUrl, userAgent)
                     extractWasmFromVendorJs(vendorJs)
                 }
             } catch (e: Exception) {
@@ -206,13 +206,18 @@ object HanimeWasmBinary {
      * @return The response body as a string.
      * @throws WasmExtractionException on HTTP failure or empty body.
      */
-    private fun fetchPage(client: OkHttpClient, url: String): String {
+    private fun fetchPage(client: OkHttpClient, url: String, userAgent: String? = null): String {
         Log.d(TAG, "fetchPage: requesting URL: $url")
-        val request = Request.Builder()
+        val reqBuilder = Request.Builder()
             .url(url)
-            .header("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
             .header("Accept", "text/html,application/javascript,*/*")
-            .build()
+
+        if (!userAgent.isNullOrBlank()) {
+            reqBuilder.header("User-Agent", userAgent)
+        } else {
+            reqBuilder.header("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
+        }
+        val request = reqBuilder.build()
 
         val timeoutClient = client.newBuilder()
             .connectTimeout(15.seconds)
