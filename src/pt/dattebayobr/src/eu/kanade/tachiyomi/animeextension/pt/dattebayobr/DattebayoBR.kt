@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
+import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
 import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.bodyString
@@ -45,7 +46,6 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
                     title = element
                         .selectFirst(".ultimosAnimesHomeItemInfosNome")
                         ?.text()
-                        ?.trim()
                         ?: "Sem título"
 
                     setUrlWithoutDomain(anchor.attr("href"))
@@ -61,7 +61,28 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
     // Latest
     override fun latestUpdatesRequest(page: Int): Request = popularAnimeRequest(page)
 
-    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
+    override fun latestUpdatesParse(response: Response): AnimesPage {
+        val document = response.useAsJsoup()
+
+        val animes = document
+            .select("div.ultimosEpisodiosHomeItem")
+            .mapNotNull { element ->
+                SAnime.create().apply {
+                    title = element
+                        .selectFirst(".ultimosEpisodiosHomeItemInfosNome")
+                        ?.text()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+
+                    val anchor = element.selectFirst("a")!!
+
+                    setUrlWithoutDomain(anchor.attr("href"))
+
+                    thumbnail_url = element
+                        .selectFirst(".ultimosEpisodiosHomeItemImg img")
+                        ?.attr("abs:src")
+                }
+            }
+        return AnimesPage(animes, hasNextPage = false)
+    }
 
     // Search
     override fun searchAnimeRequest(
@@ -82,7 +103,6 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
                     title = element
                         .selectFirst(".ultimosAnimesHomeItemInfosNome")
                         ?.text()
-                        ?.trim()
                         ?: "Sem título"
 
                     setUrlWithoutDomain(anchor.attr("href"))
@@ -100,6 +120,20 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
         return AnimesPage(animes, hasNextPage)
     }
 
+    override fun animeDetailsRequest(anime: SAnime): Request {
+        val animeMenuSelector = ".controlesBoxItem a[title='Lista de Episódios']"
+
+        val animeUrl = if ("videos" in anime.url) {
+            val doc = client.newCall(GET(baseUrl + anime.url, headers)).execute().asJsoup()
+            val menu = doc.selectFirst(animeMenuSelector)
+            menu!!.attr("href")
+        } else {
+            baseUrl + anime.url
+        }
+
+        return GET(animeUrl, headers)
+    }
+
     // Details
     override fun animeDetailsParse(response: Response): SAnime {
         val document = response.useAsJsoup()
@@ -107,7 +141,6 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
         return SAnime.create().apply {
             title = document.selectFirst(".tituloPage h1")
                 ?.text()
-                ?.trim()
                 ?: "Sem título"
 
             thumbnail_url = document
@@ -117,7 +150,6 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
             description = document
                 .selectFirst(".aniInfosSingleSinopse p")
                 ?.text()
-                ?.trim()
 
             genre = document
                 .select(".aniInfosSingleGeneros span")
@@ -143,21 +175,15 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
             val episodeNumText = element.selectFirst(".ultimosEpisodiosHomeItemInfosNum")
                 ?.text()
                 ?.replace("Episódio", "")
-                ?.trim()
                 ?: return null
 
             val episodeNumber = episodeNumText
                 .replace(",", ".")
                 .toFloatOrNull()
 
-            val episodeName = element.selectFirst(".ultimosEpisodiosHomeItemInfosNome")
-                ?.text()
-                ?.trim()
-                ?: "Episódio $episodeNumText"
-
             return SEpisode.create().apply {
                 setUrlWithoutDomain(anchor.attr("href"))
-                name = episodeName
+                name = "Episódio $episodeNumText"
                 episode_number = episodeNumber ?: 0f
                 date_upload = element.selectFirst(".lancaster_episodio_info_data")?.text().let(dateFormatter::tryParse)
             }
@@ -165,6 +191,8 @@ abstract class DattebayoBR : AnimeHttpLegacySource() {
             return null
         }
     }
+
+    override fun episodeListRequest(anime: SAnime): Request = animeDetailsRequest(anime)
 
     override fun episodeListParse(response: Response): List<SEpisode> {
         val episodes = mutableListOf<SEpisode>()
