@@ -27,4 +27,5 @@ yuzono {
 dependencies {
     implementation(project(":lib:bloggerextractor"))
     implementation(project(":lib:playlistutils"))
+    implementation(project(":lib:universalextractor"))
 }

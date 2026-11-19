@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.pt.animesdrive
 
 import aniyomi.lib.bloggerextractor.BloggerExtractor
+import aniyomi.lib.universalextractor.UniversalExtractor
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -131,7 +132,7 @@ abstract class AnimesDrive : DooPlay() {
     }
 
     private val bloggerExtractor by lazy { BloggerExtractor(client) }
-
+    private val universalExtractor by lazy { UniversalExtractor(client) }
     private suspend fun getPlayerVideos(player: Element): List<Video> {
         val name = player.attr("data-source-name").ifEmpty { player.selectFirst("span.title")!!.text() }
             .run {
@@ -162,6 +163,10 @@ abstract class AnimesDrive : DooPlay() {
             }
 
             else -> emptyList()
+        }
+
+        if (videos.isEmpty()) {
+            return universalExtractor.videosFromUrl(url, headers, name)
         }
 
         return videos
