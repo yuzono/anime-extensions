@@ -831,10 +831,10 @@ abstract class ReAnime :
                 )
 
                 val isPreferredAudio = hoster.hosterName.matchesAudio(preferredAudio)
-                val isPreferredBaseServer = getBaseServer(hoster.hosterName) == getBaseServer(preferredServer)
+                val isPreferredServer = getServerKey(hoster.hosterName) == preferredServer
                 val hasPreferredQuality = rawResolution?.contains(preferredQuality, true) ?: true
 
-                val isPreferred = isPreferredAudio && isPreferredBaseServer && hasPreferredQuality
+                val isPreferred = isPreferredAudio && isPreferredServer && hasPreferredQuality
 
                 listOf(video.copy(preferred = isPreferred))
             }
@@ -1025,10 +1025,10 @@ abstract class ReAnime :
             )
 
             val isPreferredAudioHoster = label.matchesAudio(preferredAudio)
-            val preferredBase = SERVER_NAME_REGEX.find(preferredServer)?.groupValues?.get(1) ?: ""
-            val isPreferredBaseServer = getBaseServer(label) == preferredBase
+            // "HD-1" must not also prefer "HD-1 Download", which loads first
+            val isPreferredServer = getServerKey(label) == preferredServer
 
-            val preferredIndex = if (isPreferredBaseServer && isPreferredAudioHoster) {
+            val preferredIndex = if (isPreferredServer && isPreferredAudioHoster) {
                 sortedVideos.indexOfFirst { video ->
                     video.videoTitle.contains(preferredQuality, true)
                 }.takeIf { it != -1 } ?: 0
@@ -1045,8 +1045,13 @@ abstract class ReAnime :
     }
 
     override suspend fun fetchVideoThumbnails(video: Video): VideoThumbnails? {
-        val vttUrl = video.internalData.takeIf { it.startsWith(THUMBNAILS_PREFIX) }
-            ?.removePrefix(THUMBNAILS_PREFIX)?.toHttpUrlOrNull() ?: return null
+        val data = video.internalData
+        val vttUrl = when {
+            data.startsWith(THUMBNAILS_PREFIX) -> data.removePrefix(THUMBNAILS_PREFIX)
+            data.startsWith("mkv_flixcloud_res::") -> data.removePrefix("mkv_flixcloud_res::").split("|||")
+                .takeIf { it.size >= 3 }?.let { FlixCloudDdl.DdlData(it[0], it[1], it[2], null).thumbnailsVtt }
+            else -> null
+        }?.toHttpUrlOrNull() ?: return null
         // The site's player resolves sprite paths against the vtt url as a directory
         val imageBase = vttUrl.newBuilder().addPathSegment("").build()
         return VideoThumbnails.fromVtt(client.get(vttUrl).body.string(), imageBase)
@@ -1069,7 +1074,7 @@ abstract class ReAnime :
 
             return video.copy(
                 videoUrl = fileUrl,
-                internalData = "",
+                internalData = THUMBNAILS_PREFIX + ddlData.thumbnailsVtt,
                 initialized = true,
                 headers = ddlHeaders,
             )
