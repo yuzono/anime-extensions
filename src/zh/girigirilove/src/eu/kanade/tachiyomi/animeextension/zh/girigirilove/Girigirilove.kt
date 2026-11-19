@@ -1,0 +1,313 @@
+package eu.kanade.tachiyomi.animeextension.zh.girigirilove
+
+import android.util.Base64
+import androidx.preference.ListPreference
+import androidx.preference.PreferenceScreen
+import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
+import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
+import eu.kanade.tachiyomi.animesource.model.SAnime
+import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.network.get
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parseAs
+import okhttp3.CacheControl
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import java.net.URLDecoder
+import java.util.concurrent.TimeUnit
+
+class Girigirilove :
+    AnimeHttpSource(),
+    ConfigurableAnimeSource {
+
+    override val name = "Girigirilove"
+
+    override val baseUrl = "https://ani.girigirilove.com"
+
+    override val lang = "zh"
+
+    override val supportsLatest = true
+
+    private val preferences by getPreferencesLazy()
+
+    private val selectedVideoLanguage
+        get() = preferences.getString(PREF_KEY_VIDEO_LANGUAGE, DEFAULT_VIDEO_LANGUAGE) ?: DEFAULT_VIDEO_LANGUAGE
+
+    private val noRefererMediaHeaders by lazy {
+        headers.newBuilder()
+            .removeAll("Referer")
+            .build()
+    }
+
+    private val siteRefererMediaHeaders by lazy {
+        headers
+    }
+
+    private val videoResolver by lazy {
+        VideoResolver(
+            client = client.newBuilder()
+                .connectTimeout(3, TimeUnit.SECONDS)
+                .readTimeout(3, TimeUnit.SECONDS)
+                .writeTimeout(3, TimeUnit.SECONDS)
+                .build(),
+            headerCandidates = listOf(noRefererMediaHeaders, siteRefererMediaHeaders),
+
+        )
+    }
+
+    override val client: OkHttpClient = network.client.newBuilder()
+        .addInterceptor(::cookieRetryInterceptor)
+        .build()
+
+    private fun cookieRetryInterceptor(chain: Interceptor.Chain): Response {
+        val request = chain.request()
+        val url = request.url.toString()
+        if (url == "$baseUrl/" || url == "$baseUrl") {
+            return chain.proceed(request)
+        }
+
+        var response = chain.proceed(request)
+        if (request.url.isSourceShowRequest(baseUrl.toHttpUrl()) && response.isSuccessful) {
+            val body = response.peekBody(1024 * 1024).string()
+            if (body.contains("什么都没有") || body.contains(".hl-total').html('0')") || body.contains(".hl-total').html(\"0\")")) {
+                response.close()
+                chain.proceed(GET("$baseUrl/", headers)).close()
+                response = chain.proceed(request)
+            }
+        }
+        return response
+    }
+
+    override fun headersBuilder() = super.headersBuilder()
+        .add("Referer", "$baseUrl/")
+
+    private fun extractPlayerJson(script: String): String? {
+        val jsonStart = script.indexOf('{', script.indexOf("player_aaaa=").takeIf { it >= 0 } ?: return null)
+            .takeIf { it >= 0 } ?: return null
+        var depth = 0
+        var inString = false
+        var escaped = false
+
+        for (index in jsonStart until script.length) {
+            val char = script[index]
+            when {
+                escaped -> escaped = false
+                inString && char == '\\' -> escaped = true
+                char == '"' -> inString = !inString
+                !inString && char == '{' -> depth++
+                !inString && char == '}' -> {
+                    depth--
+                    if (depth == 0) return script.substring(jsonStart, index + 1)
+                }
+            }
+        }
+        return null
+    }
+
+    override fun popularAnimeRequest(page: Int): Request = GET("$baseUrl/show/2--hits------$page---/", headers)
+
+    override fun popularAnimeParse(response: Response): AnimesPage = parseAnimePage(response)
+
+    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/show/2--time------$page---/", headers)
+
+    override fun latestUpdatesParse(response: Response): AnimesPage = parseAnimePage(response)
+
+    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+        if (query.isNotBlank()) {
+            val url = "$baseUrl/index.php/ajax/suggest".toHttpUrl().newBuilder()
+                .addQueryParameter("mid", "1")
+                .addQueryParameter("wd", query)
+                .addQueryParameter("page", "$page")
+                .addQueryParameter("limit", "20")
+                .build()
+            return GET(url.toString(), headers)
+        }
+
+        val type = filters.filterIsInstance<TypeFilter>().firstOrNull()?.selected ?: "1"
+        val genre = filters.filterIsInstance<GenreFilter>().firstOrNull()?.selected ?: ""
+        val year = filters.filterIsInstance<YearFilter>().firstOrNull()?.selected ?: ""
+        val sort = filters.filterIsInstance<SortFilter>().firstOrNull()?.selected ?: "time"
+
+        val url = baseUrl.toHttpUrl().newBuilder()
+            .addPathSegment("show")
+            .addPathSegment(showFilterPath(type, sort, genre, year, page))
+            .addPathSegment("")
+            .build()
+        return GET(url.toString(), headers)
+    }
+
+    override fun searchAnimeParse(response: Response): AnimesPage {
+        if (response.request.url.encodedPath.contains("suggest")) {
+            val suggestResponse = response.parseAs<SuggestResponse>()
+            val animeList = suggestResponse.list.map {
+                SAnime.create().apply {
+                    url = "/GV${it.id}/"
+                    thumbnail_url = it.pic.takeIf { pic -> pic.isNotBlank() }?.let { pic -> baseUrl.toHttpUrl().resolve(pic)?.toString() }
+                    title = it.name.also { title -> require(title.isNotBlank()) { "Missing anime title" } }
+                }
+            }
+            return AnimesPage(animeList, suggestResponse.page < suggestResponse.pageCount)
+        }
+        return parseAnimePage(response)
+    }
+
+    private fun parseAnimePage(response: Response): AnimesPage {
+        val document = response.asJsoup()
+
+        if (document.select("button.verify-submit").isNotEmpty()) {
+            throw Exception("请在 WebView 中输入验证码")
+        }
+
+        val animeList = document.select(".public-list-box").mapNotNull {
+            val a = it.selectFirst(".public-list-exp") ?: return@mapNotNull null
+            val animeTitle = a.attr("title").takeIf { title -> title.isNotBlank() } ?: return@mapNotNull null
+            val animeUrl = a.absUrl("href").takeIf { url -> url.isNotBlank() } ?: return@mapNotNull null
+            SAnime.create().apply {
+                setUrlWithoutDomain(animeUrl)
+                title = animeTitle
+                thumbnail_url = it.selectFirst("img")?.absUrl("data-src")?.takeIf { url -> url.isNotBlank() }
+            }
+        }
+
+        val hasNextPage = document.select(".page-next").isNotEmpty() ||
+            document.select(".page-tip:contains(当前)").firstOrNull()?.text()?.let {
+                val current = it.substringAfter("当前").substringBefore("/").trim().toIntOrNull()
+                val total = it.substringAfter("/").substringBefore("页").trim().toIntOrNull()
+                current != null && total != null && current < total
+            } ?: false
+
+        return AnimesPage(animeList, hasNextPage)
+    }
+
+    override fun animeDetailsParse(response: Response): SAnime {
+        val document = response.asJsoup()
+        return SAnime.create().apply {
+            title = requireNotNull(document.selectFirst(".slide-info-title")?.text()?.takeIf { it.isNotBlank() }) { "Missing anime title" }
+            thumbnail_url = document.selectFirst(".detail-pic img")?.absUrl("data-src")?.takeIf { it.isNotBlank() }
+            description = document.selectFirst("#height_limit.text")?.text()
+            genre = document.select(".slide-info:contains(类型 :) a").joinToString { it.text() }
+            author = document.select(".slide-info:contains(导演 :) a").joinToString { it.text() }
+            artist = document.select(".slide-info:contains(演员 :) a").joinToString { it.text() }
+            status = if (document.selectFirst(".slide-info-remarks")?.text()?.contains("完结") == true) {
+                SAnime.COMPLETED
+            } else {
+                SAnime.ONGOING
+            }
+        }
+    }
+
+    override fun episodeListParse(response: Response): List<SEpisode> {
+        val document = response.asJsoup()
+        val sources = document.select(".anthology-tab a").map { it.ownText().trim() }
+        val playLists = document.select(".anthology-list-play")
+        val selectedIndex = sources.indexOfFirst { it.contains(selectedVideoLanguage) }
+            .takeIf { it >= 0 }
+            ?: 0
+        val selectedSource = playLists.getOrNull(selectedIndex) ?: playLists.firstOrNull() ?: return emptyList()
+        val sourceName = sources.getOrNull(selectedIndex) ?: sources.firstOrNull() ?: "默认"
+
+        return selectedSource.select("li a").mapNotNull {
+            val episodeUrl = it.episodeUrl(baseUrl.toHttpUrl()) ?: return@mapNotNull null
+            SEpisode.create().apply {
+                name = it.text()
+                setUrlWithoutDomain(episodeUrl)
+                scanlator = sourceName
+            }
+        }.reversed()
+    }
+
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> = listOf(
+        Hoster(
+            hosterName = name,
+            hosterUrl = getEpisodeUrl(episode),
+        ),
+    )
+
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
+
+    override fun getEpisodeUrl(episode: SEpisode): String {
+        require(episode.url.isNotBlank()) { "Invalid episode URL" }
+        return requireNotNull(baseUrl.toHttpUrl().resolve(episode.url)?.takeIf { it.isEpisodeUrl(baseUrl.toHttpUrl()) }) { "Invalid episode URL" }.toString()
+    }
+
+    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+        val document = client.get(hoster.hosterUrl, cacheControl = CacheControl.Builder().build()).use { it.asJsoup() }
+        val script = document.select("script:containsData(player_aaaa)").firstOrNull()?.data()
+            ?: return emptyList()
+
+        val info = extractPlayerJson(script)?.parseAs<PlayerInfo>() ?: return emptyList()
+        val encodedUrl = info.url ?: return emptyList()
+
+        val decodedUrl = when (info.encrypt) {
+            1 -> String(Base64.decode(encodedUrl, Base64.DEFAULT))
+            2 -> URLDecoder.decode(String(Base64.decode(encodedUrl, Base64.DEFAULT), Charsets.UTF_8), "UTF-8")
+            else -> encodedUrl
+        }
+        val videoUrl = baseUrl.toHttpUrl().resolve(decodedUrl)?.toString() ?: decodedUrl
+
+        return listOf(
+            Video(
+                videoTitle = "默认",
+                preferred = true,
+                internalData = videoUrl,
+                initialized = false,
+            ),
+        )
+    }
+
+    override suspend fun resolveVideo(video: Video): Video {
+        if (video.initialized) return video
+
+        val resolved = videoResolver.resolve(video.internalData)
+        return video.copy(
+            videoUrl = resolved.url,
+            headers = resolved.headers,
+            internalData = "",
+            initialized = true,
+        )
+    }
+
+    override fun videoListParse(response: Response, hoster: Hoster): List<Video> = throw UnsupportedOperationException()
+
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
+
+    override fun getFilterList() = AnimeFilterList(
+        TypeFilter(),
+        GenreFilter(),
+        YearFilter(),
+        SortFilter(),
+    )
+
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        screen.addPreference(
+            ListPreference(screen.context).apply {
+                key = PREF_KEY_VIDEO_LANGUAGE
+                title = "请选择首选视频语言"
+                entries = VIDEO_LANGUAGE_OPTIONS
+                entryValues = VIDEO_LANGUAGE_OPTIONS
+                setDefaultValue(DEFAULT_VIDEO_LANGUAGE)
+                summary = "当前选择：$selectedVideoLanguage"
+                setOnPreferenceChangeListener { _, newValue ->
+                    summary = "当前选择：$newValue"
+                    true
+                }
+            },
+        )
+    }
+
+    companion object {
+        private const val PREF_KEY_VIDEO_LANGUAGE = "PREF_KEY_VIDEO_LANGUAGE"
+        private const val DEFAULT_VIDEO_LANGUAGE = "繁中"
+
+        private val VIDEO_LANGUAGE_OPTIONS = arrayOf("繁中", "简中")
+    }
+}
