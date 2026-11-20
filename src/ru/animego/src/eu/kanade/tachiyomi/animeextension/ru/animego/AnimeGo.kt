@@ -503,7 +503,7 @@ abstract class AnimeGo :
                         hlsHeaders,
                     )
                 } else {
-                    listOf(Video(hlsUrl, "$dubbing (${qualityName}p Kodik)", hlsUrl, headers = hlsHeaders))
+                    listOf(Video(videoUrl = hlsUrl, videoTitle = "$dubbing (${qualityName}p Kodik)", headers = hlsHeaders))
                 }
             }
         }

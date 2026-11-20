@@ -1,10 +1,12 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "BLZone"
-    versionCode = 10
+    versionCode = 12
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
 

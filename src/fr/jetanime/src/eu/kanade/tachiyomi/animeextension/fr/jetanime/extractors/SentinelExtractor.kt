@@ -37,7 +37,7 @@ class SentinelExtractor(private val client: OkHttpClient) {
 
             else -> {
                 listOf(
-                    Video(videoUrl, "Sentinel: Video ($name)", videoUrl, subtitleTracks = subtitleList),
+                    Video(videoUrl = videoUrl, videoTitle = "Sentinel: Video ($name)", subtitleTracks = subtitleList),
                 )
             }
         }

@@ -1,10 +1,12 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "desu-online"
-    versionCode = 14
+    versionCode = 15
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "animestream"

@@ -1,11 +1,13 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "AniDB"
-    versionCode = 7
-    contentWarning = ContentWarning.NSFW
+    versionCode = 13
+    contentWarning = ContentWarning.MIXED
     libVersion = "16"
 
     source {

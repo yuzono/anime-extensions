@@ -36,6 +36,7 @@ import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.time.Duration.Companion.seconds
 
 @Source
 abstract class Movy :
@@ -43,7 +44,7 @@ abstract class Movy :
     ConfigurableAnimeSource {
 
     override val client = network.client.newBuilder()
-        .rateLimit(2) { it.host.contains("wecollege.net") }
+        .rateLimit(1, 2.seconds) { it.host.contains("wecollege.net") }
         .build()
 
     private val preferences: SharedPreferences by getPreferencesLazy {

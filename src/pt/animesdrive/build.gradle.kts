@@ -1,11 +1,13 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "AnimesDrive"
-    versionCode = 7
-    contentWarning = ContentWarning.NSFW
+    versionCode = 9
+    contentWarning = ContentWarning.MIXED
     libVersion = "14"
     theme = "dooplay"
 

@@ -21,6 +21,7 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.annotation.Source
+import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.addSwitchPreference
@@ -33,11 +34,18 @@ import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 import okhttp3.Response
+import org.jsoup.Jsoup
 import org.nanohttpd.protocols.http.NanoHTTPD
+import java.lang.ref.WeakReference
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.roundToInt
 
 @Source
@@ -114,17 +122,110 @@ abstract class Gotaku :
 
     private fun Response.readBodyBoundedString(limit: Int): String? = readBodyBounded(limit)?.let { String(it, Charsets.UTF_8) }
 
-    /** GET + native decrypt of a ?k=N endpoint. Returns inflated JSON text or null. */
-    private suspend fun decryptApiCall(url: String, referer: String = baseUrl): String? = try {
-        client.get(url, apiHeaders(referer)).readBodyBounded(MAX_API_BODY_BYTES)
-            ?.let(Crypto::decryptInfo)
-            ?: run {
-                Log.w(TAG, "decryptInfo failed url=$url")
-                null
+    private val sync by lazy { GotakuSync(preferences, baseUrl, headers, client) }
+
+    private val credentials: GotakuSync.GotakuCredentials
+        get() {
+            ensureSync()
+            return sync.readStoredCredentials() ?: GotakuSync.GotakuCredentials(
+                Crypto.DEFAULT_API_VERSION,
+                Crypto.DEFAULT_API_SEED,
+                "api-seal|v1",
+            )
+        }
+
+    @Volatile private var initialSyncStarted = false
+
+    @Synchronized
+    private fun ensureSync() {
+        if (!initialSyncStarted) {
+            initialSyncStarted = true
+            // Learn the exact build (k) and seed the site is currently serving,
+            // so refresh right away and then re-sync every 30 minutes.
+            val executor = credentialSyncExecutor
+            val syncRef = WeakReference(sync)
+            val futureRef = AtomicReference<ScheduledFuture<*>?>(null)
+
+            val runSync: () -> Unit = {
+                syncRef.get()?.let { s -> runCatching { s.sync(force = true, replaceStored = false) } }
             }
-    } catch (e: Exception) {
-        Log.w(TAG, "decryptApiCall threw: $url", e)
-        null
+            executor.execute(runSync)
+            futureRef.set(
+                executor.scheduleWithFixedDelay(
+                    {
+                        if (syncRef.get() == null) {
+                            releaseCredentialLoop(futureRef, executor)
+                        } else {
+                            runSync()
+                        }
+                    },
+                    CREDENTIAL_REFRESH_INTERVAL_MS,
+                    CREDENTIAL_REFRESH_INTERVAL_MS,
+                    TimeUnit.MILLISECONDS,
+                ),
+            )
+        }
+    }
+
+    private val credentialSyncExecutor: ScheduledExecutorService by lazy {
+        Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "GotakuCredSync").apply { isDaemon = true }
+        }
+    }
+
+    /** GET + native decrypt of a ?k=N endpoint. Returns inflated JSON text or null. */
+    private suspend fun decryptApiCall(
+        url: String,
+        referer: String = baseUrl,
+        isRetry: Boolean = false,
+    ): String? {
+        val creds = credentials
+        val version = creds.version
+        val seed = creds.seed
+        val info = creds.info
+
+        val finalUrl = if (url.contains("k=")) {
+            url.replace(API_VERSION_REGEX, "$1k=$version")
+        } else {
+            val sep = if (url.contains("?")) "&" else "?"
+            "$url${sep}k=$version"
+        }
+
+        var statusCode = -1
+        val responseBytes = try {
+            val response = client.get(finalUrl, apiHeaders(referer), ensureSuccess = false)
+            statusCode = response.code
+            response.readBodyBounded(MAX_API_BODY_BYTES)
+        } catch (e: Exception) {
+            Log.w(TAG, "decryptApiCall request failed: $finalUrl", e)
+            null
+        }
+
+        if (statusCode == HTTP_UPGRADE_REQUIRED) {
+            if (isRetry) return null
+            Log.w(TAG, "Site rejected build k=$version with 426 for $finalUrl. Awaiting credential resync...")
+            val refreshed = sync.sync(force = true, replaceStored = true)
+            if (refreshed != null && refreshed != creds) {
+                return decryptApiCall(url, referer, isRetry = true)
+            }
+            return null
+        }
+
+        if (responseBytes != null && statusCode in 200..299) {
+            val decrypted = Crypto.decryptInfo(responseBytes, version, seed, info)
+            if (decrypted != null) {
+                return decrypted
+            }
+            Log.w(TAG, "decryptInfo failed for $finalUrl with version=$version. Triggering WebView sync...")
+            val newCreds = sync.sync(force = true, replaceStored = true)
+            if (!isRetry && newCreds != null && newCreds != creds) {
+                return decryptApiCall(url, referer, isRetry = true)
+            }
+        } else {
+            Log.w(TAG, "decryptApiCall got no usable body for $finalUrl (status=$statusCode)")
+        }
+
+        return null
     }
 
     // ========================== Popular & Latest ==========================
@@ -367,16 +468,11 @@ abstract class Gotaku :
     override fun relatedAnimeListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     // ========================= Episodes (encrypted) =======================
-    override fun episodeListRequest(anime: SAnime): Request = GET("$apiUrl/titles/${anime.url}/episodes?k=$API_VERSION", apiHeaders("$baseUrl/title/${anime.url}"))
+    override fun episodeListRequest(anime: SAnime): Request = GET("$apiUrl/titles/${anime.url}/episodes?k=${credentials.version}", apiHeaders("$baseUrl/title/${anime.url}"))
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        val json = try {
-            client.newCall(episodeListRequest(anime)).awaitSuccess()
-                .readBodyBounded(MAX_API_BODY_BYTES)
-                ?.let(Crypto::decryptInfo)
-        } catch (_: Exception) {
-            null
-        } ?: throw Exception("Failed to load or decrypt episode list. Try again or check the site in WebView.")
+        val json = decryptApiCall("$apiUrl/titles/${anime.url}/episodes?k=${credentials.version}", "$baseUrl/title/${anime.url}")
+            ?: throw Exception("Failed to load or decrypt episode list. Please try refreshing or check the site in WebView.")
 
         val episodes = try {
             json.parseAs<GotakuEnvelope<List<EpisodeDto>>>().data
@@ -428,7 +524,7 @@ abstract class Gotaku :
         val watchReferer = "$baseUrl/title/$slug?ep=$epId"
 
         val flags = try {
-            decryptApiCall("$apiUrl/episodes/$epId?k=$API_VERSION", watchReferer)
+            decryptApiCall("$apiUrl/episodes/$epId?k=${credentials.version}", watchReferer)
                 ?.parseAs<GotakuEnvelope<AudioFlagsDto>>()?.data
         } catch (_: Exception) {
             null
@@ -489,7 +585,7 @@ abstract class Gotaku :
 
         return when (kind) {
             "embed" -> {
-                val embedJson = decryptApiCall("$apiUrl/episodes/$epId/embed?type=$type&k=$API_VERSION", watchReferer)
+                val embedJson = decryptApiCall("$apiUrl/episodes/$epId/embed?type=$type&k=${credentials.version}", watchReferer)
                 val embedDto = try {
                     embedJson?.parseAs<GotakuEnvelope<EmbedDto>>()?.data
                 } catch (_: Exception) {
@@ -516,18 +612,44 @@ abstract class Gotaku :
         emptyList()
     }
 
+    private fun extractManifestAttrs(html: String, pageUrl: String): Pair<String, String>? {
+        val doc = Jsoup.parseBodyFragment(html, pageUrl)
+        val element = doc.selectFirst("[data-manifest-base][data-manifest-stamp]")
+        if (element != null) {
+            val base = element.attr("data-manifest-base").trim()
+            val stamp = element.attr("data-manifest-stamp").trim()
+            if (base.startsWith("https://") && stamp.isNotEmpty()) {
+                return Pair(base, stamp)
+            }
+        }
+        val forwardMatch = MANIFEST_ATTRS_REGEX.find(html)
+        if (forwardMatch != null) {
+            val (base, stamp) = forwardMatch.destructured
+            if (base.startsWith("https://") && stamp.isNotEmpty()) {
+                return Pair(base, stamp)
+            }
+        }
+        val reverseMatch = MANIFEST_ATTRS_REVERSE_REGEX.find(html)
+        if (reverseMatch != null) {
+            val stamp = reverseMatch.groupValues[1]
+            val base = reverseMatch.groupValues[2]
+            if (base.startsWith("https://") && stamp.isNotEmpty()) {
+                return Pair(base, stamp)
+            }
+        }
+        return null
+    }
+
     private suspend fun extractViaHttpImpl(
         embedUrl: String,
         watchReferer: String,
         embedDto: EmbedDto,
         hoster: Hoster,
     ): List<Video> {
-        // Embed page -> manifest base + stamp
         val html = client.get(embedUrl, apiHeaders(watchReferer))
             .readBodyBoundedString(MAX_HTML_BODY_BYTES) ?: return emptyList()
-        val attrs = MANIFEST_ATTRS_REGEX.find(html) ?: return emptyList()
-        val (base, stamp) = attrs.destructured
-        if (!base.startsWith("https://")) return emptyList()
+
+        val (base, stamp) = extractManifestAttrs(html, embedUrl) ?: return emptyList()
 
         // Handshake: the nonce salts the response key, so the same
         // object must build the request and decrypt the response.
@@ -614,7 +736,7 @@ abstract class Gotaku :
         hoster: Hoster,
     ): List<Video> {
         // 1. Fetch the embed URL (same encrypted endpoint as streaming)
-        val embedJson = decryptApiCall("$apiUrl/episodes/$epId/embed?type=$type&k=$API_VERSION", watchReferer)
+        val embedJson = decryptApiCall("$apiUrl/episodes/$epId/embed?type=$type&k=${credentials.version}", watchReferer)
         val embedDto = try {
             embedJson?.parseAs<GotakuEnvelope<EmbedDto>>()?.data
         } catch (_: Exception) {
@@ -645,9 +767,7 @@ abstract class Gotaku :
         }
 
         // 5. Scrape manifest attrs + quality options
-        val dlAttrs = MANIFEST_ATTRS_REGEX.find(downloadHtml) ?: return emptyList()
-        val (dlBase, dlStamp) = dlAttrs.destructured
-        if (!dlBase.startsWith("https://")) return emptyList()
+        val (dlBase, dlStamp) = extractManifestAttrs(downloadHtml, finalDownloadUrl) ?: return emptyList()
         val qualitiesByHeight = parseDownloadQualities(downloadHtml).associateBy { it.height }
 
         // 6. Handshake + manifest fetch
@@ -849,18 +969,39 @@ abstract class Gotaku :
 
         private const val MAX_API_BODY_BYTES = 8 * 1024 * 1024
 
+        private const val HTTP_UPGRADE_REQUIRED = 426
+
+        private const val CREDENTIAL_REFRESH_INTERVAL_MS = 30L * 60 * 1000
+
         private const val TAG = "Gotaku"
 
-        private const val API_VERSION = 7
+        /**
+         * Release of a dropped instance's refresh loop — companion (static)
+         * on purpose: the scheduled tick must not touch instance members,
+         * otherwise the task pins the source [Gotaku] forever and the
+         * WeakReference release signal can never fire.
+         */
+        private fun releaseCredentialLoop(
+            futureRef: AtomicReference<ScheduledFuture<*>?>,
+            executor: ScheduledExecutorService,
+        ) {
+            futureRef.get()?.cancel(false)
+            executor.shutdownNow()
+            Log.d(TAG, "Credential refresh loop released (source instance dropped by host)")
+        }
 
         private const val MAX_HTML_BODY_BYTES = 2 * 1024 * 1024
+
+        private val API_VERSION_REGEX = Regex("""([?&])k=\d+""")
 
         private val SOURCE_TYPE_REGEX = Regex("""<li class="source-type">([^<]+)</li>""")
         private val DOWNLOAD_URL_REGEX = Regex("""data-download-url="([^"]+)"""")
         private val QUALITY_INPUT_REGEX = Regex("""<input\s+[^>]*name="quality"[^>]*>""")
         private val QUALITY_REGEX = Regex("""(\d{3,4})""")
         private val MANIFEST_ATTRS_REGEX =
-            Regex("""data-manifest-base="([^"]+)"\s+data-manifest-stamp="([^"]+)"""")
+            Regex("""data-manifest-base=["']([^"']+)["'][^>]*data-manifest-stamp=["']([^"']+)["']""")
+        private val MANIFEST_ATTRS_REVERSE_REGEX =
+            Regex("""data-manifest-stamp=["']([^"']+)["'][^>]*data-manifest-base=["']([^"']+)["']""")
         private val BR_REGEX = Regex("""<br\s*/?>""", RegexOption.IGNORE_CASE)
         private val HTML_TAG_REGEX = Regex("""</?(i|b|em)>""", RegexOption.IGNORE_CASE)
     }

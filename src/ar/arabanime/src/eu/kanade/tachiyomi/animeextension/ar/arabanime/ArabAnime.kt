@@ -188,7 +188,7 @@ abstract class ArabAnime :
                             val quality = source.attr("label").let { q ->
                                 if (q.contains("p")) q else q + "p"
                             }
-                            Video(videoUrl, "$name: $quality", videoUrl)
+                            Video(videoUrl = videoUrl, videoTitle = "$name: $quality")
                         } else {
                             null
                         }

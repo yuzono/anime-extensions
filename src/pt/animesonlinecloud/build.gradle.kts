@@ -1,11 +1,13 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "AnimesOnlineCloud"
-    versionCode = 6
-    contentWarning = ContentWarning.NSFW
+    versionCode = 8
+    contentWarning = ContentWarning.MIXED
     libVersion = "14"
     theme = "dooplay"
 

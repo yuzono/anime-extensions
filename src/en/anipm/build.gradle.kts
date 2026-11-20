@@ -1,10 +1,12 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "AniPM"
-    versionCode = 7
+    versionCode = 9
     contentWarning = ContentWarning.MIXED
     libVersion = "16"
 

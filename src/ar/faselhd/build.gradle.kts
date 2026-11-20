@@ -1,18 +1,20 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "FASELHD"
-    versionCode = 31
+    versionCode = 32
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 
     source {
         name = "فاصل اعلاني"
         lang = "ar"
-        baseUrl("https://www.faselhds.biz") {
-            withCustom = true
+        baseUrl {
+            custom("https://www.faselhds.biz")
         }
     }
 }

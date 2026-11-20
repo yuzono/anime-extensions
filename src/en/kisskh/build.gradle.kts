@@ -1,17 +1,20 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "KissKH"
-    versionCode = 10
-    contentWarning = ContentWarning.NSFW
+    versionCode = 12
+    contentWarning = ContentWarning.MIXED
     libVersion = "16"
 
     source {
         lang = "en"
-        baseUrl("https://kisskh.ovh") {
-            mirrors = listOf(
+        baseUrl {
+            mirrors(
+                "https://kisskh.ovh",
                 "https://kisskh.do",
                 "https://kisskh.co",
                 "https://kisskh.id",

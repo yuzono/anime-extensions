@@ -1,10 +1,12 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "Aniweek"
-    versionCode = 19
+    versionCode = 20
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 

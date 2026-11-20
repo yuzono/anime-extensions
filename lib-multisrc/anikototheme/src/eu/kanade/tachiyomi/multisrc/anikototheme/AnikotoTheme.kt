@@ -14,26 +14,31 @@ import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addListQueryParameter
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addQueryParameterIfNotEmpty
 import eu.kanade.tachiyomi.multisrc.anikototheme.dto.ResultResponse
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.get
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.network.get
 import keiyoushi.network.rateLimit
+import keiyoushi.source.AniSource
+import keiyoushi.source.model.Related
+import keiyoushi.source.model.SAnimeUpdate
+import keiyoushi.source.model.VideoThumbnails
 import keiyoushi.utils.delegate
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.rc4
 import keiyoushi.utils.tryParse
 import keiyoushi.utils.useAsJsoup
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import okhttp3.CacheControl
 import okhttp3.Headers
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
 import okhttp3.Protocol
-import okhttp3.Request
-import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.math.BigDecimal
@@ -46,7 +51,7 @@ import kotlin.time.Duration.Companion.seconds
 
 abstract class AnikotoTheme(
     private val hosterNames: List<String>,
-) : AnimeHttpSource(),
+) : AniSource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = true
@@ -57,7 +62,7 @@ abstract class AnikotoTheme(
 
     open val mapperUrl = "https://mapper.nekostream.site/api"
 
-    override val disableRelatedAnimesBySearch = true
+    override val hasRelatedAnime = true
 
     open val useEpisodeTitles = true
 
@@ -73,17 +78,12 @@ abstract class AnikotoTheme(
     protected val docHeaders: Headers
         get() = headersBuilder().build()
 
-    // Don't eagerly initialize client in multi-src class since subclass overwrite rateLimit will get 0 instead
-    override val client by lazy { buildClient() }
+    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = rateLimit(rateLimit)
 
     // Don't eagerly initialize client in multi-src class since subclass overwrite rateLimit will get 0 instead
     internal val playlistClient by lazy { buildPlaylistClient() }
 
     internal val playlistUtils by lazy { PlaylistUtils(playlistClient, headers) }
-
-    private fun buildClient() = network.client.newBuilder()
-        .rateLimit(rateLimit)
-        .build()
 
     private fun buildPlaylistClient() = client.newBuilder()
         .readTimeout(30.seconds)
@@ -212,15 +212,25 @@ abstract class AnikotoTheme(
 
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int): Request = GET(
-        baseUrl.toHttpUrl().newBuilder().apply {
+    override suspend fun getPopularAnime(page: Int): AnimesPage {
+        val url = baseUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("most-viewed")
             addPathSegment("")
             addQueryParameter("page", page.toString())
-        }.build(),
-        docHeaders,
-        cacheControl,
-    )
+        }.build()
+
+        val document = client.get(url, docHeaders, cacheControl).useAsJsoup()
+        return document.toAnimesPage(popularAnimeSelector(), popularAnimeNextPageSelector(), ::popularAnimeFromElement)
+    }
+
+    private fun Document.toAnimesPage(
+        selector: String,
+        nextPageSelector: String,
+        fromElement: (Element) -> SAnime,
+    ): AnimesPage {
+        val animes = select(selector).mapNotNull { runCatching { fromElement(it) }.getOrNull() }
+        return AnimesPage(animes, selectFirst(nextPageSelector) != null)
+    }
 
     open fun popularAnimeSelector(): String = "div.ani.items > div.item"
 
@@ -236,47 +246,35 @@ abstract class AnikotoTheme(
 
     open fun popularAnimeNextPageSelector(): String = "nav > ul.pagination > li.active ~ li"
 
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
-        val animes = document.select(popularAnimeSelector()).mapNotNull {
-            runCatching { popularAnimeFromElement(it) }.getOrNull()
-        }
-        val nextPage = popularAnimeNextPageSelector().let { document.selectFirst(it) != null }
-        return AnimesPage(animes, nextPage)
-    }
-
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET(
-        baseUrl.toHttpUrl().newBuilder().apply {
+    override suspend fun getLatestUpdates(page: Int): AnimesPage {
+        val url = baseUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("latest-updated")
             addPathSegment("")
             addQueryParameter("page", page.toString())
-        }.build(),
-        docHeaders,
-        cacheControl,
-    )
+        }.build()
+
+        val document = client.get(url, docHeaders, cacheControl).useAsJsoup()
+        return document.toAnimesPage(latestUpdatesSelector(), latestUpdatesNextPageSelector(), ::latestUpdatesFromElement)
+    }
 
     open fun latestUpdatesSelector() = popularAnimeSelector()
     open fun latestUpdatesFromElement(element: Element) = popularAnimeFromElement(element)
     open fun latestUpdatesNextPageSelector() = popularAnimeNextPageSelector()
 
-    override fun latestUpdatesParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
-        val animes = document.select(latestUpdatesSelector()).mapNotNull {
-            runCatching { latestUpdatesFromElement(it) }.getOrNull()
-        }
-        val nextPage = latestUpdatesNextPageSelector().let { document.selectFirst(it) != null }
-        return AnimesPage(animes, nextPage)
-    }
-
     // =============================== Search ===============================
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        val document = client.get(searchAnimeUrl(page, query, filters), docHeaders, cacheControl).useAsJsoup()
+        return document.toAnimesPage(searchAnimeSelector(), searchAnimeNextPageSelector(), ::searchAnimeFromElement)
+    }
+
+    protected open fun searchAnimeUrl(page: Int, query: String, filters: AnimeFilterList): String {
         val params = AnikotoThemeFilters.getSearchParameters(filters)
         val vrf = if (query.isNotEmpty()) vrfEncrypt(query) else ""
 
-        val url = baseUrl.toHttpUrl().newBuilder().apply {
+        return baseUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("filter")
             addQueryParameter("keyword", query)
             addQueryParameter("page", page.toString())
@@ -294,46 +292,32 @@ abstract class AnikotoTheme(
             addQueryParameterIfNotEmpty("ep_max", params.episodesMax)
             addQueryParameterIfNotEmpty("sort", params.sort)
         }.build().toString()
-
-        return GET(url, docHeaders, cacheControl)
     }
 
     open fun searchAnimeSelector() = popularAnimeSelector()
     open fun searchAnimeFromElement(element: Element) = popularAnimeFromElement(element)
     open fun searchAnimeNextPageSelector() = popularAnimeNextPageSelector()
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        val document = response.asJsoup()
-        val animes = document.select(searchAnimeSelector()).mapNotNull {
-            runCatching { searchAnimeFromElement(it) }.getOrNull()
-        }
-        val nextPage = searchAnimeNextPageSelector().let { document.selectFirst(it) != null }
-        return AnimesPage(animes, nextPage)
-    }
-
     override fun getFilterList(): AnimeFilterList = AnikotoThemeFilters.getFilterList(hasSourceFilter, hasEpisodeFilter)
 
     // =========================== Anime Details ============================
 
-    override fun animeDetailsParse(response: Response): SAnime = parseAnimeDetails(response.asJsoup())
-
     open fun parseAnimeDetails(document: Document): SAnime {
-        val newDocument = resolveSearchAnime(document)
-        val titleElement = newDocument.selectFirst("h1.title, h2.title")
-        val animeId = newDocument.selectFirst("[data-id]")?.attr("data-id")
-            ?: newDocument.selectFirst("[data-tip]")?.attr("data-tip")
+        val titleElement = document.selectFirst("h1.title, h2.title")
+        val animeId = document.selectFirst("[data-id]")?.attr("data-id")
+            ?: document.selectFirst("[data-tip]")?.attr("data-tip")
 
         return SAnime.create().apply {
-            setUrlWithoutDomain(newDocument.location())
+            setUrlWithoutDomain(document.location())
             if (!animeId.isNullOrBlank()) url += "#$animeId"
             titleElement?.let { getTitle(it) }?.takeIf { it.isNotEmpty() }?.let { title = it }
-            genre = newDocument.select("div:contains(Genres) > span > a").joinToString { it.text() }
-            author = newDocument.select("div:contains(Studios) > span > a").joinToString { it.text() }
-            status = parseStatus(newDocument.select("div:contains(Status) > span").text())
-            description = buildDescription(newDocument, titleElement)
+            genre = document.select("div:contains(Genres) > span > a").joinToString { it.text() }
+            author = document.select("div:contains(Studios) > span > a").joinToString { it.text() }
+            status = parseStatus(document.select("div:contains(Status) > span").text())
+            description = buildDescription(document, titleElement)
 
             if (detailThumbnailSelector.isNotEmpty()) {
-                newDocument.selectFirst(detailThumbnailSelector)?.let { img ->
+                document.selectFirst(detailThumbnailSelector)?.let { img ->
                     val url = img.attr("data-src").ifBlank { img.attr("src") }
                     if (url.isNotEmpty()) thumbnail_url = url
                 }
@@ -343,125 +327,130 @@ abstract class AnikotoTheme(
 
     // ============================== Related ===============================
 
-    override fun relatedAnimeListRequest(anime: SAnime): Request {
+    override suspend fun fetchRelatedAnime(anime: SAnime): List<Related> {
         val animeUrl = anime.url.substringBefore("#")
         val animeId = anime.url.substringAfter("#", "")
-        return if (animeId.isNotEmpty()) {
-            GET(baseUrl + animeUrl, docHeaders).newBuilder()
-                .header("X-Anime-Id", animeId).build()
-        } else {
-            GET(baseUrl + animeUrl, docHeaders)
-        }
-    }
 
-    override fun relatedAnimeListParse(response: Response): List<SAnime> {
+        val (pageUrl, document) = client.get(baseUrl + animeUrl, docHeaders).let { it.request.url to it.asJsoup() }
+        val currentAnimePath = pageUrl.encodedPath
+
         return try {
-            val document = response.asJsoup()
-            val currentAnimePath = response.request.url.encodedPath
-            val animeId = response.request.header("X-Anime-Id")
-                ?: document.selectFirst("[data-id]")?.attr("data-id")
-                ?: document.selectFirst("[data-tip]")?.attr("data-tip")
-            val resultList = mutableListOf<SAnime>()
-
-            if (!animeId.isNullOrBlank()) {
-                try {
-                    val listHeaders = headers.newBuilder().apply {
-                        add("Accept", "application/json, text/javascript, */*; q=0.01")
-                        add("Referer", response.request.url.toString())
-                        add("X-Requested-With", "XMLHttpRequest")
-                    }.build()
-
-                    client.newCall(GET("$baseUrl/api/watch-order/$animeId", listHeaders)).execute().use { apiResponse ->
-                        val relatedDoc = apiResponse.parseAs<ResultResponse>().toDocument()
-                        relatedDoc.select(watchOrderItemSelector).forEach { element ->
-                            val href = element.selectFirst("a[href*=/watch/]")?.attr("href")
-                                ?: element.attr("href").takeIf { it.contains("/watch/") }
-                                ?: return@forEach
-                            val path = extractAnimePath(href.substringBefore("?").trim()) ?: return@forEach
-                            if (path == currentAnimePath) return@forEach
-                            val nameElement = element.selectFirst(".info .name") ?: return@forEach
-                            resultList.add(
-                                SAnime.create().apply {
-                                    url = path
-                                    title = getTitle(nameElement)
-                                    thumbnail_url = extractRelatedThumbnail(element)
-                                },
-                            )
-                        }
-                    }
-                } catch (_: Exception) { }
+            val id = animeId.ifBlank { relatedAnimeId(document).orEmpty() }
+            var watchOrder = if (id.isNotBlank()) fetchWatchOrder(id, pageUrl, currentAnimePath) else emptyList()
+            var recommended = recommendedItems(document).mapNotNull {
+                relatedAnimeFromElement(it, recommendedHref(it), currentAnimePath)
             }
 
-            document.select(recommendedSectionSelector).firstOrNull {
-                it.select(".head .title").text().equals("Recommended", ignoreCase = true)
-            }?.select("a.item")?.forEach { element ->
-                val path = extractAnimePath(element.attr("href").substringBefore("?").trim()) ?: return@forEach
-
-                if (path == currentAnimePath) return@forEach
-                val nameElement = element.selectFirst(".info .name")
-                    ?: return@forEach
-
-                resultList.add(
-                    SAnime.create().apply {
-                        url = path
-                        title = getTitle(nameElement)
-                        thumbnail_url = extractRelatedThumbnail(element)
-                    },
-                )
+            if (distinctRelated) {
+                watchOrder = watchOrder.distinctBy { it.url }
+                val seen = watchOrder.mapTo(mutableSetOf()) { it.url }
+                recommended = recommended.filter { seen.add(it.url) }
             }
-            resultList
+
+            listOf(Related("Watch order", watchOrder), Related("Recommended", recommended))
+                .filter { it.animes.isNotEmpty() }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("AnikotoTheme", "Failed to parse related anime", e)
             emptyList()
         }
     }
+
+    private suspend fun fetchWatchOrder(animeId: String, pageUrl: HttpUrl, currentAnimePath: String): List<SAnime> = try {
+        val listHeaders = headers.newBuilder().apply {
+            add("Accept", "application/json, text/javascript, */*; q=0.01")
+            add("Referer", pageUrl.toString())
+            add("X-Requested-With", "XMLHttpRequest")
+        }.build()
+
+        client.get("$baseUrl/api/watch-order/$animeId", listHeaders)
+            .parseAs<ResultResponse>()
+            .toDocument()
+            .select(watchOrderItemSelector)
+            .mapNotNull { relatedAnimeFromElement(it, watchOrderHref(it), currentAnimePath) }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    private fun relatedAnimeFromElement(element: Element, href: String?, currentAnimePath: String): SAnime? {
+        val path = extractAnimePath(href?.substringBefore("?")?.trim()) ?: return null
+        if (path == currentAnimePath) return null
+        val nameElement = element.selectFirst(".info .name") ?: return null
+        return SAnime.create().apply {
+            url = path
+            title = getTitle(nameElement)
+            thumbnail_url = extractRelatedThumbnail(element)
+        }
+    }
+
+    protected open val distinctRelated = false
+
+    protected open fun relatedAnimeId(document: Document): String? = document.selectFirst("[data-id]")?.attr("data-id")
+        ?: document.selectFirst("[data-tip]")?.attr("data-tip")
+
+    protected open fun watchOrderHref(element: Element): String? = element.selectFirst("a[href*=/watch/]")?.attr("href")
+        ?: element.attr("href").takeIf { it.contains("/watch/") }
+
+    protected open fun recommendedItems(document: Document): List<Element> = document.select(recommendedSectionSelector)
+        .firstOrNull { it.select(".head .title").text().equals("Recommended", ignoreCase = true) }
+        ?.select("a.item")
+        .orEmpty()
+
+    protected open fun recommendedHref(element: Element): String? = element.attr("href")
+
     // ============================== Episodes ==============================
 
-    override fun seasonListParse(response: Response) = throw UnsupportedOperationException()
-
-    override fun episodeListRequest(anime: SAnime): Request = throw UnsupportedOperationException()
     open fun episodeListSelector() = "div.episodes ul > li > a"
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        val animeId = anime.url.substringAfter("#", "")
+    override suspend fun fetchAnimeUpdate(
+        anime: SAnime,
+        episodes: List<SEpisode>,
+        fetchDetails: Boolean,
+        fetchEpisodes: Boolean,
+    ): SAnimeUpdate = coroutineScope {
         val animeUrl = anime.url.substringBefore("#")
+        val animeId = anime.url.substringAfter("#", "")
 
-        val id = animeId.ifBlank {
-            client.get(baseUrl + animeUrl, docHeaders).use { response ->
-                val doc = resolveSearchAnime(response.asJsoup())
-                doc.selectFirst("[data-id]")?.attr("data-id")
-                    ?: doc.selectFirst("[data-tip]")?.attr("data-tip")
-                    ?: throw IllegalStateException("Anime ID not found")
+        val needsPage = fetchDetails || (fetchEpisodes && animeId.isBlank())
+        val page = if (needsPage) async { fetchAnimePage(animeUrl) } else null
+
+        val details = if (fetchDetails) async { parseAnimeDetails(page!!.await()) } else null
+        val episodeList = if (fetchEpisodes) {
+            async {
+                val id = animeId.ifBlank {
+                    page!!.await().let { doc ->
+                        doc.selectFirst("[data-id]")?.attr("data-id")
+                            ?: doc.selectFirst("[data-tip]")?.attr("data-tip")
+                            ?: throw IllegalStateException("Anime ID not found")
+                    }
+                }
+                fetchEpisodeList(id, animeUrl)
             }
+        } else {
+            null
         }
 
+        SAnimeUpdate(details?.await() ?: anime, episodeList?.await() ?: episodes)
+    }
+
+    private suspend fun fetchAnimePage(animeUrl: String): Document = resolveSearchAnime(client.get(baseUrl + animeUrl, docHeaders).useAsJsoup())
+
+    private suspend fun fetchEpisodeList(animeId: String, animeUrl: String): List<SEpisode> {
         val listHeaders = headers.newBuilder().apply {
             add("Accept", "application/json, text/javascript, */*; q=0.01")
             add("Referer", baseUrl + animeUrl)
             add("X-Requested-With", "XMLHttpRequest")
         }.build()
 
-        client.get(
-            "$baseUrl/ajax/episode/list/$id?vrf=${vrfEncrypt(id)}",
-            listHeaders,
-        ).use { response ->
-            return episodeListParse(response)
-        }
-    }
-
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        val referer = response.request.header("Referer")
-        if (referer.isNullOrBlank()) return emptyList()
-        val animeUrl = try {
-            referer.toHttpUrl().encodedPath
-        } catch (_: Exception) {
-            return emptyList()
-        }
+        val response = client.get("$baseUrl/ajax/episode/list/$animeId?vrf=${vrfEncrypt(animeId)}", listHeaders)
 
         return try {
+            val episodeAnimeUrl = (baseUrl + animeUrl).toHttpUrl().encodedPath
             response.parseAs<ResultResponse>().toDocument().select(episodeListSelector())
-                .filter { !hideFiller || !isFiller(it) }
-                .map { episodeFromElement(it, animeUrl) }
+                .map { episodeFromElement(it, episodeAnimeUrl) }
                 .reversed()
         } catch (e: Exception) {
             Log.e("AnikotoTheme", "Failed to parse episodes: ${e.message}")
@@ -488,11 +477,9 @@ abstract class AnikotoTheme(
         val slug = element.attr("data-slug")
         val timestamp = element.attr("data-timestamp").toLongOrNull()
 
-        val isFiller = isFiller(element) && markFiller
-        val fillerTag = if (isFiller) " [Filler]" else ""
-
         return SEpisode.create().apply {
-            this.name = "Episode $epNum" + (if (name.isNotEmpty() && name != "Episode $epNum") ": $name" else "") + fillerTag
+            this.name = "Episode $epNum" + (if (name.isNotEmpty() && name != "Episode $epNum") ": $name" else "")
+            fillermark = isFiller(element)
             this.url = buildString {
                 append("$ids&epurl=${EP_URL_SUFFIX_REGEX.replace(animeUrl, "")}/ep-$epNum")
                 if (malId.isNotEmpty()) append("&mal=$malId")
@@ -514,21 +501,7 @@ abstract class AnikotoTheme(
         val serverName: String,
     )
 
-    private fun videoListRequest(episode: SEpisode): Request {
-        val ids = episode.url.substringBefore("&")
-        val epurlPart = episode.url.substringAfter("epurl=").substringBefore("&")
-
-        val listHeaders = headers.newBuilder().apply {
-            add("Accept", "application/json, text/javascript, */*; q=0.01")
-            add("Referer", "$baseUrl$epurlPart")
-            add("X-Requested-With", "XMLHttpRequest")
-        }.build()
-        return GET("$baseUrl/ajax/server/list?servers=$ids", listHeaders)
-    }
-
-    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
-
-    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
+    override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> {
         val isServerInvalid = preferences.getBoolean(PREF_SERVER_INVALID_FLAG, false) ||
             (prefServer.isNotEmpty() && prefServer !in discoveredServers && prefServer !in hosterNames)
 
@@ -537,36 +510,40 @@ abstract class AnikotoTheme(
             throw Exception("The site's video servers have changed. Please open the extension settings to update your Preferred Server.")
         }
 
-        client.get(
-            videoListRequest(episode).url,
-            videoListRequest(episode).headers,
-        ).use { response ->
-            val referer = response.request.header("Referer")
-            if (referer.isNullOrBlank()) return emptyList()
-            val epUrl = try {
-                referer.toHttpUrl().encodedPath
-            } catch (_: Exception) {
-                return emptyList()
-            }
+        val ids = episode.url.substringBefore("&")
+        val epurlPart = episode.url.substringAfter("epurl=").substringBefore("&")
 
-            val document = try {
-                response.parseAs<ResultResponse>().toDocument()
-            } catch (e: Exception) {
-                Log.e("AnikotoTheme", "Failed to parse video list: ${e.message}")
-                return emptyList()
-            }
+        val listHeaders = headers.newBuilder().apply {
+            add("Accept", "application/json, text/javascript, */*; q=0.01")
+            add("Referer", "$baseUrl$epurlPart")
+            add("X-Requested-With", "XMLHttpRequest")
+        }.build()
 
-            return extractors.getServerData(document, episode).map { server ->
-                Hoster(
-                    hosterUrl = server.serverId,
-                    hosterName = server.serverName,
-                    internalData = "${server.type}$INTERNAL_DATA_SEPARATOR$epUrl",
-                )
-            }
+        val epUrl = try {
+            "$baseUrl$epurlPart".toHttpUrl().encodedPath
+        } catch (_: Exception) {
+            return emptyList()
+        }
+
+        val response = client.get("$baseUrl/ajax/server/list?servers=$ids", listHeaders)
+
+        val document = try {
+            response.parseAs<ResultResponse>().toDocument()
+        } catch (e: Exception) {
+            Log.e("AnikotoTheme", "Failed to parse video list: ${e.message}")
+            return emptyList()
+        }
+
+        return extractors.getServerData(document, episode).map { server ->
+            Hoster(
+                hosterUrl = server.serverId,
+                hosterName = server.serverName,
+                internalData = "${server.type}$INTERNAL_DATA_SEPARATOR$epUrl",
+            )
         }
     }
 
-    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+    override suspend fun fetchVideoList(hoster: Hoster): List<Video> {
         val data = hoster.internalData.split(INTERNAL_DATA_SEPARATOR, limit = 2)
         if (data.size != 2) return emptyList()
 
@@ -574,7 +551,28 @@ abstract class AnikotoTheme(
         val epUrl = data[1]
         val server = VideoData(type = serverType, serverId = hoster.hosterUrl, serverName = hoster.hosterName)
 
-        return extractors.extractVideo(server, epUrl)
+        return extractors.extractVideo(server, epUrl).markPreferred(server)
+    }
+
+    override fun getAnimeUrl(anime: SAnime): String = baseUrl + anime.url.substringBefore("#")
+
+    override fun getEpisodeUrl(episode: SEpisode): String = baseUrl + episode.url.substringAfter("epurl=").substringBefore("&")
+
+    // The preferred quality of the preferred server and type, so the app picks it
+    private fun List<Video>.markPreferred(server: VideoData): List<Video> {
+        if (buildTypeFallbackChain(prefType).none { it.equals(server.type, ignoreCase = true) }) return this
+        val preferredBase = extractBaseServerName(prefServer)
+        val isPreferredServer = server.serverName.equals(prefServer, ignoreCase = true) ||
+            extractBaseServerName(server.serverName).equals(preferredBase, ignoreCase = true)
+        if (!isPreferredServer) return this
+
+        val preferredIndex = indexOfFirst { it.videoTitle.contains(prefQuality) }.takeIf { it >= 0 } ?: 0
+        return mapIndexed { index, video -> video.copy(preferred = index == preferredIndex) }
+    }
+
+    override suspend fun fetchVideoThumbnails(video: Video): VideoThumbnails? {
+        val vttUrl = video.internalData.takeIf { it.isNotBlank() } ?: return null
+        return VideoThumbnails.fromVtt(client.get(vttUrl, video.headers ?: headers))
     }
 
     // =========================== Hoster Sort ===============================
@@ -684,12 +682,12 @@ abstract class AnikotoTheme(
         if (scorePosition == SCORE_POS_BOTTOM && fancyScore.isNotEmpty()) append(fancyScore)
     }.trim()
 
-    protected open fun resolveSearchAnime(document: Document): Document {
+    protected open suspend fun resolveSearchAnime(document: Document): Document {
         if (document.location().startsWith("$baseUrl/filter?keyword=")) {
             val foundAnimePath = document.selectFirst(searchAnimeSelector())?.selectFirst("a[href]")?.attr("href")
                 ?: throw IllegalStateException("Search element not found")
             val resolveAnimePath = EP_URL_SUFFIX_REGEX.replace(foundAnimePath, "")
-            return client.newCall(GET(baseUrl + resolveAnimePath)).execute().useAsJsoup()
+            return client.get(baseUrl + resolveAnimePath, docHeaders).useAsJsoup()
         }
         return document
     }
@@ -818,8 +816,6 @@ abstract class AnikotoTheme(
     protected val prefServer by preferences.delegate(PREF_SERVER_KEY, hosterNames.firstOrNull() ?: "")
     protected val prefType by preferences.delegate(PREF_TYPE_KEY, PREF_TYPE_DEFAULT)
     protected val scorePosition by preferences.delegate(PREF_SCORE_POSITION_KEY, PREF_SCORE_POSITION_DEFAULT)
-    protected val markFiller by preferences.delegate(PREF_MARK_FILLER_KEY, PREF_MARK_FILLER_DEFAULT)
-    protected val hideFiller by preferences.delegate(PREF_HIDE_FILLER_KEY, PREF_HIDE_FILLER_DEFAULT)
 
     // ============================== Preferences ===========================
 
@@ -947,20 +943,6 @@ abstract class AnikotoTheme(
             summary = "%s"
         }.also(screen::addPreference)
 
-        androidx.preference.SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_MARK_FILLER_KEY
-            title = "Mark Filler Episodes"
-            summary = "Mark filler episodes in the episode list"
-            setDefaultValue(PREF_MARK_FILLER_DEFAULT)
-        }.also(screen::addPreference)
-
-        androidx.preference.SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_HIDE_FILLER_KEY
-            title = "Hide Filler Episodes"
-            summary = "Hides detected filler episodes from episode list"
-            setDefaultValue(PREF_HIDE_FILLER_DEFAULT)
-        }.also(screen::addPreference)
-
         val excludeServerEntries = discoveredServers.map { getHosterDisplayName(it) }.toTypedArray()
         val excludeServerValues = discoveredServers.toTypedArray()
 
@@ -1015,12 +997,6 @@ abstract class AnikotoTheme(
         private const val PREF_SCORE_POSITION_DEFAULT = SCORE_POS_TOP
         private val PREF_SCORE_POSITION_ENTRIES = arrayOf("Top of description", "Bottom of description", "Don't show")
         private val PREF_SCORE_POSITION_VALUES = arrayOf(SCORE_POS_TOP, SCORE_POS_BOTTOM, SCORE_POS_NONE)
-
-        private const val PREF_MARK_FILLER_KEY = "mark_fillers"
-        private const val PREF_MARK_FILLER_DEFAULT = true
-
-        private const val PREF_HIDE_FILLER_KEY = "hide_fillers"
-        private const val PREF_HIDE_FILLER_DEFAULT = false
 
         private const val PREF_DISCOVERED_TYPES_KEY = "discovered_types"
         private const val PREF_DISCOVERED_HTML_SERVERS_KEY = "discovered_html_servers"

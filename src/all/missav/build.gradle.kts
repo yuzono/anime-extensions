@@ -1,17 +1,23 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "MissAV"
-    versionCode = 33
+    versionCode = 34
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
 
     source {
         lang = "all"
-        baseUrl("https://missav.live") {
-            mirrors = listOf("https://missav.ai", "https://missav.ws")
+        baseUrl {
+            mirrors(
+                "https://missav.live",
+                "https://missav.ai",
+                "https://missav.ws",
+            )
         }
     }
 }

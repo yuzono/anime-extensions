@@ -44,10 +44,6 @@ abstract class Rezka :
     AnimeHttpSource(),
     ConfigurableAnimeSource {
 
-    override val name = "HDRezka"
-
-    override val lang = "ru"
-
     override val supportsLatest = true
 
     override val disableRelatedAnimesBySearch = true

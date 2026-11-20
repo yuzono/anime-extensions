@@ -1,10 +1,12 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "Movie4k"
-    versionCode = 20
+    versionCode = 21
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 

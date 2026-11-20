@@ -1,10 +1,12 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "Arab Seed"
-    versionCode = 32
+    versionCode = 33
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 

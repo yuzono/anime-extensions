@@ -57,7 +57,7 @@ abstract class AnimeBalkan : AnimeStream() {
                 val doc = client.newCall(GET(url)).awaitSuccess().useAsJsoup()
                 val videoUrl = doc.selectFirst("source")?.attr("src")
                     ?: return emptyList()
-                listOf(Video(videoUrl, "Server AB - Default", videoUrl))
+                listOf(Video(videoUrl = videoUrl, videoTitle = "Server AB - Default"))
             }
 
             else -> emptyList()

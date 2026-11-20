@@ -45,18 +45,12 @@ abstract class GoogleDrive :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val name = "Google Drive"
-
-    override val id = 4222017068256633289
-
     override var baseUrl = "https://drive.google.com"
 
     // Hack to manipulate what gets opened in webview
     private val baseUrlInternal by lazy {
         preferences.domainList.split(";").firstOrNull()
     }
-
-    override val lang = "all"
 
     override val supportsLatest = false
 

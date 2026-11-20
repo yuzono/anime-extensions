@@ -1,11 +1,13 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "VoirCartoon"
-    versionCode = 16
-    contentWarning = ContentWarning.NSFW
+    versionCode = 18
+    contentWarning = ContentWarning.MIXED
     libVersion = "14"
     theme = "dooplay"
 

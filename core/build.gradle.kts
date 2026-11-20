@@ -20,7 +20,10 @@ android {
 
 dependencies {
     compileOnly(libs.bundles.common)
+    compileOnly(project(":extensions-lib"))
+    implementation(libs.nanohttpd.fork)
 
     testImplementation(libs.bundles.common)
+    testImplementation(project(":extensions-lib"))
     testImplementation(libs.junit)
 }

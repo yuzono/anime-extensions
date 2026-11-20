@@ -193,7 +193,7 @@ abstract class Javgg :
                     add("Referer", "https://${turboDocument.location().toHttpUrl().host}/")
                 }.build()
 
-                listOf(Video(masterUrl, "TurboPlay", masterUrl, customHeaders))
+                listOf(Video(videoUrl = masterUrl, videoTitle = "TurboPlay", headers = customHeaders))
             }
 
             else -> emptyList()

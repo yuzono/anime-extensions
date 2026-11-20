@@ -171,7 +171,7 @@ abstract class AniPlay :
 
         return when {
             videoUrl.contains(".m3u8") -> playlistUtils.extractFromHls(videoUrl)
-            else -> listOf(Video(videoUrl, "Default", videoUrl, headers = headers))
+            else -> listOf(Video(videoUrl = videoUrl, videoTitle = "Default", headers = headers))
         }
     }
 

@@ -16,6 +16,7 @@ import kotlinx.serialization.json.Json
 import okhttp3.Response
 import uy.kohesive.injekt.injectLazy
 
+@Deprecated("Use keiyoushi.source.AniSource, which runs on both Anikku and Animiru")
 abstract class Source :
     AnimeHttpSource(),
     ConfigurableAnimeSource {

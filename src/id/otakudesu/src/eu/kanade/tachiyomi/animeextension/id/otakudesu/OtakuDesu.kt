@@ -231,7 +231,7 @@ abstract class OtakuDesu :
                 val videoUrl = script.substringAfter("sources:[{")
                     .substringAfter("file':'")
                     .substringBefore("'")
-                listOf(Video(videoUrl, "DesuStream - $quality", videoUrl, headers))
+                listOf(Video(videoUrl = videoUrl, videoTitle = "DesuStream - $quality", headers = headers))
             }
         }
 
@@ -240,7 +240,7 @@ abstract class OtakuDesu :
                 val doc = it.useAsJsoup()
                 val script = doc.selectFirst("script:containsData(player.src)")!!.data()
                 val videoUrl = script.substringAfter("src: \"").substringBefore('"')
-                listOf(Video(videoUrl, "Mp4upload - $quality", videoUrl, headers))
+                listOf(Video(videoUrl = videoUrl, videoTitle = "Mp4upload - $quality", headers = headers))
             }
         }
 

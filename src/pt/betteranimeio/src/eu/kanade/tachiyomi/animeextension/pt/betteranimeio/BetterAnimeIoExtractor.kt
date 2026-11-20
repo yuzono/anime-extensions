@@ -17,7 +17,7 @@ class BetterAnimeIoExtractor(
 
             if (videoResponse.status == "success") {
                 videoResponse.play.map { video ->
-                    Video(video.src, video.sizeText, video.src)
+                    Video(videoUrl = video.src, videoTitle = video.sizeText)
                 }
             } else {
                 emptyList()

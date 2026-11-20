@@ -16,7 +16,7 @@ class YourUploadExtractor(private val client: OkHttpClient) {
             if (!baseData.isNullOrEmpty()) {
                 val basicUrl = baseData.substringAfter("file: '").substringBefore("',")
                 val quality = prefix + name
-                listOf(Video(basicUrl, quality, basicUrl, headers = newHeaders))
+                listOf(Video(videoUrl = basicUrl, videoTitle = quality, headers = newHeaders))
             } else {
                 null
             }

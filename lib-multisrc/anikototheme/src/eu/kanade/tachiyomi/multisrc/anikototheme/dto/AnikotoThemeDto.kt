@@ -66,7 +66,7 @@ class MegaPlaySourcesDto(
 class MegaPlayTrackDto(
     val file: String,
     val label: String = "",
-
+    val kind: String = "",
 )
 
 @Serializable

@@ -1,10 +1,12 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "EnNovelas (Dead)"
-    versionCode = 28
+    versionCode = 29
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 

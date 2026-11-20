@@ -30,17 +30,16 @@ import kotlin.collections.toByteArray
  *     the segment URL id) XORed over only the first `obf.segmentBytes` bytes.
  */
 object Crypto {
-    private val API_SEED = listOf(
-        140, 157, 249, 137, 131, 233, 25, 47, 206, 70, 175, 58, 152, 64, 88, 233,
-        170, 229, 184, 161, 235, 192, 136, 9, 173, 145, 87, 251, 61, 232, 207, 137,
+    val DEFAULT_API_SEED = listOf(
+        30, 99, 206, 236, 176, 26, 228, 147, 55, 35, 152, 123, 6, 17, 126,
+        179, 40, 181, 197, 210, 194, 90, 232, 35, 247, 20, 130, 43, 71, 117, 123, 82,
     ).map { it.toByte() }.toByteArray()
+
+    const val DEFAULT_API_VERSION = "10"
 
     private val MANIFEST_SEED = "458e5403c40a73332706df406193dd6b040a2ea97a6bb59b52b294a61006e6ef".decodeHex()
 
-    /** HKDF-SHA256(ikm=API_SEED, salt=∅, info="api-seal|v1", L=32) — derived once. */
-    private val apiKeySpec by lazy {
-        SecretKeySpec(hkdfSha256(API_SEED, ByteArray(0), "api-seal|v1".toByteArray(), 32), "AES")
-    }
+    fun getApiKeySpec(seed: ByteArray, info: String = "api-seal|v1"): SecretKeySpec = SecretKeySpec(hkdfSha256(seed, ByteArray(0), info.toByteArray(), 32), "AES")
 
     private val manifestKeySpec by lazy { SecretKeySpec(MANIFEST_SEED, "AES") }
 
@@ -53,17 +52,24 @@ object Crypto {
      * text, or null on any failure. Defensively accepts a base64-text variant
      * of the wire format in case a proxy layer ever re-encodes the body.
      */
-    fun decryptInfo(body: ByteArray): String? {
-        val blob = if (body.isNotEmpty() && (body[0] == 7.toByte())) {
+    fun decryptInfo(
+        body: ByteArray,
+        apiVersion: String = DEFAULT_API_VERSION,
+        apiSeed: ByteArray = DEFAULT_API_SEED,
+        hkdfInfo: String = "api-seal|v1",
+    ): String? {
+        val versionInt = apiVersion.toIntOrNull() ?: DEFAULT_API_VERSION.toInt()
+        val versionByte = versionInt.and(0xFF).toByte()
+        val blob = if (body.isNotEmpty() && (body[0] == versionByte || body[0].toInt().and(0xFF) == versionInt)) {
             body
         } else {
             b64UrlDecode(body.decodeToString()) ?: return null
         }
-        // 1 (version) + 12 (IV) + 16 (GCM tag) = 29 = empty payload
-        if (blob.size <= 29 || (blob[0] != 7.toByte())) return null
+        if (blob.size <= 29 || (blob[0].toInt().and(0xFF) != versionInt)) return null
 
+        val keySpec = getApiKeySpec(apiSeed, hkdfInfo)
         val compressed = gcmDecrypt(
-            apiKeySpec,
+            keySpec,
             blob.copyOfRange(1, 13),
             blob.copyOfRange(13, blob.size),
         ) ?: return null

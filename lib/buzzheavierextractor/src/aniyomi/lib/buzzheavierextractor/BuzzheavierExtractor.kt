@@ -59,7 +59,7 @@ class BuzzheavierExtractor(
             return emptyList()
         }
 
-        return listOf(Video(videoUrl, "${prefix}$size", videoUrl, videoHeaders))
+        return listOf(Video(videoUrl = videoUrl, videoTitle = "${prefix}$size", headers = videoHeaders))
     }
 
     private fun OkHttpClient.executeWithRetry(request: Request, maxRetries: Int, validCode: Int): Response {

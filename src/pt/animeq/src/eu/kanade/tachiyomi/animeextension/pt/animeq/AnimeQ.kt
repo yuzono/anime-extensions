@@ -151,7 +151,7 @@ abstract class AnimeQ : DooPlay() {
                     .build()
 
                 return listOf(
-                    Video(videoUrl, name, videoUrl, videoHeaders),
+                    Video(videoUrl = videoUrl, videoTitle = name, headers = videoHeaders),
                 )
             }
             url.contains(".mp4", ignoreCase = true) || "stream.php" in url -> {

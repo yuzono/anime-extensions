@@ -7,86 +7,88 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonTransformingSerializer
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.jsonPrimitive
 
 @Serializable
-data class AnimeListResponse(
+class SearchRequest(val q: String)
+
+@Serializable
+class AnimeListResponse(
     val content: List<AnimeListItem>,
-    val cursor: AnimeListCursor,
-)
+    private val cursor: AnimeListCursor,
+) {
+    val hasNextPage get() = cursor.next.firstOrNull()?.jsonPrimitive?.boolean == true
+}
 
 @Serializable
-data class AnimeListItem(
-    val content_id: String,
-    val content_title: String? = null,
-    val content_title_en: String? = null,
-    val content_title_jp: String? = null,
-    val content_image: String? = null,
+class AnimeListItem(
+    @SerialName("content_id") val contentId: String,
+    @SerialName("content_title") val contentTitle: String? = null,
+    @SerialName("content_title_en") val contentTitleEn: String? = null,
+    @SerialName("content_title_jp") val contentTitleJp: String? = null,
+    @SerialName("content_image") val contentImage: String? = null,
     val thumbnail: String? = null,
 )
 
 @Serializable
-data class AnimeListCursor(val next: JsonArray)
+class AnimeListCursor(val next: JsonArray)
 
 @Serializable
-data class AnimeDetails(
-    val content_id: String,
-    val content_title: String?,
-    val content_title_en: String?,
-    val mal_id: Int? = null,
-    val subtitle_support: Boolean? = null,
+class AnimeDetails(
+    @SerialName("content_id") val contentId: String,
+    @SerialName("content_title") val contentTitle: String?,
+    @SerialName("content_title_en") val contentTitleEn: String?,
+    @SerialName("mal_id") val malId: Int? = null,
+    @SerialName("previous_season") val previousSeason: String? = null,
+    @SerialName("next_season") val nextSeason: String? = null,
+    @SerialName("mal_data")
     @Serializable(with = MalSerializer::class)
-    val mal_data: MalData?,
+    val malData: MalData?,
 )
 
 @Serializable
-data class EpisodeDto(
-    @SerialName("contentTitle_episode_en")
-    val nameEn: String? = null,
-    @SerialName("contentTitle_episode_jp")
-    val nameJp: String? = null,
+class EpisodeDto(
+    @SerialName("contentTitle_episode_en") val nameEn: String? = null,
+    @SerialName("contentTitle_episode_jp") val nameJp: String? = null,
 )
 
 @Serializable
-data class MalData(
+class MalData(
     val genres: List<Genre>?,
     val status: String?,
     val studios: List<Studio>?,
     val synopsis: String?,
-    val mean_score: Double? = null,
+    @SerialName("mean_score") val meanScore: Double? = null,
     val rating: String? = null,
 )
 
 @Serializable
-data class Genre(val name: String)
+class Genre(val name: String)
 
 @Serializable
-data class Studio(val name: String)
+class Studio(val name: String)
 
 @Serializable
-data class VideoData(
+class VideoData(
     val metadata: MetaData,
     val uri: StreamData,
 )
 
 @Serializable
-data class MetaData(val subtitles: Map<String, String>)
+class MetaData(val subtitles: Map<String, String>)
 
 @Serializable
-data class StreamData(
+class StreamData(
     val stream: String,
     val subtitles: Map<String, String>,
 )
 
 @Serializable
-data class MeilisearchResponse(
-    val hits: List<AnimeListItem>,
-)
+class MeilisearchResponse(val hits: List<AnimeListItem>)
 
 @Serializable
-data class SearchResponse(
-    val status: Int,
-    val result: List<AnimeListItem>,
-)
+class SearchResponse(val result: List<AnimeListItem>)
 
 object MalSerializer : JsonTransformingSerializer<MalData>(MalData.serializer()) {
     override fun transformDeserialize(element: JsonElement): JsonElement = when (element) {

@@ -527,9 +527,8 @@ abstract class VVVVID :
         audioTracks.add(Track("$baseVideoUrl/$audioUrl", "Audio"))
 
         return Video(
-            baseVideoUrl,
-            name,
-            "$baseVideoUrl/$videoUrl",
+            videoUrl = "$baseVideoUrl/$videoUrl",
+            videoTitle = name,
             audioTracks = audioTracks,
         )
     }

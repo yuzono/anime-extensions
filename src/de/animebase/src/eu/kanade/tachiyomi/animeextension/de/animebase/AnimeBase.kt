@@ -194,12 +194,11 @@ abstract class AnimeBase :
                 getVideosFromHoster(it.text(), it.attr("data-streamlink"))
                     .map { video ->
                         Video(
-                            video.videoUrl,
-                            "$language ${video.videoTitle}",
-                            video.videoUrl,
-                            video.headers,
-                            video.subtitleTracks,
-                            video.audioTracks,
+                            videoUrl = video.videoUrl,
+                            videoTitle = "$language ${video.videoTitle}",
+                            headers = video.headers,
+                            subtitleTracks = video.subtitleTracks,
+                            audioTracks = video.audioTracks,
                         )
                     }
             }

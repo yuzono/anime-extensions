@@ -197,7 +197,7 @@ class AnitubeExtractor(
         val videoToken = fetchVideoToken(playerInfo)
         return if (!videoToken.isNullOrBlank()) {
             val finalUrl = playerInfo.videoUrl + videoToken
-            listOf(Video(finalUrl, "Anitube - $quality", finalUrl, headers = headers))
+            listOf(Video(videoUrl = finalUrl, videoTitle = "Anitube - $quality", headers = headers))
         } else {
             emptyList()
         }

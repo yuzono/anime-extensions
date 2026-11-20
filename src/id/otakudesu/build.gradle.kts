@@ -1,10 +1,12 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "OtakuDesu"
-    versionCode = 44
+    versionCode = 45
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 

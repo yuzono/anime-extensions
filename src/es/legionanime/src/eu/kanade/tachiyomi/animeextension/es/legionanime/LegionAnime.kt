@@ -267,16 +267,16 @@ abstract class LegionAnime :
         url.contains("jkanime") -> listOfNotNull(JkanimeExtractor(client).getDesuFromUrl(url))
         url.contains("/stream/amz.php?") -> {
             val videoUrl = JkanimeExtractor(client).amazonExtractor(url).takeIf { it.isNotBlank() } ?: return emptyList()
-            listOf(Video(videoUrl, server, videoUrl))
+            listOf(Video(videoUrl = videoUrl, videoTitle = server))
         }
         url.contains("yourupload") -> YourUploadExtractor(client).videoFromUrl(url, headers)
         url.contains("mp4upload") -> Mp4uploadExtractor(client).videosFromUrl(url, headers)
         url.contains("dood") -> listOfNotNull(DoodExtractor(client).videoFromUrl(url))
         url.contains("ok.ru") -> OkruExtractor(client).videosFromUrl(url)
         url.startsWith("http") && url.contains("flvvideo") && (url.endsWith(".m3u8") || url.endsWith(".mp4")) ->
-            listOf(Video(url, "VideoFLV", url))
+            listOf(Video(videoUrl = url, videoTitle = "VideoFLV"))
         url.startsWith("http") && url.contains("cdnlat4animecen") && (url.endsWith(".class") || url.endsWith(".m3u8") || url.endsWith(".mp4")) ->
-            listOf(Video(url, "AnimeCen", url))
+            listOf(Video(videoUrl = url, videoTitle = "AnimeCen"))
         url.contains("uqload") -> UqloadExtractor(client).videosFromUrl(url)
         else -> emptyList()
     }

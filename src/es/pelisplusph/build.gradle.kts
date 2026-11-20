@@ -1,10 +1,12 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "PelisPlusPh"
-    versionCode = 82
+    versionCode = 83
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "pelisplus"

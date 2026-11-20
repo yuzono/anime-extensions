@@ -128,7 +128,7 @@ abstract class VeoHentai :
                 file.contains(".mp4") -> "MP4"
                 else -> ""
             }
-            Video(file, "VeoHentai:$type", file, subtitleTracks = subs)
+            Video(videoUrl = file, videoTitle = "VeoHentai:$type", subtitleTracks = subs)
         }
     }
 

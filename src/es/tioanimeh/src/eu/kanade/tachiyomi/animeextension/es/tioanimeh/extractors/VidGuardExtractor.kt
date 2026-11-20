@@ -56,7 +56,7 @@ class VidGuardExtractor(private val client: OkHttpClient) {
                     .takeIf(String::isNotBlank)
                     ?.let(::fixUrl)
                     ?: return@mapNotNull null
-                Video(videoUrl, "VidGuard:$resolution", videoUrl, headers)
+                Video(videoUrl = videoUrl, videoTitle = "VidGuard:$resolution", headers = headers)
             }
     }
 

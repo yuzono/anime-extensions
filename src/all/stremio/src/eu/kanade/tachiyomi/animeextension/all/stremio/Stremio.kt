@@ -53,10 +53,6 @@ abstract class Stremio : Source() {
 
     override var baseUrl by LazyMutable { preferences.webUIUrl }
 
-    override val lang = "all"
-
-    override val name = "Stremio"
-
     override val supportsLatest = false
 
     private val addonDelegate = preferences.delegate(ADDONS_KEY, ADDONS_DEFAULT)

@@ -91,6 +91,9 @@ class EpisodeDto(
     val aired: String? = null,
     @SerialName("is_filler") val isFiller: Boolean = false,
     @SerialName("is_recap") val isRecap: Boolean = false,
+    val subbed: Boolean = false,
+    val dubbed: Boolean = false,
+    val description: String? = null,
 )
 
 @Serializable
@@ -113,6 +116,7 @@ class VideoServerDto(
     val dataLink: String? = null,
     val dataType: String? = null,
     val softsub: Boolean = false,
+    val hardsub: Boolean = false,
 )
 
 // ============================ Anime Detail DTOs ===========================
@@ -286,6 +290,7 @@ class FlixcloudEmbedDataDto(
     val subtitles: List<FlixcloudSubtitleDto>? = null,
     @SerialName("intro_chapter") private val introChapter: FlixcloudChapterDto? = null,
     @SerialName("outro_chapter") private val outroChapter: FlixcloudChapterDto? = null,
+    @SerialName("thumbnails_vtt") val thumbnailsVtt: String? = null,
 ) {
     fun toSkipTimes(): SkipTimes = SkipTimes(
         introStart = introChapter?.start,

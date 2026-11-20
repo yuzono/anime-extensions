@@ -1,10 +1,12 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "RouVideo"
-    versionCode = 15
+    versionCode = 16
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
 

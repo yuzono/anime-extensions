@@ -16,7 +16,7 @@ class SolidFilesExtractor(private val client: OkHttpClient) {
                     val url = data.replace("\"", "")
                     val videoUrl = url
                     val quality = prefix + "SolidFiles"
-                    videoList.add(Video(videoUrl, quality, videoUrl))
+                    videoList.add(Video(videoUrl = videoUrl, videoTitle = quality))
                 }
             }
             videoList

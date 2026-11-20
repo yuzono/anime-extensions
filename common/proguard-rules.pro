@@ -61,3 +61,6 @@
     *** videoListRequest(eu.kanade.tachiyomi.animesource.model.SEpisode);
     *** videoListParse(okhttp3.Response);
 }
+
+# androidx.preference is compile-only without its dependencies; the app provides them
+-dontwarn androidx.**

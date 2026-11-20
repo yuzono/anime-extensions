@@ -1,9 +1,10 @@
 package eu.kanade.tachiyomi.animeextension.en.reanime
 
-import eu.kanade.tachiyomi.animeextension.en.reanime.FlixProxyServer.Companion.flixCloudUrl
+import eu.kanade.tachiyomi.animeextension.en.reanime.FlixStreamInterceptor.Companion.flixCloudUrl
 import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.get
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import kotlin.time.Duration.Companion.seconds
@@ -15,22 +16,43 @@ object FlixCloudDdl {
         val fileId: String,
         val token: String,
         val resolution: String?,
-    )
+    ) {
+        // Same sprites the HLS player shows for this file
+        val thumbnailsVtt get() = "$base/thumbnails_vtt/$fileId"
+    }
 
     private val PROGRESS_STATUS_REGEX = Regex(""""status":\s*"(\w+)"""")
     private val FILE_ID_REGEX = Regex("""[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}""")
     private val JWT_REGEX = Regex("""eyJ[\w-]+\.[\w-]+\.[\w-]+""")
     private val FETCH_BASE_REGEX = Regex("""https://fetch\d*\.flixcloud\.cc""")
-    private val RESOLUTION_REGEX = Regex("""(\d{3,4}p)""")
+    private val RESOLUTION_REGEX = Regex("""(\d{3,4}p)(?![a-zA-Z])""", RegexOption.IGNORE_CASE)
     private const val PROGRESS_TIMEOUT_SECONDS = 5L
 
     /**
      * Quickly fetches the download metadata so we can display the accurate
      * resolution (e.g. "1080p MKV") in the video list instantly without blocking.
      */
-    suspend fun fetchMetadata(client: OkHttpClient, headers: Headers, aid: String): DdlData? {
+    suspend fun fetchMetadata(client: OkHttpClient, headers: Headers, aid: String, dataLink: String = ""): DdlData? {
         return try {
-            val dataBody = client.get("$flixCloudUrl/d/$aid/__data.json", headers).use { res ->
+            val jsonUrl = if (dataLink.isNotBlank() && dataLink.startsWith("https://")) {
+                try {
+                    val httpUrl = dataLink.toHttpUrl()
+                    val pathSegments = httpUrl.pathSegments.toMutableList()
+                    if (pathSegments.size >= 2 && pathSegments[0] == "e") {
+                        pathSegments[0] = "d"
+                        pathSegments.add("__data.json")
+                    }
+                    httpUrl.newBuilder()
+                        .encodedPath("/" + pathSegments.joinToString("/"))
+                        .build()
+                } catch (_: Exception) {
+                    "$flixCloudUrl/d/$aid/__data.json".toHttpUrl()
+                }
+            } else {
+                "$flixCloudUrl/d/$aid/__data.json".toHttpUrl()
+            }
+
+            val dataBody = client.get(jsonUrl, headers).use { res ->
                 if (!res.isSuccessful) return null
                 res.body.string()
             }

@@ -22,7 +22,7 @@ class WolfstreamExtractor(private val client: OkHttpClient) {
                     .mapNotNull { match -> match.groupValues[1].takeIf { it.isNotBlank() } }.toList()
             } ?: return emptyList()
         return urls.map { videoUl ->
-            Video(videoUl, "${prefix}WolfStream", videoUl)
+            Video(videoUrl = videoUl, videoTitle = "${prefix}WolfStream")
         }
     }
 }

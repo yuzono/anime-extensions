@@ -213,12 +213,11 @@ abstract class TRAnimeIzle :
                     }
                     .map {
                         Video(
-                            it.videoUrl,
-                            "[$fansubName] ${it.videoTitle}",
-                            it.videoUrl,
-                            it.headers,
-                            it.subtitleTracks,
-                            it.audioTracks,
+                            videoUrl = it.videoUrl,
+                            videoTitle = "[$fansubName] ${it.videoTitle}",
+                            headers = it.headers,
+                            subtitleTracks = it.subtitleTracks,
+                            audioTracks = it.audioTracks,
                         )
                     }
             }

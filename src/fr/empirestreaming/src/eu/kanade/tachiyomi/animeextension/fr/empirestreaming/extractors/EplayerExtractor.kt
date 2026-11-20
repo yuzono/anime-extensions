@@ -45,7 +45,7 @@ class EplayerExtractor(private val client: OkHttpClient) {
                     .substringBefore(",") + "p"
 
                 val videoUrl = it.substringAfter("\n").substringBefore("\n")
-                Video(videoUrl, "E-Player - $resolution", videoUrl, headers)
+                Video(videoUrl = videoUrl, videoTitle = "E-Player - $resolution", headers = headers)
             }
     }
 

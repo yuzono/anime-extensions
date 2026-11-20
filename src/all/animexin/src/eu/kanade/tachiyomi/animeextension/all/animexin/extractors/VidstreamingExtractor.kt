@@ -75,7 +75,7 @@ class VidstreamingExtractor(private val client: OkHttpClient) {
                         if (!videoUrl.startsWith("http")) {
                             videoUrl = fileURL.substringBeforeLast("/") + "/$videoUrl"
                         }
-                        videoList.add(Video(videoUrl, prefix + quality + qualitySuffix, videoUrl))
+                        videoList.add(Video(videoUrl = videoUrl, videoTitle = prefix + quality + qualitySuffix))
                     }
             } else {
                 array.forEach {
@@ -86,14 +86,13 @@ class VidstreamingExtractor(private val client: OkHttpClient) {
                     if (label == "auto") {
                         autoList.add(
                             Video(
-                                fileURL,
-                                label + qualitySuffix,
-                                fileURL,
+                                videoUrl = fileURL,
+                                videoTitle = label + qualitySuffix,
                                 headers = videoHeaders,
                             ),
                         )
                     } else {
-                        videoList.add(Video(fileURL, label + qualitySuffix, fileURL, headers = videoHeaders))
+                        videoList.add(Video(videoUrl = fileURL, videoTitle = label + qualitySuffix, headers = videoHeaders))
                     }
                 }
             }

@@ -35,7 +35,7 @@ class AmazonExtractor(private val client: OkHttpClient) {
         return if (videoUrl.contains(".m3u8")) {
             playlistUtils.extractFromHls(videoUrl, videoNameGen = { "${prefix}$serverName:$it" })
         } else {
-            listOf(Video(videoUrl, "${prefix}$serverName", videoUrl))
+            listOf(Video(videoUrl = videoUrl, videoTitle = "${prefix}$serverName"))
         }
     }
 }

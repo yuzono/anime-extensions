@@ -268,7 +268,7 @@ abstract class FanPelis :
                             "es-MX,es-419;q=0.9,es;q=0.8,en;q=0.7,zh-TW;q=0.6,zh-CN;q=0.5,zh;q=0.4",
                         )
                         .build()
-                    return Video(videoUrl, "Streamlare:$type", videoUrl, headers = headers)
+                    return Video(videoUrl = videoUrl, videoTitle = "Streamlare:$type", headers = headers)
                 }
             }
             return null

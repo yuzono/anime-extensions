@@ -12,6 +12,6 @@ class MetaExtractor(private val client: OkHttpClient) {
         val script = document.select("script:containsData(sources: [{src:)")
             .firstOrNull()?.data()?.substringAfter("sources: [{src: \"") ?: return null
         val videoUrl = script.substringAfter("sources: [{src: \"").substringBefore("\", type:")
-        return Video(url, quality, videoUrl)
+        return Video(videoUrl = videoUrl, videoTitle = quality)
     }
 }

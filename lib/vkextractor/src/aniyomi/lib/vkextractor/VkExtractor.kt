@@ -31,7 +31,7 @@ class VkExtractor(private val client: OkHttpClient, headers: Headers) {
         val apiVideos = getVideosViaApi(videoId)
         if (apiVideos.isNotEmpty()) {
             return apiVideos.map {
-                Video(it.url, "${prefix}${it.quality}", it.url, videoHeaders)
+                Video(videoUrl = it.url, videoTitle = "${prefix}${it.quality}", headers = videoHeaders)
             }
         }
 
@@ -97,7 +97,7 @@ class VkExtractor(private val client: OkHttpClient, headers: Headers) {
     }
 
     private fun extractVideosFromHtml(html: String, prefix: String): List<Video> = parseVideoUrls(html).map {
-        Video(it.url, "${prefix}${it.quality}", it.url, videoHeaders)
+        Video(videoUrl = it.url, videoTitle = "${prefix}${it.quality}", headers = videoHeaders)
     }
 
     private fun parseVideoUrls(text: String): List<RawVideo> {

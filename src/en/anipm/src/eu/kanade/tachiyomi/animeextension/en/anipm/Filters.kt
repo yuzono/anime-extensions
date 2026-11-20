@@ -10,8 +10,8 @@ object Filters {
     class SortFilter : AnimeFilter.Select<String>("Sort", SORT_ENTRIES, 1) {
         fun getValue(): String = SORT_VALUES[state]
         companion object {
-            private val SORT_ENTRIES = arrayOf("For you", "Trending", "Popular", "Top rated", "Newest", "A–Z")
-            private val SORT_VALUES = arrayOf("recommended", "trending", "popular", "score", "newest", "title")
+            private val SORT_ENTRIES = arrayOf("For you", "Trending", "Popular", "Top rated", "MAL rating", "Newest", "A–Z")
+            private val SORT_VALUES = arrayOf("recommended", "trending", "popular", "score", "mal", "newest", "title")
         }
     }
 

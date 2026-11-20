@@ -1,10 +1,12 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "AnimeOnline.Ninja"
-    versionCode = 63
+    versionCode = 65
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "dooplay"

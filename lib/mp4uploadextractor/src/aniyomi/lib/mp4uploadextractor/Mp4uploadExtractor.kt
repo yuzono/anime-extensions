@@ -28,7 +28,7 @@ class Mp4uploadExtractor(private val client: OkHttpClient) {
         val resolution = QUALITY_REGEX.find(script)?.groupValues?.let { "${it[1]}p" } ?: "Unknown resolution"
         val quality = "${prefix}Mp4Upload - $resolution$suffix"
 
-        return listOf(Video(videoUrl, quality, videoUrl, newHeaders))
+        return listOf(Video(videoUrl = videoUrl, videoTitle = quality, headers = newHeaders))
     }
 
     companion object {

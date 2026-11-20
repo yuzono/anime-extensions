@@ -36,8 +36,6 @@ abstract class UHDMovies :
     ParsedAnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val name = "UHD Movies"
-
     override val baseUrl by lazy {
         preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
     }
@@ -64,8 +62,6 @@ abstract class UHDMovies :
             }
         }.getOrDefault(baseUrl)
     }
-
-    override val lang = "en"
 
     override val supportsLatest = false
 
@@ -228,7 +224,7 @@ abstract class UHDMovies :
                 videos.isEmpty() -> {
                     extractGDriveLink(url, quality).ifEmpty {
                         getDirectLink(url, "instant", "/mfile/")?.let {
-                            listOf(Video(it, "$quality - GDrive Instant link", it))
+                            listOf(Video(videoUrl = it, videoTitle = "$quality - GDrive Instant link"))
                         } ?: emptyList()
                     }
                 }
@@ -327,7 +323,7 @@ abstract class UHDMovies :
             emptyList()
         } else {
             val realLink = link.attr("action")
-            listOf(Video(realLink, "$quality - Gdrive$size", realLink))
+            listOf(Video(videoUrl = realLink, videoTitle = "$quality - Gdrive$size"))
         }
     }
 

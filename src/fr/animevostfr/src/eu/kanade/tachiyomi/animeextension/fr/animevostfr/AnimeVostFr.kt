@@ -210,7 +210,7 @@ abstract class AnimeVostFr :
                     .split("#EXT-X-STREAM-INF:").map {
                         val quality = it.substringAfter("RESOLUTION=").split(",")[0].split("\n")[0].substringAfter("x") + "p ($serverName)"
                         val videoUrl = it.substringAfter("\n").substringBefore("\n")
-                        playlist.add(Video(videoUrl, quality, videoUrl, headers = headersVideo))
+                        playlist.add(Video(videoUrl = videoUrl, videoTitle = quality, headers = headersVideo))
                     }
             }
 

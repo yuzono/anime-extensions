@@ -5,10 +5,8 @@ import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoTheme
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addListQueryParameter
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoThemeFilters.addQueryParameterIfNotEmpty
-import eu.kanade.tachiyomi.network.GET
 import keiyoushi.annotation.Source
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Request
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
@@ -89,11 +87,11 @@ abstract class AnimeSogo :
 
     // =================== Search Override =================================
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+    override fun searchAnimeUrl(page: Int, query: String, filters: AnimeFilterList): String {
         val params = AnikotoThemeFilters.getSearchParameters(filters)
         val vrf = if (query.isNotBlank()) vrfEncrypt(query) else ""
 
-        val url = baseUrl.toHttpUrl().newBuilder().apply {
+        return baseUrl.toHttpUrl().newBuilder().apply {
             addPathSegment("filter")
             addQueryParameter("keyword", query)
             addQueryParameter("page", page.toString())
@@ -108,8 +106,6 @@ abstract class AnimeSogo :
             addListQueryParameter("rating", params.ratings.map { it.lowercase().replace("-", "_") })
             addQueryParameterIfNotEmpty("sort", params.sort)
         }.build().toString()
-
-        return GET(url, docHeaders, cacheControl)
     }
 
     // =================== Thumbnail Override ==============================

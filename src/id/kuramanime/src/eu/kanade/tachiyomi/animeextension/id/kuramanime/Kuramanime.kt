@@ -212,7 +212,7 @@ abstract class Kuramanime :
                 else -> {
                     playerDoc.select("video#player > source").map {
                         val src = it.attr("src")
-                        Video(src, "${it.attr("size")}p - $serverName", src)
+                        Video(videoUrl = src, videoTitle = "${it.attr("size")}p - $serverName")
                     }
                 }
             }

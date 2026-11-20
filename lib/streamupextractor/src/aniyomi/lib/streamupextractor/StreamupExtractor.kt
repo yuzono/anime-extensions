@@ -74,7 +74,7 @@ class StreamupExtractor(private val client: OkHttpClient) {
                 .add("Origin", baseUrl)
                 .build()
 
-            videos.add(Video(streamUrl, "${prefix}Streamup", streamUrl, headers = headers))
+            videos.add(Video(videoUrl = streamUrl, videoTitle = "${prefix}Streamup", headers = headers))
         }
 
         return videos

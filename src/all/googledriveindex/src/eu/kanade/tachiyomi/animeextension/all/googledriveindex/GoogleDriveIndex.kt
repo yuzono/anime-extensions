@@ -43,13 +43,9 @@ abstract class GoogleDriveIndex :
     AnimeHttpLegacySource(),
     ConfigurableAnimeSource {
 
-    override val name = "GoogleDriveIndex"
-
     override val baseUrl by lazy {
         preferences.domainList.split(",").first().removeName()
     }
-
-    override val lang = "all"
 
     private var pageToken: String? = ""
 
@@ -455,10 +451,10 @@ abstract class GoogleDriveIndex :
 
         val script = doc.selectFirst("script:containsData(videodomain)")?.data()
             ?: doc.selectFirst("script:containsData(downloaddomain)")?.data()
-            ?: return listOf(Video(url, "Video", url))
+            ?: return listOf(Video(videoUrl = url, videoTitle = "Video"))
 
         if (script.contains("\"second_domain_for_dl\":false")) {
-            return listOf(Video(url, "Video", url))
+            return listOf(Video(videoUrl = url, videoTitle = "Video"))
         }
 
         val domainUrl = if (script.contains("videodomain", true)) {
@@ -477,7 +473,7 @@ abstract class GoogleDriveIndex :
             domainUrl + url.toHttpUrl().encodedPath
         }
 
-        return listOf(Video(videoUrl, "Video", videoUrl))
+        return listOf(Video(videoUrl = videoUrl, videoTitle = "Video"))
     }
 
     // ============================= Utilities ==============================

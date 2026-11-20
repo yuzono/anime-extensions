@@ -103,7 +103,7 @@ abstract class MuitoHentai : ParsedAnimeHttpLegacySource() {
 
     override fun videoFromElement(element: Element): Video {
         val url = element.attr("src")
-        return Video(url, element.attr("label"), url)
+        return Video(videoUrl = url, videoTitle = element.attr("label"))
     }
 
     // ============================= Utilities ==============================

@@ -7,14 +7,16 @@ import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
+import eu.kanade.tachiyomi.animesource.model.Hoster.Companion.toHosterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.await
 import keiyoushi.annotation.Source
-import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parallelFlatMap
@@ -33,26 +35,24 @@ import java.util.Locale
 
 @Source
 abstract class Hanime :
-    AnimeHttpLegacySource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = true
 
     override fun headersBuilder() = Headers.Builder()
-        .add("User-Agent", "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36")
-        .add("Accept", "application/json")
+        .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
         .add("Accept-Language", "en-US,en;q=0.9")
-        .add("content-type", "application/json")
         .add("Origin", "https://hanime.tv")
         .add("Referer", "https://hanime.tv/")
-        .add("sec-ch-ua", "\"Chromium\";v=\"130\", \"Google Chrome\";v=\"130\", \"Not?A_Brand\";v=\"99\"")
-        .add("sec-ch-ua-mobile", "?0")
-        .add("sec-ch-ua-platform", "\"Android\"")
 
     /** Headers for video stream requests (m3u8, segments, AES key). */
     private fun videoHeaders(): Headers = headers.newBuilder()
+        .set("Accept", "*/*")
         .set("Referer", "https://player.hanime.tv/")
         .set("Origin", "https://player.hanime.tv")
+        .removeAll("Content-Type")
+        .removeAll("content-type")
         .build()
 
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
@@ -305,25 +305,30 @@ abstract class Hanime :
             }
         }
 
-        // Apply sorting
-        val comparator: Comparator<HitsModel> = when (orderBy) {
-            "views" -> compareByDescending { it.views ?: 0L }
-            "likes" -> compareByDescending { it.likes ?: 0L }
-            "created_at_unix", "published_at_unix" -> compareByDescending { it.createdAtUnix ?: 0L }
-            "released_at_unix" -> compareByDescending { it.releasedAtUnix ?: 0L }
-            "title_sortable" -> compareByDescending { it.name.lowercase(Locale.US) }
-            else -> compareByDescending { it.likes ?: 0L }
+        // Apply sorting and series deduplication
+        val sorted = if (orderBy == "random") {
+            // Deduplicate by series first so each series has equal probability when shuffled
+            val seed = if (cachedSearchHitsTimestamp != 0L) cachedSearchHitsTimestamp else 1337L
+            val shuffled = filtered.distinctBy { getTitle(it.name) }.shuffled(kotlin.random.Random(seed))
+            if (ordering == "asc") shuffled.reversed() else shuffled
+        } else {
+            val comparator: Comparator<HitsModel> = when (orderBy) {
+                "views" -> compareByDescending { it.views ?: 0L }
+                "likes" -> compareByDescending { it.likes ?: 0L }
+                "created_at_unix", "published_at_unix" -> compareByDescending { it.createdAtUnix ?: 0L }
+                "released_at_unix" -> compareByDescending { it.releasedAtUnix ?: 0L }
+                "title_sortable" -> compareByDescending { it.name.lowercase(Locale.US) }
+                else -> compareByDescending { it.likes ?: 0L }
+            }
+            val sortedList = if (ordering == "asc") filtered.sortedWith(comparator.reversed()) else filtered.sortedWith(comparator)
+            sortedList.distinctBy { getTitle(it.name) }
         }
-        val sorted = if (ordering == "asc") filtered.sortedWith(comparator.reversed()) else filtered.sortedWith(comparator)
-
-        // Deduplicate by series BEFORE slicing so each series appears only once across pages
-        val uniqueSeries = sorted.distinctBy { getTitle(it.name) }
 
         // Paginate
         val fromIndex = (page - 1) * pageSize
-        val toIndex = minOf(fromIndex + pageSize, uniqueSeries.size)
-        val pageItems = if (fromIndex < uniqueSeries.size) uniqueSeries.subList(fromIndex, toIndex) else emptyList()
-        val hasNextPage = toIndex < uniqueSeries.size
+        val toIndex = minOf(fromIndex + pageSize, sorted.size)
+        val pageItems = if (fromIndex < sorted.size) sorted.subList(fromIndex, toIndex) else emptyList()
+        val hasNextPage = toIndex < sorted.size
 
         return AnimesPage(parseHitsToAnimeList(pageItems), hasNextPage)
     }
@@ -418,12 +423,19 @@ abstract class Hanime :
         }
     }
 
-    // ── Video List ─────────────────────────────────────────────────────
+    // ── Video & Hoster List ───────────────────────────────────────────
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val slug = extractSlugFromUrl(episode.url)
-        return fetchHandshakeVideos(slug)
+        val videos = fetchHandshakeVideos(slug)
+        return videos.toHosterList()
     }
+
+    override suspend fun getVideoList(hoster: Hoster): List<Video> = hoster.videoList.orEmpty()
+
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
+
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
 
     /**
      * Fetch video streams via POST /api/v11/handshake on auth.hanime.tv.
@@ -442,6 +454,11 @@ abstract class Hanime :
      * 5. Expand each playlist into playable videos via PlaylistUtils
      */
     private suspend fun fetchHandshakeVideos(slug: String): List<Video> {
+        // Warm up the video page on hanime.tv to ensure cookies / CF clearance exist
+        runCatching {
+            client.newCall(GET("$baseUrl/videos/hentai/$slug", headers)).await().close()
+        }
+
         val signature = ensureSignatureProvider().getSignature()
         val payload = buildJsonObject {
             put("timestamp_unix", signature.time.toLong())
@@ -451,6 +468,8 @@ abstract class Hanime :
         val token = HandshakeCipher.seal(payload)
 
         val requestHeaders = headers.newBuilder()
+            .set("Accept", "application/json")
+            .set("Content-Type", "application/json")
             .set("x-signature-version", "web2")
             .set("x-signature", signature.signature)
             .set("x-time", signature.time)
@@ -490,7 +509,13 @@ abstract class Hanime :
                             )
                         }.getOrElse { e ->
                             Log.w(TAG, "fetchHandshakeVideos() — HLS extraction failed for $streamUrl: ${e.javaClass.simpleName}: ${e.message}")
-                            listOf(Video(streamUrl, stream.label ?: "${stream.height ?: "?"}p", streamUrl, headers = playerHeaders))
+                            listOf(
+                                Video(
+                                    videoUrl = streamUrl,
+                                    videoTitle = stream.label ?: "${stream.height ?: "?"}p",
+                                    headers = playerHeaders,
+                                ),
+                            )
                         }
                     }
             }
@@ -861,6 +886,7 @@ abstract class Hanime :
         Pair("Likes", "likes"),
         Pair("Release", "released_at_unix"),
         Pair("Alphabetical", "title_sortable"),
+        Pair("Random", "random"),
     )
 
     class SortFilter(sortables: Array<String>) : AnimeFilter.Sort("Sort", sortables, Selection(2, false))

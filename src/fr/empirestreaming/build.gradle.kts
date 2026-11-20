@@ -1,17 +1,22 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "EmpireStreaming"
-    versionCode = 30
+    versionCode = 31
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 
     source {
         lang = "fr"
-        baseUrl("https://empire-stream.net") {
-            mirrors = listOf("https://empire-streaming.app")
+        baseUrl {
+            mirrors(
+                "https://empire-stream.net",
+                "https://empire-streaming.app",
+            )
         }
     }
 }

@@ -1,10 +1,12 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "AnimeXin"
-    versionCode = 24
+    versionCode = 25
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "animestream"

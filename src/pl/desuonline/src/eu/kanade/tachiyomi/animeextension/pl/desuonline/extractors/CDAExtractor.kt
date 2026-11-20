@@ -71,7 +71,7 @@ class CDAExtractor(private val client: OkHttpClient, private val headers: Header
 
             idCounter++
 
-            Video(videoUrl, "$name - $quality", videoUrl)
+            Video(videoUrl = videoUrl, videoTitle = "$name - $quality")
         }
     }
 

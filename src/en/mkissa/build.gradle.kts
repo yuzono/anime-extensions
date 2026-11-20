@@ -1,18 +1,19 @@
+import io.github.keiyoushi.gradle.api.ContentWarning
+
 plugins {
     alias(kei.plugins.extension)
 }
 
 yuzono {
     name = "MKissa"
-    versionCode = 74
-    contentWarning = ContentWarning.NSFW
+    versionCode = 77
+    contentWarning = ContentWarning.MIXED
     libVersion = "16"
 
     source {
         lang = "en"
         id = 4709139914729853090L
         baseUrl = "https://mkissa.to/anime"
-        skipCodeGen = true
     }
 }
 

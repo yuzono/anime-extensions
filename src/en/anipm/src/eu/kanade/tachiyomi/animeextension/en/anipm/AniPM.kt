@@ -70,7 +70,7 @@ abstract class AniPM :
     private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     // =============================== Browse ===============================
-    private fun apiHeaders(referer: String = "$baseUrl/anime") = headers.newBuilder()
+    private fun apiHeaders(referer: String = "$baseUrl/") = headers.newBuilder()
         .set("Accept", "application/json, text/plain, */*")
         .set("Referer", referer)
         .build()
@@ -122,7 +122,13 @@ abstract class AniPM :
     private fun parseCatalog(response: Response): AnimesPage {
         val dto = response.parseAs<CatalogResponseDto>()
 
-        val animes = dto.items.mapNotNull { it.toSAnime(baseUrl) }
+        val animes = dto.items.mapNotNull { item ->
+            val anime = item.toSAnime(baseUrl)
+            if (anime != null && !item.routeId.isNullOrBlank()) {
+                cacheRouteId(anime.url, item.routeId)
+            }
+            anime
+        }
         return AnimesPage(animes, dto.hasNextPage)
     }
 
@@ -192,17 +198,30 @@ abstract class AniPM :
     }
 
     // ============================== Details ===============================
-    override fun animeDetailsRequest(anime: SAnime): Request = GET(seriesUrl(anime.url), apiHeaders("$baseUrl/anime"))
+    override fun animeDetailsRequest(anime: SAnime): Request = GET(seriesUrl(anime.url), apiHeaders("$baseUrl/"))
 
-    override fun animeDetailsParse(response: Response): SAnime = response.parseAs<SeriesResponseDto>().toSAnime(baseUrl)
+    override fun animeDetailsParse(response: Response): SAnime {
+        val dto = response.parseAs<SeriesResponseDto>()
+        dto.routeId?.takeIf(String::isNotBlank)?.let { routeId ->
+            val handle = stableMainHandle(dto.source, dto.id, dto.anilistId, dto.routeId)
+            if (handle != null) {
+                cacheRouteId(handle, routeId)
+                cacheRouteId("set-${dto.id}", routeId)
+                dto.anilistId?.toLongOrNull()?.let { cacheRouteId("ani-$it", routeId) }
+            }
+        }
+        return dto.toSAnime(baseUrl)
+    }
 
     /** Re-bound entries that 404 to the same anime automatically */
     override suspend fun getAnimeDetails(anime: SAnime): SAnime = resolveSeries(anime.url, anime.title).toSAnime(baseUrl)
 
     override fun getAnimeUrl(anime: SAnime): String {
         val fresh = cachedHandle(anime.url) ?: anime.url
+        val routeId = cachedRouteId(anime.url) ?: cachedRouteId(fresh)
+        val path = routeId?.takeIf(String::isNotBlank) ?: cleanHandle(fresh)
         val prefix = if (isAniHandle(fresh)) "ani" else "anime"
-        return "$baseUrl/$prefix/${cleanHandle(fresh)}"
+        return "$baseUrl/$prefix/$path"
     }
 
     // ============================ Related ============================
@@ -277,6 +296,9 @@ abstract class AniPM :
                 val numStr = fmtNum(ep.number)
                 episode_number = ep.number.toFloat()
                 url = "$handle/$numStr"
+                if (!ep.routeId.isNullOrBlank()) {
+                    cacheEpisodeRouteId(handle, numStr, ep.routeId)
+                }
                 val realTitle = ep.title?.takeIf { it.isNotBlank() && !it.startsWith("Episode ", true) }
                 name = buildString {
                     append("Episode $numStr")
@@ -298,8 +320,12 @@ abstract class AniPM :
 
     override fun getEpisodeUrl(episode: SEpisode): String {
         val (handle, num) = episode.url.split("/").let { it[0] to it.getOrElse(1) { "" } }
-        val prefix = if (isAniHandle(handle)) "ani" else "anime"
-        return "$baseUrl/$prefix/${cleanHandle(handle)}?ep=$num"
+        val fresh = cachedHandle(handle) ?: handle
+        val routeId = cachedRouteId(handle) ?: cachedRouteId(fresh)
+        val path = routeId?.takeIf(String::isNotBlank) ?: cleanHandle(fresh)
+        val prefix = if (isAniHandle(fresh)) "ani" else "anime"
+        val epRoute = cachedEpisodeRouteId(handle, num) ?: num
+        return "$baseUrl/$prefix/$path?ep=$epRoute"
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
@@ -522,6 +548,21 @@ abstract class AniPM :
                         val stableHandle = stableMainHandle(dto.source, dto.id, dto.anilistId, dto.routeId)
                             ?: dto.routeId
                             ?: handle
+                        dto.routeId?.takeIf(String::isNotBlank)?.let { routeId ->
+                            cacheRouteId(handle, routeId)
+                            cacheRouteId(stableHandle, routeId)
+                            cacheRouteId("set-${dto.id}", routeId)
+                            dto.anilistId?.toLongOrNull()?.let { aid ->
+                                cacheRouteId("ani-$aid", routeId)
+                            }
+                        }
+                        dto.episodes.forEach { ep ->
+                            if (!ep.routeId.isNullOrBlank()) {
+                                val numStr = fmtNum(ep.number)
+                                cacheEpisodeRouteId(handle, numStr, ep.routeId)
+                                cacheEpisodeRouteId(stableHandle, numStr, ep.routeId)
+                            }
+                        }
                         return stableHandle to dto
                     }
                 }
@@ -621,6 +662,36 @@ abstract class AniPM :
         .split(' ')
         .filter(String::isNotBlank)
         .joinToString(" ")
+
+    // ============================ RouteId Cache ===========================
+    private fun routeIdCacheKey(handle: String): String {
+        val prefix = when {
+            isAniHandle(handle) -> "ani"
+            handle.startsWith("set-") -> "set"
+            else -> "raw"
+        }
+        return "route_id_cache_${prefix}_${cleanHandle(handle)}"
+    }
+
+    private fun cachedRouteId(handle: String?): String? = handle?.takeIf(String::isNotBlank)
+        ?.let { preferences.getString(routeIdCacheKey(it), null) }
+        ?.takeIf(String::isNotBlank)
+
+    private fun cacheRouteId(handle: String, routeId: String) {
+        if (handle.isBlank() || routeId.isBlank()) return
+        preferences.edit().putString(routeIdCacheKey(handle), routeId).apply()
+    }
+
+    // ========================== Episode Route Cache =======================
+    private fun episodeRouteIdCacheKey(handle: String, numStr: String): String = "episode_route_${cleanHandle(handle)}_$numStr"
+
+    private fun cachedEpisodeRouteId(handle: String, numStr: String): String? = preferences.getString(episodeRouteIdCacheKey(handle, numStr), null)
+        ?.takeIf { it.isNotBlank() }
+
+    private fun cacheEpisodeRouteId(handle: String, numStr: String, episodeRouteId: String) {
+        if (handle.isBlank() || numStr.isBlank() || episodeRouteId.isBlank()) return
+        preferences.edit().putString(episodeRouteIdCacheKey(handle, numStr), episodeRouteId).apply()
+    }
 
     // ============================ Handle cache ============================
 
