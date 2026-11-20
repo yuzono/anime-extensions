@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.doodextractor.DoodExtractor
+import aniyomi.lib.filemoonextractor.FilemoonExtractor
 import aniyomi.lib.megaextractor.MegaExtractor
 import aniyomi.lib.mp4uploadextractor.Mp4uploadExtractor
 import aniyomi.lib.pixeldrainextractor.PixelDrainExtractor
@@ -57,14 +58,16 @@ abstract class AnimeAv1 :
         private val PREF_LANG_VALUES = arrayOf("SUB", "", "DUB")
 
         private const val PREF_SERVER_KEY = "preferred_server"
-        private const val PREF_SERVER_DEFAULT = "PixelDrain"
+        private const val PREF_SERVER_DEFAULT = "Voe"
         private val SERVER_LIST = arrayOf(
-            "PixelDrain",
+            "Voe",
+            "Byse",
             "UPNShare",
+            "PixelDrain",
             "Mega",
             "HLS",
             "StreamWish",
-            "Voe",
+            "MP4Upload",
             "YourUpload",
             "DoodStream",
             "FileLions",
@@ -221,6 +224,7 @@ abstract class AnimeAv1 :
     private val megaExtractor by lazy { MegaExtractor(client, headers) }
     private val unsExtractor by lazy { UnsExtractor(client, headers, baseUrl.toHttpUrl().host) }
     private val streamTapeExtractor by lazy { StreamTapeExtractor(client) }
+    private val filemoonExtractor by lazy { FilemoonExtractor(client) }
 
     private suspend fun serverVideoResolver(url: String, prefix: String, serverName: String): List<Video> {
         val host = url.toHttpUrlOrNull()?.host.orEmpty().lowercase(Locale.ROOT)
@@ -235,6 +239,7 @@ abstract class AnimeAv1 :
             }
             "uns" -> unsExtractor.videosFromUrl(url, "$prefix ")
             "voe" -> voeExtractor.videosFromUrl(url, "$prefix ")
+            "byse" -> filemoonExtractor.videosFromUrl(url, "$prefix Byse:", headers)
             "pixeldrain" -> pixelDrainExtractor.videosFromUrl(url, "$prefix ")
             "mp4upload" -> mp4uploadExtractor.videosFromUrl(url, headers, prefix = "$prefix ")
             "streamwish" -> streamWishExtractor.videosFromUrl(url, videoNameGen = { "$prefix StreamWish:$it" })
@@ -264,6 +269,7 @@ abstract class AnimeAv1 :
 
     private val conventions = listOf(
         "uns" to listOf("uns.bio", "upnshare"),
+        "byse" to listOf("byse"),
         "streamtape" to listOf("streamtape", "strtape", "shavetape", "streamadblock"),
         "voe" to listOf("voe", "tubelessceliolymph", "simpulumlamerop", "urochsunloath", "nathanfromsubject", "yip.", "metagnathtuggers", "donaldlineelse"),
         "mp4upload" to listOf("mp4upload"),

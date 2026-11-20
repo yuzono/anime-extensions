@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "AnimeAv1"
-    versionCode = 8
+    versionCode = 9
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
 
@@ -28,4 +28,5 @@ dependencies {
     implementation(project(":lib:megaextractor"))
     implementation(project(":lib:streamtapeextractor"))
     implementation(project(":lib:universalextractor"))
+    implementation(project(":lib:filemoonextractor"))
 }
