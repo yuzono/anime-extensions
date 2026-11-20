@@ -124,7 +124,10 @@ abstract class AnimeUnity :
         val url = (baseUrl + episode.url).toHttpUrl()
         val animePath = url.encodedPath
 
-        val videoList = url.queryParameterValues("video").filterNotNull().flatMap { entry ->
+        val entries = url.queryParameterValues("video").filterNotNull()
+        check(entries.isNotEmpty()) { "Episodio salvato con il vecchio formato: aggiorna la lista episodi" }
+
+        val videoList = entries.flatMap { entry ->
             val language = entry.substringBefore("-").uppercase()
             val videoId = entry.substringAfter("-")
             runCatching { extractVideos("$baseUrl$animePath/$videoId", language) }.getOrDefault(emptyList())
