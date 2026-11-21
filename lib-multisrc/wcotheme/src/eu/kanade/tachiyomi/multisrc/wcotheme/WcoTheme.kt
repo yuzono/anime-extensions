@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.multisrc.wcotheme
 
 import android.util.Base64
+import android.util.Log
 import androidx.preference.PreferenceScreen
 import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -11,6 +12,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.utils.ParsedAnimeHttpLegacySource
@@ -42,6 +44,7 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.random.Random
 import kotlin.time.Duration.Companion.milliseconds
@@ -316,23 +319,31 @@ abstract class WcoTheme :
 
     open fun iframeExtractor(document: Document, episodeReferer: String = "$baseUrl/") = runBlocking {
         withContext(Dispatchers.IO) {
-            document.select("iframe")
+            val capacity = AtomicReference<WcoCapacityException?>(null)
+            val videos = document.select("iframe")
                 .ifEmpty { throw Exception("No iframe found in the episode page") }
                 .map { element ->
                     async {
                         try {
                             iframeParse(element.attr("abs:src"), episodeReferer)
                         } catch (e: WcoCapacityException) {
-                            throw e
+                            capacity.compareAndSet(null, e)
+                            emptyList()
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
+                            Log.e("WcoTheme", "iframe parse failed", e)
                             emptyList()
                         }
                     }
                 }
                 .awaitAll()
                 .flatten()
+
+            if (videos.isEmpty()) {
+                capacity.get()?.let { throw it }
+            }
+            videos
         }
     }
 
@@ -363,6 +374,7 @@ abstract class WcoTheme :
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                Log.e("WcoTheme", "iframe parse failed", e)
                 emptyList()
             }
         }
@@ -456,7 +468,7 @@ abstract class WcoTheme :
             .build()
             .toString()
 
-        val oldPlayerResponse = client.newCall(GET(videoJsOldUrl, embedHeaders)).execute()
+        val oldPlayerResponse = client.newCall(GET(videoJsOldUrl, embedHeaders)).await()
         val oldPlayerBody = oldPlayerResponse.bodyString()
         val useOldPlayer = oldPlayerResponse.isSuccessful && "$.getJSON" in oldPlayerBody
 
@@ -471,12 +483,15 @@ abstract class WcoTheme :
         }
 
         val iframeSoup = if (useOldPlayer) {
+            throwIfCapacityLimited(oldPlayerBody)
             Jsoup.parse(oldPlayerBody, iframeDomain)
         } else {
-            val playerBody = client.newCall(GET(videoJsUrl, embedHeaders))
-                .execute()
-                .bodyString()
+            val playerResponse = client.newCall(GET(videoJsUrl, embedHeaders)).await()
+            val playerBody = playerResponse.bodyString()
             throwIfCapacityLimited(playerBody)
+            if (!playerResponse.isSuccessful) {
+                throw Exception("Player request failed: HTTP ${playerResponse.code}")
+            }
             Jsoup.parse(playerBody, iframeDomain)
         }
 
