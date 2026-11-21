@@ -13,13 +13,17 @@ import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.CinemetaMetaDetail
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.CinemetaMetaDetailResponse
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.CinemetaSearchResponse
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.EpisodeVideo
+import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.Segments
+import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.SegmentsDto
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.StreamDataTorrent
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.ChapterType
 import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.TimeStamp
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import keiyoushi.annotation.Source
@@ -76,8 +80,7 @@ abstract class Torrentio :
             }.getOrDefault(emptyList())
         }
 
-        val movieResults = movieDeferred.await()
-        val seriesResults = seriesDeferred.await()
+        val (movieResults, seriesResults) = awaitAll(movieDeferred, seriesDeferred)
 
         val combined = mutableListOf<CinemetaMeta>()
         val maxSize = maxOf(movieResults.size, seriesResults.size)
@@ -112,8 +115,7 @@ abstract class Torrentio :
             }.getOrDefault(emptyList())
         }
 
-        val seriesResults = seriesDeferred.await()
-        val movieResults = movieDeferred.await()
+        val (seriesResults, movieResults) = awaitAll(seriesDeferred, movieDeferred)
 
         val combined = (seriesResults + movieResults).distinctBy { it.id }.sortedByDescending { it.popularity ?: 0.0 }
         val hasNextPage = seriesResults.size == CINEMETA_PAGE_SIZE || movieResults.size == CINEMETA_PAGE_SIZE
@@ -362,20 +364,27 @@ abstract class Torrentio :
 
     // ============================== Hosters ==================================
 
-    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
-        val streamData = runCatching {
-            val url = buildUrl(episode.url)
-            val response = client.get(url)
-            response.parseAs<StreamDataTorrent>()
-        }.getOrNull()
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> = coroutineScope {
+        val timestampsDeferred = async(Dispatchers.IO) {
+            fetchTimestamps(episode.url)
+        }
 
-        val streams = streamData?.streams.orEmpty()
-        if (streams.isEmpty()) return emptyList()
+        val streamsDeferred = async(Dispatchers.IO) {
+            runCatching {
+                val url = buildUrl(episode.url)
+                client.get(url).parseAs<StreamDataTorrent>()
+            }.getOrNull()
+        }
+
+        val streams = streamsDeferred.await()?.streams.orEmpty()
+        if (streams.isEmpty()) return@coroutineScope emptyList()
+
+        val timestamps = timestampsDeferred.await()
 
         val debridProvider = preferences.getString(PREF_DEBRID_KEY, "none")
         val trackers = if (debridProvider == "none") buildTrackerList() else emptyList()
 
-        return streams
+        streams
             .groupBy { getProviderName(it.title, it.name) }
             .mapNotNull { (provider, providerStreams) ->
                 val videoList = providerStreams.map { stream ->
@@ -393,6 +402,7 @@ abstract class Torrentio :
                     Video(
                         videoUrl = urlOrHash,
                         videoTitle = (stream.name?.removePrefix("Torrentio\n") ?: "") + "\n" + (stream.title ?: ""),
+                        timestamps = timestamps,
                     )
                 }
 
@@ -480,6 +490,42 @@ abstract class Torrentio :
         val response = client.get("https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt")
         if (!response.isSuccessful) throw Exception("Unexpected code $response")
         return response.body.string().trim()
+    }
+
+    // ============================ Timestamps ================================
+    private suspend fun fetchTimestamps(streamPath: String): List<TimeStamp> = runCatching {
+        val match = STREAM_PATH_REGEX.find(streamPath) ?: return@runCatching emptyList()
+        val (type, imdbId, season, episode) = match.destructured
+        val introDbUrl = "https://api.introdb.app"
+        val url = introDbUrl.toHttpUrl().newBuilder()
+            .addPathSegment("segments")
+            .addQueryParameter("imdb_id", imdbId)
+            .apply {
+                if (type == "movie") {
+                    addQueryParameter("is_movie", "true")
+                } else if (season.isNotEmpty() && episode.isNotEmpty()) {
+                    addQueryParameter("season", season)
+                    addQueryParameter("episode", episode)
+                }
+            }
+            .build()
+            .toString()
+
+        client.get(url).parseAs<SegmentsDto>().toTimeStamps()
+    }.getOrDefault(emptyList())
+
+    private fun SegmentsDto.toTimeStamps(): List<TimeStamp> = listOf(
+        Triple(recap, "Recap", ChapterType.Recap),
+        Triple(intro, "Intro", ChapterType.Opening),
+        Triple(outro, "Outro", ChapterType.Ending),
+        Triple(postCredits, "Post-Credits", ChapterType.Other),
+    ).mapNotNull { (segment, name, type) -> segment.toTimeStamp(name, type) }
+        .sortedBy { it.start }
+
+    private fun Segments?.toTimeStamp(name: String, type: ChapterType): TimeStamp? {
+        val end = this?.endSec ?: return null
+        val start = this.startSec ?: 0.0
+        return if (end > start) TimeStamp(start, end, name, type) else null
     }
 
     // ============================ Sorting / Helpers ==========================
@@ -618,13 +664,37 @@ abstract class Torrentio :
 
         private const val PREF_PROVIDER_KEY = "provider_selection"
         private val PREF_PROVIDERS = arrayOf(
-            "YTS", "EZTV", "RARBG", "1337x", "EXT", "ThePirateBay", "KickassTorrents", "TorrentGalaxy", "MagnetDL",
-            "HorribleSubs", "NyaaSi", "TokyoTosho", "AniDex", "nekoBT", "🇷🇺 Rutor", "🇷🇺 Rutracker", "🇵🇹 Comando",
-            "🇵🇹 BluDV", "🇵🇹 MicoLeaoDublado", "🇫🇷 Torrent9", "🇮🇹 ilCorSaRoNero", "🇪🇸 MejorTorrent", "🇪🇸 Wolfmax4k", "🇲🇽 Cinecalidad", "🇵🇱 BestTorrents",
+            "YTS",
+            "EZTV",
+            "RARBG",
+            "1337x",
+            "EXT",
+            "ThePirateBay",
+            "KickassTorrents",
+            "TorrentGalaxy",
+            "MagnetDL",
+            "HorribleSubs",
+            "NyaaSi",
+            "TokyoTosho",
+            "AniDex",
+            "nekoBT",
+            "UIndex",
+            "Knaben",
+            "🇷🇺 Rutor",
+            "🇷🇺 Rutracker",
+            "🇵🇹 Comando",
+            "🇵🇹 BluDV",
+            "🇵🇹 MicoLeaoDublado",
+            "🇫🇷 Torrent9",
+            "🇮🇹 ilCorSaRoNero",
+            "🇪🇸 MejorTorrent",
+            "🇪🇸 Wolfmax4k",
+            "🇲🇽 Cinecalidad",
+            "🇵🇱 BestTorrents",
         )
         private val PREF_PROVIDERS_VALUE = arrayOf(
             "yts", "eztv", "rarbg", "1337x", "ext", "thepiratebay", "kickasstorrents", "torrentgalaxy", "magnetdl",
-            "horriblesubs", "nyaasi", "tokyotosho", "anidex", "nekobt", "rutor", "rutracker", "comando",
+            "horriblesubs", "nyaasi", "tokyotosho", "anidex", "nekobt", "uindex", "knaben", "rutor", "rutracker", "comando",
             "bludv", "micoleaodublado", "torrent9", "ilcorsaronero", "mejortorrent", "wolfmax4k", "cinecalidad", "besttorrents",
         )
         private val PREF_DEFAULT_PROVIDERS_VALUE = arrayOf(
@@ -683,5 +753,6 @@ abstract class Torrentio :
         private val SIMPLE_DATE_FORMATTER by lazy {
             SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)
         }
+        private val STREAM_PATH_REGEX = Regex("""/stream/(movie|series)/([^:/.]+)(?::(\d+):(\d+))?\.json""")
     }
 }
