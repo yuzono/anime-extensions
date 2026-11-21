@@ -29,7 +29,7 @@ class GoogleDriveExtractor(private val client: OkHttpClient, private val headers
 
         if (!docResp.peekBody(15).string().equals("<!DOCTYPE html>", true)) {
             return listOf(
-                Video(url, videoName, url, docHeaders),
+                Video(videoUrl = url, videoTitle = videoName, headers = docHeaders),
             )
         }
 
@@ -46,7 +46,7 @@ class GoogleDriveExtractor(private val client: OkHttpClient, private val headers
         }.build().toString()
 
         return listOf(
-            Video(videoUrl, videoName + itemSize, videoUrl, docHeaders),
+            Video(videoUrl = videoUrl, videoTitle = videoName + itemSize, headers = docHeaders),
         )
     }
 

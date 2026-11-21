@@ -290,7 +290,7 @@ abstract class BeatZAnime : ParsedAnimeHttpLegacySource() {
             add("Referer", "$baseUrl/")
         }.build()
 
-        return listOf(Video(fileUrl, qualityLabel, fileUrl, videoHeaders))
+        return listOf(Video(videoUrl = fileUrl, videoTitle = qualityLabel, headers = videoHeaders))
     }
 
     override fun videoListSelector() = throw UnsupportedOperationException()

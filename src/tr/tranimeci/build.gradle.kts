@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "TRAnimeCI"
-    versionCode = 2
+    versionCode = 3
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "animestream"

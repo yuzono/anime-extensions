@@ -92,9 +92,8 @@ abstract class Animeiat :
         val jr = json.decodeFromString<StreamLinks>(playerUrls.body.string()).data
         return jr.sources.map {
             Video(
-                it.file,
-                "${it.label} ${it.quality}",
-                it.file,
+                videoUrl = it.file,
+                videoTitle = "${it.label} ${it.quality}",
             )
         }
     }

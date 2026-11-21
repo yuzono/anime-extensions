@@ -6,8 +6,8 @@ plugins {
 
 yuzono {
     name = "Anikoto"
-    versionCode = 0
-    contentWarning = ContentWarning.SAFE
+    versionCode = 3
+    contentWarning = ContentWarning.MIXED
     libVersion = "16"
     theme = "anikototheme"
 
@@ -16,8 +16,7 @@ yuzono {
         // https://anikoto.site/#domains and https://megaplay.buzz/domains
         baseUrl {
             mirrors(
-                "https://anikototv.to",
-                "https://anikoto.bz",
+                "https://anikototv.bz",
                 "https://anikoto.cz",
                 "https://anikoto.me",
                 "https://anikoto.net",

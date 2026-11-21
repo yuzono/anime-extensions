@@ -206,11 +206,11 @@ abstract class Subsplease :
                 if (quality == null || videoUrl == null) return@inner null
 
                 when (preferences.debridProvider) {
-                    PREF_DEBRID_DEFAULT -> Video(videoUrl, quality, videoUrl)
+                    PREF_DEBRID_DEFAULT -> Video(videoUrl = videoUrl, videoTitle = quality)
 
                     else -> {
                         val debridUrl = debrid(videoUrl)
-                        Video(debridUrl, quality, debridUrl)
+                        Video(videoUrl = debridUrl, videoTitle = quality)
                     }
                 }
             }

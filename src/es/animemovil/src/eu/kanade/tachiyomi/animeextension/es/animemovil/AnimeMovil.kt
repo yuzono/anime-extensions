@@ -210,7 +210,7 @@ abstract class AnimeMovil :
                             fileSrc.contains(".mp4") -> ":MP4"
                             else -> ""
                         }
-                        Video(fileSrc, "$serverName$type", fileSrc, headers = null)
+                        Video(videoUrl = fileSrc, videoTitle = "$serverName$type", headers = null)
                     }
                 }
             }

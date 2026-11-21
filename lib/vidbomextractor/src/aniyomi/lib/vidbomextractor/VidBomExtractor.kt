@@ -19,7 +19,7 @@ class VidBomExtractor(private val client: OkHttpClient) {
             if (quality.length > 15) {
                 quality = "Vidshare: 480p"
             }
-            Video(src, quality, src)
+            Video(videoUrl = src, videoTitle = quality)
         }
     }
 }

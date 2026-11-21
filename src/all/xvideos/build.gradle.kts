@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "Xvideos"
-    versionCode = 3
+    versionCode = 4
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
 

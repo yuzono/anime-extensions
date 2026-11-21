@@ -290,6 +290,7 @@ class FlixcloudEmbedDataDto(
     val subtitles: List<FlixcloudSubtitleDto>? = null,
     @SerialName("intro_chapter") private val introChapter: FlixcloudChapterDto? = null,
     @SerialName("outro_chapter") private val outroChapter: FlixcloudChapterDto? = null,
+    @SerialName("thumbnails_vtt") val thumbnailsVtt: String? = null,
 ) {
     fun toSkipTimes(): SkipTimes = SkipTimes(
         introStart = introChapter?.start,

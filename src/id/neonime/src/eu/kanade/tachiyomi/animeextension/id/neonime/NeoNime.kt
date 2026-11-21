@@ -293,7 +293,7 @@ abstract class NeoNime :
                 else -> "Default"
             }
         }
-        return Video(url, quality, url)
+        return Video(videoUrl = url, videoTitle = quality)
     }
 
     // screen

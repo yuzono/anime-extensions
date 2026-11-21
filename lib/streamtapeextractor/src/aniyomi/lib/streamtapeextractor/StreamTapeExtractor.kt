@@ -26,7 +26,7 @@ class StreamTapeExtractor(private val client: OkHttpClient) {
         val videoUrl = "https:" + script.substringBefore("'") +
             script.substringAfter("+ ('xcd").substringBefore("'")
 
-        return Video(videoUrl, quality, videoUrl, subtitleTracks = subtitleList)
+        return Video(videoUrl = videoUrl, videoTitle = quality, subtitleTracks = subtitleList)
     }
 
     fun videosFromUrl(url: String, quality: String = "Streamtape", subtitleList: List<Track> = emptyList()): List<Video> = videoFromUrl(url, quality, subtitleList)?.let(::listOf).orEmpty()

@@ -25,7 +25,7 @@ class DoramogoExtractor(private val client: OkHttpClient, private val headers: H
                 val url = line.substringAfter("file:\\'").substringBefore("\\'")
                 val quality = line.substringAfter("label:\\'").substringBefore("\\'")
 
-                Video(url, "Doramogo - $quality", url, headers)
+                Video(videoUrl = url, videoTitle = "Doramogo - $quality", headers = headers)
             }
     }
 }

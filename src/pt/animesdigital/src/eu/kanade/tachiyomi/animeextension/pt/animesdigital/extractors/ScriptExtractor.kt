@@ -25,7 +25,7 @@ object ScriptExtractor {
                 val url = it.substringAfter("file").substringAfter("src")
                     .substringAfterKey()
                     .trim()
-                Video(url, quality, url, headers)
+                Video(videoUrl = url, videoTitle = quality, headers = headers)
             }
     }
 

@@ -6,13 +6,13 @@ plugins {
 
 yuzono {
     name = "AniWaves.ru"
-    versionCode = 4
-    contentWarning = ContentWarning.SAFE
+    versionCode = 7
+    contentWarning = ContentWarning.MIXED
     libVersion = "16"
 
     source {
         lang = "en"
-        baseUrl = "https://aniwaves.ru"
+        baseUrl = "https://aniwaves.tv"
     }
 }
 

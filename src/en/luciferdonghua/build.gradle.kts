@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "LuciferDonghua"
-    versionCode = 20
+    versionCode = 21
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "animestream"

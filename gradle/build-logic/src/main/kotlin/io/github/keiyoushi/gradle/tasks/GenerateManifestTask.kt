@@ -48,6 +48,7 @@ abstract class GenerateManifestTask : DefaultTask() {
             ContentWarning.NSFW -> "2"
         }
         val torrentValue = if (torrent.get()) "1" else "0"
+        val torrentBool = if (torrent.get()) "true" else "false"
         val out = outputFile.get().asFile
         out.parentFile.mkdirs()
 
@@ -90,12 +91,13 @@ abstract class GenerateManifestTask : DefaultTask() {
             |        android:allowBackup="false"
             |        android:icon="@mipmap/ic_launcher"
             |        android:label="Aniyomi: $name">
-            |        <meta-data android:name="tachiyomix.name" android:value="$name" />
+            |        <meta-data android:name="aniyomix.name" android:value="$name" />
             |        <meta-data android:name="tachiyomi.animeextension.class" android:value=".$cls" />
             |        <meta-data android:name="tachiyomi.animeextension.nsfw" android:value="$nsfw" />
             |        <meta-data android:name="tachiyomi.animeextension.torrent" android:value="$torrentValue" />
-            |        <meta-data android:name="tachiyomix.contentWarning" android:value="$cwValue" />
-            |        <meta-data android:name="tachiyomix.extensionLib" android:value="$lib" />$activitySection
+            |        <meta-data android:name="aniyomix.torrent" android:value="$torrentBool" />
+            |        <meta-data android:name="aniyomix.contentWarning" android:value="$cwValue" />
+            |        <meta-data android:name="aniyomix.extensionLib" android:value="$lib" />$activitySection
             |    </application>
             |</manifest>
             |

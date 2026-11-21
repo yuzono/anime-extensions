@@ -224,7 +224,7 @@ abstract class UHDMovies :
                 videos.isEmpty() -> {
                     extractGDriveLink(url, quality).ifEmpty {
                         getDirectLink(url, "instant", "/mfile/")?.let {
-                            listOf(Video(it, "$quality - GDrive Instant link", it))
+                            listOf(Video(videoUrl = it, videoTitle = "$quality - GDrive Instant link"))
                         } ?: emptyList()
                     }
                 }
@@ -323,7 +323,7 @@ abstract class UHDMovies :
             emptyList()
         } else {
             val realLink = link.attr("action")
-            listOf(Video(realLink, "$quality - Gdrive$size", realLink))
+            listOf(Video(videoUrl = realLink, videoTitle = "$quality - Gdrive$size"))
         }
     }
 

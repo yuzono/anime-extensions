@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "Animes Digital"
-    versionCode = 10
+    versionCode = 11
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
 

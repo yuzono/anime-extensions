@@ -157,7 +157,7 @@ abstract class Hentaijk :
                                 nozomitext.split("}").forEach { file ->
                                     val nozomiUrl = file.substringAfter("\"file\":\"").substringBefore("\"").replace("\\", "")
                                     if (nozomiUrl.isNotBlank() && !nozomiUrl.contains("{")) {
-                                        Video(nozomiUrl, server, nozomiUrl).let(videos::add)
+                                        Video(videoUrl = nozomiUrl, videoTitle = server).let(videos::add)
                                     }
                                 }
                             }
@@ -165,7 +165,7 @@ abstract class Hentaijk :
 
                     when {
                         "ok" in url -> OkruExtractor(client).videosFromUrl(url).let(videos::addAll)
-                        "stream/jkmedia" in url -> Video(url, "Xtreme S", url).let(videos::add)
+                        "stream/jkmedia" in url -> Video(videoUrl = url, videoTitle = "Xtreme S").let(videos::add)
                         "um.php" in url -> HentaijkExtractor().videoFromUrl(url, server).let(videos::add)
                     }
                 }
@@ -182,7 +182,7 @@ abstract class Hentaijk :
                     url1 = it.data().substringAfter("url: '").substringBefore("'")
                 }
             }
-            return Video(url1, server, url1)
+            return Video(videoUrl = url1, videoTitle = server)
         }
     }
 

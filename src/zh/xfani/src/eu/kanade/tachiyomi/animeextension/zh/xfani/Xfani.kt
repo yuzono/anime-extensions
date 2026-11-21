@@ -165,11 +165,11 @@ abstract class Xfani :
         }
         return sourceList.zip(sourceNameList) { source, name ->
             if (source == null) {
-                Video(url = "", quality = "", videoUrl = null)
+                Video(videoUrl = "", videoTitle = "")
             } else if (source.second.endsWith(currentPath)) {
-                Video("$baseUrl${source.second}", "$name-${source.first}", videoUrl = videoUrl)
+                Video(videoUrl = videoUrl, videoTitle = "$name-${source.first}")
             } else {
-                Video("$baseUrl${source.second}", "$name-${source.first}", videoUrl = null)
+                Video(videoUrl = "", videoTitle = "$name-${source.first}")
             }
         }.filter { it.videoTitle.isNotEmpty() }.sortedByDescending { it.videoUrl.isNotEmpty() }
     }

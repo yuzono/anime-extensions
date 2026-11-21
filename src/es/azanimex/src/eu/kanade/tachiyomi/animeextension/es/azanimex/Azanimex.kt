@@ -218,7 +218,7 @@ abstract class Azanimex : ParsedAnimeHttpLegacySource() {
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val videoUrl = episode.url
-        val video = Video(videoUrl, "az-animex", videoUrl)
+        val video = Video(videoUrl = videoUrl, videoTitle = "az-animex")
         return listOf(video)
     }
 

@@ -55,6 +55,7 @@ or fix them directly by submitting a Pull Request.
     - [Extension main class](#extension-main-class)
       - [Main class key variables](#main-class-key-variables)
     - [Extensions lib 16](#extensions-lib-16)
+    - [Anikku and Animiru (AniSource)](#anikku-and-animiru-anisource)
     - [HTML and Video Processing](#html-and-video-processing)
     - [OkHttp and Network](#okhttp-and-network)
     - [Extension call flow](#extension-call-flow)
@@ -140,7 +141,7 @@ navigate and build. This will also reduce disk usage and network traffic.
    ```bash
    git sparse-checkout set --cone --sparse-index
    # add project folders
-   git sparse-checkout add common compiler core gradle lib lib-multisrc
+   git sparse-checkout add common compiler core extensions-lib gradle lib lib-multisrc
    # add a single source
    git sparse-checkout add src/<lang>/<source>
    ```
@@ -522,10 +523,15 @@ Anything that used to be a constructor parameter is derived from `name` or `lang
 
 #### Extension API
 
-Extensions rely on [aniyomi-extensions-lib](https://github.com/komikku-app/aniyomi-extensions-lib), which provides
-some interfaces and stubs from the [app](https://github.com/komikku-app/anikku) for compilation
-purposes. The actual implementations can be found [in the Anikku source code](https://github.com/komikku-app/anikku/tree/master/app/src/main/java/eu/kanade/tachiyomi/source).
-Referencing the actual implementation will help with understanding extensions' call flow.
+Extensions compile against the stubs in `extensions-lib/`, a compile-only module vendored from
+[aniyomi-extensions-lib](https://github.com/komikku-app/aniyomi-extensions-lib) and extended with the
+extensions-lib 17 API Animiru implements (see [AniSource](#anikku-and-animiru-anisource)). The actual
+implementations are in [Anikku](https://github.com/komikku-app/anikku/tree/master/app/src/main/java/eu/kanade/tachiyomi/source)
+and [Animiru](https://github.com/animiruorg/Animiru). Referencing them will help with understanding
+extensions' call flow.
+
+Settings screens use the real `androidx.preference` 1.2.1, compile-only: both apps ship that version
+and keep its whole API, so any public `androidx.preference` class can be used.
 
 #### lib tools
 
@@ -1036,11 +1042,12 @@ The class annotated with `@Source` (see [Source declaration](#source-declaration
 a theme or shim based on it. Multiple sources are declared with several `source {}` blocks, so you don't write an
 `AnimeSourceFactory` yourself.
 
-| Class                   | Description                                                                                                                              |
-|-------------------------|------------------------------------------------------------------------------------------------------------------------------------------|
-| `AnimeHttpSource`       | For online source, where requests are made using HTTP. New extensions should extend it directly and implement the lib 16 API.            |
-| `AnimeHttpLegacySource` | `keiyoushi.utils` shim that keeps the pre-lib 16 `videoListRequest(episode)` / `videoListParse(response)` flow. Do not use for new code. |
-| `ParsedAnimeHttpSource` | Deprecated, use `AnimeHttpSource` instead (`ParsedAnimeHttpLegacySource` is its legacy shim).                                            |
+| Class                   | Description                                                                                                                                       |
+|-------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| `AniSource`             | `keiyoushi.source` base for online sources on lib 16. New and migrated extensions must extend it, see [AniSource](#anikku-and-animiru-anisource). |
+| `AnimeHttpSource`       | The app's base for online sources, where requests are made using HTTP. Don't extend it directly in new code.                                      |
+| `AnimeHttpLegacySource` | `keiyoushi.utils` shim that keeps the pre-lib 16 `videoListRequest(episode)` / `videoListParse(response)` flow. Do not use for new code.          |
+| `ParsedAnimeHttpSource` | Deprecated, use `AniSource` instead (`ParsedAnimeHttpLegacySource` is its legacy shim).                                                           |
 
 #### Main class key variables
 
@@ -1055,8 +1062,7 @@ These are generated from the `source {}` block; don't declare them in the class.
 
 ### Extensions lib 16
 
-The repository compiles against [aniyomi-extensions-lib](https://github.com/komikku-app/aniyomi-extensions-lib)
-16, which adds seasons, hosters and lazily resolved videos. In lib 16, `AnimeHttpSource` declares
+The stubs in `extensions-lib` are extensions-lib 16, which adds seasons, hosters and lazily resolved videos. In lib 16, `AnimeHttpSource` declares
 `seasonListParse` and `hosterListParse` as abstract, and the old `getVideoList(episode)` flow is gone.
 
 Most existing extensions still extend the `keiyoushi.utils.AnimeHttpLegacySource` or
@@ -1066,9 +1072,10 @@ Extensions that only use the shims stay on `libVersion = "14"`.
 
 When writing a new extension, or migrating an existing one:
 
-- Extend `AnimeHttpSource` (or a lib 16 theme) directly instead of a legacy shim.
-- Implement the [hoster flow](#hosters-and-videos); implement [seasons](#seasons) only if the site
-  needs them, otherwise throw `UnsupportedOperationException()` from `seasonListParse`.
+- Extend `keiyoushi.source.AniSource` (or a lib 16 theme), not `AnimeHttpSource` directly or a legacy shim.
+- Implement the [hoster flow](#hosters-and-videos) (`fetchHosterList` / `fetchVideoList(hoster)` on
+  `AniSource`); implement [seasons](#seasons) (`fetchAnimeSeasonUpdate`) only if the site needs them.
+  On a theme, use the theme's own hooks.
 - Build videos with the [new `Video` constructor](#hosters-and-videos).
 - Set `libVersion = "16"` in the `yuzono` block of `build.gradle.kts`, and bump the version code as usual.
   This also applies when only the extension implements the hoster flow on top of a theme that still
@@ -1082,6 +1089,70 @@ and treats a higher lib version as an update. Users need an app release that sup
 Fully migrated examples: `src/en/reanime` (hosters, `resolveVideo`) and `src/all/jellyfin` (seasons).
 `src/pt/animeito` shows a smaller step: its theme still uses the legacy shim, and the extension
 overrides only the hoster flow.
+
+### Anikku and Animiru (AniSource)
+
+`extensions-lib` also declares the extensions-lib 17 API that only Animiru implements (combined
+updates, related anime groups, seek previews, `createHttpServer`), marked `@AnimiruOnly`. Komikku's
+related anime API, which only Anikku implements, is marked `@AnikkuOnly`. Every new or migrated
+extension extends `keiyoushi.source.AniSource`, which implements both apps from one set of methods;
+don't override the app-specific members directly.
+
+```kotlin
+@Source
+abstract class MySource : AniSource() {
+    override suspend fun getPopularAnime(page: Int): AnimesPage = ...
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage = ...
+
+    override suspend fun fetchAnimeUpdate(
+        anime: SAnime,
+        episodes: List<SEpisode>,
+        fetchDetails: Boolean,
+        fetchEpisodes: Boolean,
+    ) = SAnimeUpdate(
+        anime = if (fetchDetails) fetchDetails(anime) else anime,
+        episodes = if (fetchEpisodes) fetchEpisodes(anime) else episodes,
+    )
+
+    override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> = ...
+    override suspend fun fetchVideoList(hoster: Hoster): List<Video> = ...
+}
+```
+
+- Only fetch what `fetchAnimeUpdate` asks for: Anikku requests details and episodes separately.
+  Seasons use `fetchAnimeSeasonUpdate`.
+- Related anime: set `hasRelatedAnime = true` and return groups from `fetchRelatedAnime`. Anikku
+  shows them as one list, and only searches by title when `relatedAnimeBySearch` is set.
+- Seek previews (Animiru only): `fetchVideoThumbnails`. Parse a WebVTT thumbnail track with
+  `VideoThumbnails.fromVtt`; the images are fetched with `VideoThumbnails.headers`, which
+  `fromVtt(response)` sets to the headers the track was fetched with.
+  `VideoThumbnails.fromVtt`.
+- `client` is final: customize it in `configureClient()`.
+- The request/parse helpers are final and throw: implement the methods above directly.
+
+#### Streams that need an interceptor
+
+mpv and FFmpeg don't use OkHttp, so a stream that only plays through an interceptor (decryption,
+rewritten playlists) has to be served by a local server. Don't write one: implement
+`StreamInterceptor` and list it in `streamInterceptors`.
+
+```kotlin
+override val streamInterceptors = listOf(
+    object : StreamInterceptor {
+        override fun handles(url: HttpUrl) = url.host == "cdn.example.com"
+        override fun intercept(chain: Interceptor.Chain) = decrypt(chain.proceed(chain.request()))
+    },
+)
+```
+
+Return the real urls. Videos, tracks and HLS/DASH playlist entries it `handles` are played through a
+local proxy: Animiru's own server when it can start one, otherwise one the extension starts itself.
+The proxy only serves urls `handles` accepts, so it must also cover the segments and keys of a handled
+playlist, and a master playlist that lists handled urls must be handled itself. Match only stream
+urls (a CDN host, not the whole site): any app on the device can read what the proxy serves.
+
+`client` is built from `configureClient()` and `streamInterceptors` on first use, so don't read it
+from a property initializer or `init` block of the class or a theme: the overrides aren't set yet.
 
 ### HTML and Video Processing
 

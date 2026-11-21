@@ -23,7 +23,7 @@ class SendvidExtractor(private val client: OkHttpClient, private val headers: He
                 .set("Origin", httpUrl)
                 .set("Referer", "$httpUrl/")
                 .build()
-            listOf(Video(masterUrl, prefix + "Sendvid:default", masterUrl, newHeaders))
+            listOf(Video(videoUrl = masterUrl, videoTitle = prefix + "Sendvid:default", headers = newHeaders))
         }
     }
 }

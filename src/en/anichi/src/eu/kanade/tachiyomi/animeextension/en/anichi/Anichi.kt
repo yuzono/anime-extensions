@@ -2,13 +2,8 @@ package eu.kanade.tachiyomi.animeextension.en.anichi
 
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.multisrc.anikototheme.AnikotoTheme
-import eu.kanade.tachiyomi.multisrc.anikototheme.dto.ResultResponse
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
-import keiyoushi.utils.parseAs
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
@@ -50,79 +45,35 @@ abstract class Anichi :
 
     // ======================= Related Anime Override =======================
 
-    override fun relatedAnimeListParse(response: Response): List<SAnime> {
-        return try {
-            val document = response.asJsoup()
-            val currentAnimePath = response.request.url.encodedPath
-            val animeId = response.request.header("X-Anime-Id")
-                ?: document.selectFirst("[data-id]")?.attr("data-id")
-            val resultList = mutableListOf<SAnime>()
+    override val distinctRelated = true
 
-            if (!animeId.isNullOrBlank()) {
-                try {
-                    val listHeaders = headers.newBuilder().apply {
-                        add("Accept", "application/json, text/javascript, */*; q=0.01")
-                        add("Referer", response.request.url.toString())
-                        add("X-Requested-With", "XMLHttpRequest")
-                    }.build()
+    override fun relatedAnimeId(document: Document): String? = document.selectFirst("[data-id]")?.attr("data-id")
 
-                    client.newCall(GET("$baseUrl/api/watch-order/$animeId", listHeaders)).execute().use { apiResponse ->
-                        val relatedDoc = apiResponse.parseAs<ResultResponse>().toDocument()
-                        relatedDoc.select(watchOrderItemSelector).forEach { element ->
-                            val href = element.selectFirst("a[href]")?.attr("href") ?: return@forEach
-                            val path = extractAnimePath(href) ?: return@forEach
-                            if (path == currentAnimePath) return@forEach
-                            val nameElement = element.selectFirst(".info .name") ?: return@forEach
-                            resultList.add(
-                                SAnime.create().apply {
-                                    url = path
-                                    title = getTitle(nameElement)
-                                    thumbnail_url = extractRelatedThumbnail(element)
-                                },
-                            )
-                        }
-                    }
-                } catch (_: Exception) { }
-            }
+    override fun watchOrderHref(element: Element): String? = element.selectFirst("a[href]")?.attr("href")
 
-            document.select(recommendedSectionSelector).firstOrNull {
-                it.select("h2").text().contains("Recommended", ignoreCase = true)
-            }?.select(".item")?.forEach { element ->
-                val href = element.selectFirst("a[href]")?.attr("href") ?: return@forEach
-                val path = extractAnimePath(href) ?: return@forEach
-                if (path == currentAnimePath) return@forEach
-                val nameElement = element.selectFirst(".info .name") ?: return@forEach
-                resultList.add(
-                    SAnime.create().apply {
-                        url = path
-                        title = getTitle(nameElement)
-                        thumbnail_url = extractRelatedThumbnail(element)
-                    },
-                )
-            }
-            resultList.distinctBy { it.url }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
+    override fun recommendedItems(document: Document): List<Element> = document.select(recommendedSectionSelector)
+        .firstOrNull { it.select("h2").text().contains("Recommended", ignoreCase = true) }
+        ?.select(".item")
+        .orEmpty()
+
+    override fun recommendedHref(element: Element): String? = element.selectFirst("a[href]")?.attr("href")
 
     // ======================= Anime Details Override =======================
 
     override fun parseAnimeDetails(document: Document): SAnime {
-        val newDocument = resolveSearchAnime(document)
-        val titleElement = newDocument.selectFirst("h1.series-title")
-        val animeId = newDocument.selectFirst("[data-id]")?.attr("data-id")
+        val titleElement = document.selectFirst("h1.series-title")
+        val animeId = document.selectFirst("[data-id]")?.attr("data-id")
 
         return SAnime.create().apply {
-            setUrlWithoutDomain(newDocument.location())
+            setUrlWithoutDomain(document.location())
             if (!animeId.isNullOrBlank()) url += "#$animeId"
-            title = getTitle(titleElement ?: newDocument.selectFirst("h1")!!)
-            genre = newDocument.select(".series-genres .series-genre").joinToString { it.text() }
-            author = newDocument.select(".series-fact:contains(Studios) .series-fact__value a").joinToString { it.text() }
-            status = parseStatus(newDocument.select(".series-fact:contains(Status) .series-fact__value").text())
-            description = buildDescription(newDocument, titleElement)
+            title = getTitle(titleElement ?: document.selectFirst("h1")!!)
+            genre = document.select(".series-genres .series-genre").joinToString { it.text() }
+            author = document.select(".series-fact:contains(Studios) .series-fact__value a").joinToString { it.text() }
+            status = parseStatus(document.select(".series-fact:contains(Status) .series-fact__value").text())
+            description = buildDescription(document, titleElement)
 
-            newDocument.selectFirst(detailThumbnailSelector)?.let { img ->
+            document.selectFirst(detailThumbnailSelector)?.let { img ->
                 val url = img.attr("data-src").ifBlank { img.attr("src") }
                 if (url.isNotEmpty()) thumbnail_url = url
             }

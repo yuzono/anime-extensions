@@ -143,7 +143,7 @@ abstract class UFDub : ParsedAnimeHttpLegacySource() {
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         val videoUrl = client.newCall(GET(episode.url)).execute().request.url.toString().replace("dl=1", "raw=1")
         Log.d("fetchVideoList", videoUrl)
-        val video = Video(videoUrl, "Quality", videoUrl)
+        val video = Video(videoUrl = videoUrl, videoTitle = "Quality")
         return listOf(video)
     }
 

@@ -176,7 +176,7 @@ abstract class AnimeOnlineNinja : DooPlay() {
                     ?.data()
                     ?.let { jsData ->
                         val videoUrl = jsData.substringAfter("{file:\"").substringBefore("\"")
-                        listOf(Video(videoUrl, "$lang WolfStream", videoUrl, headers = headers))
+                        listOf(Video(videoUrl = videoUrl, videoTitle = "$lang WolfStream", headers = headers))
                     }
             }
 

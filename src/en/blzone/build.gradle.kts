@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "BLZone"
-    versionCode = 10
+    versionCode = 12
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
 

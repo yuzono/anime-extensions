@@ -102,17 +102,15 @@ abstract class HentaiSaturn :
             }.toList()
             videoLinks.mapIndexed { i, link ->
                 Video(
-                    link,
-                    qualities[i],
-                    link,
+                    videoUrl = link,
+                    videoTitle = qualities[i],
                 )
             }
         } else {
             listOf(
                 Video(
-                    url,
-                    "Qualità predefinita",
-                    url,
+                    videoUrl = url,
+                    videoTitle = "Qualità predefinita",
                     headers = Headers.headersOf("Referer", referer),
                 ),
             )

@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "Kinoking"
-    versionCode = 33
+    versionCode = 34
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
     theme = "dooplay"

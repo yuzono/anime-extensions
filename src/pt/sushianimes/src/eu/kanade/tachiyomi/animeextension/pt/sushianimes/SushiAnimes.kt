@@ -296,7 +296,7 @@ abstract class SushiAnimes :
 
         val label = if (quality.isBlank()) "Sushi Animes" else "Sushi Animes - $quality"
 
-        return listOf(Video(directUrl, label, directUrl))
+        return listOf(Video(videoUrl = directUrl, videoTitle = label))
     }
 
     /**

@@ -6,9 +6,9 @@ plugins {
 
 yuzono {
     name = "AnimeOnsen"
-    versionCode = 10
+    versionCode = 12
     contentWarning = ContentWarning.SAFE
-    libVersion = "14"
+    libVersion = "16"
 
     source {
         lang = "all"

@@ -385,7 +385,7 @@ abstract class Kool :
 
                 item.jsonObject["url"]!!.jsonPrimitive.content.contains("https://clipboard") && hosterSelection?.contains("clip") == true -> {
                     val videoUrl = item.jsonObject["url"]!!.jsonPrimitive.content
-                    val video = Video(videoUrl, "Clipboard", videoUrl)
+                    val video = Video(videoUrl = videoUrl, videoTitle = "Clipboard")
                     videoList.add(video)
                 }
 
@@ -412,7 +412,7 @@ abstract class Kool :
 
                 response.request.url.toString().contains("kool-cluster/mediahubmx-resolve.json") -> {
                     val videoUrl = item.jsonObject["url"]!!.jsonPrimitive.content
-                    val video = Video(videoUrl, "TV", videoUrl)
+                    val video = Video(videoUrl = videoUrl, videoTitle = "TV")
                     videoList.add(video)
                 }
             }

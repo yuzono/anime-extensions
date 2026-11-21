@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "WIT ANIME"
-    versionCode = 65
+    versionCode = 66
     contentWarning = ContentWarning.SAFE
     libVersion = "14"
 

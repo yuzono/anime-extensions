@@ -25,7 +25,7 @@ class VidbmExtractor(private val client: OkHttpClient, private val headers: Head
         return if (masterUrl.contains("m3u8")) {
             PlaylistUtils(client, headers).extractFromHls(masterUrl, videoNameGen = { quality -> "Vidbm - $quality" })
         } else {
-            listOf(Video(masterUrl, "Vidbm - $quality", masterUrl))
+            listOf(Video(videoUrl = masterUrl, videoTitle = "Vidbm - $quality"))
         }
     }
 }

@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "RouVideo"
-    versionCode = 15
+    versionCode = 16
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
 

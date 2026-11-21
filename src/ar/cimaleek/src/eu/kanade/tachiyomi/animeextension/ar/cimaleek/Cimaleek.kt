@@ -139,7 +139,7 @@ abstract class Cimaleek :
         val webViewResult = webViewResolver.getUrl(embedUrl, referer)
         return when {
             ".mp4" in webViewResult.url -> {
-                Video(webViewResult.url, element.text(), webViewResult.url, headers = referer).let(::listOf)
+                Video(videoUrl = webViewResult.url, videoTitle = element.text(), headers = referer).let(::listOf)
             }
 
             ".m3u8" in webViewResult.url -> {

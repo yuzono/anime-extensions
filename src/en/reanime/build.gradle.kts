@@ -6,16 +6,17 @@ plugins {
 
 yuzono {
     name = "Re:ANIME"
-    versionCode = 16
+    versionCode = 21
     contentWarning = ContentWarning.MIXED
     libVersion = "16"
 
+    // Domain index: https://reindex.to/
     source {
         lang = "en"
         baseUrl {
             mirrors(
-                "https://reanime.to",
                 "https://reanime.cz",
+                "https://reanime.bz",
                 "https://reanime.wtf",
             )
         }
@@ -23,6 +24,5 @@ yuzono {
 }
 
 dependencies {
-    implementation("com.github.komikku-app.nanohttpd:nanohttpd:gradle-upgrade-SNAPSHOT")
     implementation(project(":lib:playlistutils"))
 }

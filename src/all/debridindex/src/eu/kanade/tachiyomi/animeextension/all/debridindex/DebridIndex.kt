@@ -134,7 +134,7 @@ abstract class DebridIndex :
     private fun parseDate(dateStr: String): Long = runCatching { DATE_FORMATTER.parse(dateStr)?.time }
         .getOrNull() ?: 0L
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> = listOf(Video(episode.url, episode.name.split("/").last(), episode.url))
+    override suspend fun getVideoList(episode: SEpisode): List<Video> = listOf(Video(videoUrl = episode.url, videoTitle = episode.name.split("/").last()))
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         // Debrid provider

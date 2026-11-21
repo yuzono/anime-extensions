@@ -52,7 +52,7 @@ class FastreamExtractor(private val client: OkHttpClient, private val headers: H
                 videoUrl.contains(".m3u8") -> {
                     playlistUtils.extractFromHls(videoUrl, videoNameGen = { "$prefix$it" })
                 }
-                else -> listOf(Video(videoUrl, prefix, videoUrl, videoHeaders))
+                else -> listOf(Video(videoUrl = videoUrl, videoTitle = prefix, headers = videoHeaders))
             }
         }.getOrElse { emptyList() }
     }

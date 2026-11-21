@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "Jav Guru"
-    versionCode = 47
+    versionCode = 48
     contentWarning = ContentWarning.NSFW
     libVersion = "14"
 

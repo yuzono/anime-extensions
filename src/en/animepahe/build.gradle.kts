@@ -6,8 +6,8 @@ plugins {
 
 yuzono {
     name = "AnimePahe"
-    versionCode = 56
-    contentWarning = ContentWarning.SAFE
+    versionCode = 59
+    contentWarning = ContentWarning.MIXED
     libVersion = "16"
 
     source {
@@ -23,7 +23,5 @@ yuzono {
 }
 
 dependencies {
-    implementation(project(":lib:hlssegment"))
     implementation(project(":lib:unpacker"))
-    implementation("com.github.komikku-app.nanohttpd:nanohttpd:gradle-upgrade-SNAPSHOT")
 }

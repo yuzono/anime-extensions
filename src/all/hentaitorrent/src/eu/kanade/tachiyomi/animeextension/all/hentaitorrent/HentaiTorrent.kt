@@ -187,7 +187,7 @@ abstract class HentaiTorrent :
 
     // ============================ Video Links =============================
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> = listOf(Video(episode.url, episode.name, episode.url))
+    override suspend fun getVideoList(episode: SEpisode): List<Video> = listOf(Video(videoUrl = episode.url, videoTitle = episode.name))
 
     override fun videoListSelector() = throw Exception("Not used")
 

@@ -70,7 +70,7 @@ abstract class AnimeSrbija : AnimeHttpLegacySource() {
                     FilemoonExtractor(client).videosFromUrl(trimmedUrl)
 
                 ".m3u8" in trimmedUrl ->
-                    listOf(Video(trimmedUrl, "Internal Player", trimmedUrl))
+                    listOf(Video(videoUrl = trimmedUrl, videoTitle = "Internal Player"))
 
                 else -> emptyList()
             }

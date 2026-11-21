@@ -595,11 +595,18 @@ abstract class Cinejoy :
     // ============================= Hosters ===============================
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val (path, extraDataEncoded) = episode.url.split("#", limit = 2)
-        val enabledServers = preferences.enabledServerNames
+        val servers = wingServers()
         val preferredServer = preferences.preferredServerName
 
-        return wingServers()
-            .filter { it.name in enabledServers }
+        val savedServers = preferences.getStringSet(PREF_SERVERS_KEY, null)
+        val selected = when {
+            savedServers == null -> servers.filter { it.name in SERVER_NAMES }
+            savedServers.isEmpty() -> emptyList()
+            else -> servers.filter { it.name in savedServers }
+                .ifEmpty { servers.filter { it.name in SERVER_NAMES } }
+        }
+
+        return selected
             // Stable sort: the preferred server moves first, the rest keep
             // their API order.
             .sortedByDescending { it.name == preferredServer }
@@ -707,10 +714,6 @@ abstract class Cinejoy :
     private val SharedPreferences.preferredServerName by preferences.delegate(
         PREF_SERVER_KEY,
         PREF_SERVER_DEFAULT,
-    )
-    private val SharedPreferences.enabledServerNames: Set<String> by preferences.delegate(
-        PREF_SERVERS_KEY,
-        PREF_SERVERS_DEFAULT,
     )
     private val SharedPreferences.subLimitPref by preferences.delegate(
         PREF_SUB_LIMIT_KEY,
@@ -834,11 +837,11 @@ abstract class Cinejoy :
 
         // Fallback when https://api.wing.st/servers is unreachable.
         private val DEFAULT_SERVERS = listOf(
-            WingServerInfo("secret", mayHave4K = true),
-            WingServerInfo("Nebula"),
+            WingServerInfo("Light", mayHave4K = true),
             WingServerInfo("Lisbon", mayHave4K = true),
-            WingServerInfo("Solara"),
-            WingServerInfo("Athens"),
+            WingServerInfo("Nebula"),
+            WingServerInfo("Comet", mayHave4K = true),
+            WingServerInfo("Zenith", mayHave4K = true),
         )
 
         // Catalog backing the server preferences; names the dynamic

@@ -640,8 +640,7 @@ abstract class AnimePahe :
                     emptyList()
                 }
 
-                val proxiedHlsVideos = AnimePaheHlsServer.processVideoList(extractorClient, hlsVideos)
-                videoList.addAll(proxiedHlsVideos)
+                videoList.addAll(hlsVideos)
             }
         }
 
@@ -690,9 +689,7 @@ abstract class AnimePahe :
             return try {
                 val resolvedVideo = KwikExtractor(client, headers, cfUA).getStreamVideo(paheWinLink, video.videoTitle)
 
-                val proxiedVideo = AnimePaheHlsServer.processMp4VideoList(client, listOf(resolvedVideo)).firstOrNull()
-
-                proxiedVideo?.copy(preferred = video.preferred)
+                resolvedVideo.copy(preferred = video.preferred)
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

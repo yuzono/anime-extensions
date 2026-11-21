@@ -106,7 +106,7 @@ abstract class Asia2TV :
             val doc = client.newCall(GET(url)).awaitSuccess().useAsJsoup()
             when (val videoUrl = doc.selectFirst("source")?.attr("abs:src")) {
                 null -> emptyList()
-                else -> listOf(Video(videoUrl, "Yodbox: mirror", videoUrl))
+                else -> listOf(Video(videoUrl = videoUrl, videoTitle = "Yodbox: mirror"))
             }
         }
 

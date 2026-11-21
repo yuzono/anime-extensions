@@ -52,9 +52,8 @@ class CdopeExtractor(private val client: OkHttpClient) {
 
             videoList.add(
                 Video(
-                    file.file,
-                    "${file.label} (Cdope - ${file.type})",
-                    file.file,
+                    videoUrl = file.file,
+                    videoTitle = "${file.label} (Cdope - ${file.type})",
                     headers = videoHeaders,
                 ),
             )

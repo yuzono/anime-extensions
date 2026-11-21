@@ -6,13 +6,13 @@ plugins {
 
 yuzono {
     name = "Meus Animes"
-    versionCode = 1
-    contentWarning = ContentWarning.NSFW
+    versionCode = 3
+    contentWarning = ContentWarning.MIXED
     libVersion = "14"
 
     source {
         lang = "pt-BR"
-        baseUrl = "https://meusanimes.vip"
+        baseUrl = "https://meusanimes.blog"
     }
 }
 

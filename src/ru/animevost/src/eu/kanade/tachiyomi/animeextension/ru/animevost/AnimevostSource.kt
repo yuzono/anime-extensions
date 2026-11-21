@@ -441,7 +441,7 @@ abstract class AnimevostSource :
                     quality
                 }
 
-                videoList.add(Video(url, qualityLabel, url))
+                videoList.add(Video(videoUrl = url, videoTitle = qualityLabel))
             }
         }
 
