@@ -19,12 +19,15 @@ import keiyoushi.utils.addListPreference
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.get
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMapBlocking
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.post
 import keiyoushi.utils.toHex
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -39,8 +42,15 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.random.Random
 import kotlin.time.Duration.Companion.milliseconds
+
+/**
+ * Raised when WCO refuses to serve a free player because every free server is
+ * at capacity. The message is shown to the user, so it must stay readable.
+ */
+private class WcoCapacityException(message: String) : Exception(message)
 
 abstract class WcoTheme :
     ParsedAnimeHttpLegacySource(),
@@ -294,12 +304,37 @@ abstract class WcoTheme :
         return PREMIUM_MARKERS.any { pageText.contains(it, ignoreCase = true) }
     }
 
-    open fun iframeExtractor(document: Document, episodeReferer: String = "$baseUrl/") = document.select("iframe")
-        .ifEmpty { throw Exception("No iframe found in the episode page") }
-        .parallelCatchingFlatMapBlocking {
-            val iframeLink = it.attr("abs:src")
-            iframeParse(iframeLink, episodeReferer)
+    /**
+     * A rejected free player request returns a "Servers Busy" page. Throwing
+     * here lets the message reach the user instead of an empty video list.
+     */
+    private fun throwIfCapacityLimited(body: String) {
+        if (CAPACITY_MARKERS.any { body.contains(it, ignoreCase = true) }) {
+            throw WcoCapacityException("WCO's free servers are full. Try again later or use WCO Premium.")
         }
+    }
+
+    open fun iframeExtractor(document: Document, episodeReferer: String = "$baseUrl/") = runBlocking {
+        withContext(Dispatchers.IO) {
+            document.select("iframe")
+                .ifEmpty { throw Exception("No iframe found in the episode page") }
+                .map { element ->
+                    async {
+                        try {
+                            iframeParse(element.attr("abs:src"), episodeReferer)
+                        } catch (e: WcoCapacityException) {
+                            throw e
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
+                    }
+                }
+                .awaitAll()
+                .flatten()
+        }
+    }
 
     open fun iframeOldExtractor(document: Document, episodeReferer: String = "$baseUrl/"): List<Video> {
         val script = document.selectFirst("script:containsData(decodeURIComponent)")?.data()
@@ -320,7 +355,17 @@ abstract class WcoTheme :
             .selectFirst("iframe")?.attr("src")
             ?: throw Exception("No iframe found in the episode page")
 
-        return runBlocking { runCatching { iframeParse(iframeUrl, episodeReferer) }.getOrElse { emptyList() } }
+        return runBlocking {
+            try {
+                iframeParse(iframeUrl, episodeReferer)
+            } catch (e: WcoCapacityException) {
+                throw e
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
     }
 
     private fun generateNonce(): String = ByteArray(16).also(Random::nextBytes).toHex()
@@ -412,7 +457,7 @@ abstract class WcoTheme :
             .toString()
 
         val oldPlayerResponse = client.newCall(GET(videoJsOldUrl, embedHeaders)).execute()
-        val oldPlayerBody = oldPlayerResponse.body.string()
+        val oldPlayerBody = oldPlayerResponse.bodyString()
         val useOldPlayer = oldPlayerResponse.isSuccessful && "$.getJSON" in oldPlayerBody
 
         val videoJsUrl = if (useOldPlayer) {
@@ -428,9 +473,11 @@ abstract class WcoTheme :
         val iframeSoup = if (useOldPlayer) {
             Jsoup.parse(oldPlayerBody, iframeDomain)
         } else {
-            client.newCall(GET(videoJsUrl, embedHeaders))
-                .awaitSuccess()
-                .asJsoup()
+            val playerBody = client.newCall(GET(videoJsUrl, embedHeaders))
+                .execute()
+                .bodyString()
+            throwIfCapacityLimited(playerBody)
+            Jsoup.parse(playerBody, iframeDomain)
         }
 
         val getVideoLinkScript =
@@ -548,6 +595,14 @@ abstract class WcoTheme :
             "Premium Users Only",
             "Become a Premium User Now!",
             "Start your premium journey",
+        )
+
+        /** Body of the page returned when every free server is at capacity. */
+        private val CAPACITY_MARKERS = listOf(
+            "Servers Busy",
+            "servers are currently at full capacity",
+            "servers are currently running at full capacity",
+            "All Servers Are At Full Capacity",
         )
     }
 }
