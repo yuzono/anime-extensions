@@ -275,8 +275,23 @@ abstract class WcoTheme :
 
     override fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
+
+        if (document.isPremiumOnly()) {
+            throw Exception("This video is only available to WCO Premium subscribers.")
+        }
+
         val episodeReferer = response.request.url.toString()
         return if (useOldIframeExtractor) iframeOldExtractor(document, episodeReferer) else iframeExtractor(document, episodeReferer)
+    }
+
+    /**
+     * WCO replaces the player with a paywall block for premium-only titles.
+     * The wording differs between wcostream and the other WCO domains, so
+     * match both variants. None of these markers appear on free episode pages.
+     */
+    private fun Document.isPremiumOnly(): Boolean {
+        val pageText = text()
+        return PREMIUM_MARKERS.any { pageText.contains(it, ignoreCase = true) }
     }
 
     open fun iframeExtractor(document: Document, episodeReferer: String = "$baseUrl/") = document.select("iframe")
@@ -521,5 +536,18 @@ abstract class WcoTheme :
         const val PREF_DELAY_DEFAULT = "12"
 
         const val DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+
+        /**
+         * Paywall text used by the two WCO page templates:
+         * - wco.tv / wcoflix / wcoforever / wcoanimedub / wcoanimesub
+         * - wcostream
+         * Verified against live premium pages; none appear on free episode pages.
+         */
+        private val PREMIUM_MARKERS = listOf(
+            "This Video Is for Premium Users",
+            "Premium Users Only",
+            "Become a Premium User Now!",
+            "Start your premium journey",
+        )
     }
 }
