@@ -270,7 +270,6 @@ abstract class Animejl :
         // Labels saved before the lib 16 migration
         private val LEGACY_SERVERS = mapOf(
             "StreamHideVid" to "VidHide",
-            "StreamWish" to "FileMoon",
         )
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
