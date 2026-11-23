@@ -63,7 +63,6 @@ abstract class AnimeAv1 :
             "Voe",
             "Byse",
             "UPNShare",
-            "PixelDrain",
             "Mega",
             "HLS",
             "StreamWish",
@@ -200,7 +199,7 @@ abstract class AnimeAv1 :
     }
 
     override fun List<Hoster>.sortHosters(): List<Hoster> {
-        val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
+        val server = preferredServer { name -> any { it.hosterName.contains(name, true) } }
         val language = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT)!!
         return sortedWith(
             compareByDescending<Hoster> { it.hosterName.contains(language, true) }
@@ -284,7 +283,7 @@ abstract class AnimeAv1 :
 
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-        val server = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
+        val server = preferredServer { name -> any { it.videoTitle.contains(name, true) } }
         val langPref = preferences.getString(PREF_LANG_KEY, PREF_LANG_DEFAULT)!!
         return this.sortedWith(
             compareBy(
@@ -294,6 +293,13 @@ abstract class AnimeAv1 :
                 { QUALITY_REGEX.find(it.videoTitle)?.groupValues?.get(1)?.toIntOrNull() ?: 0 },
             ),
         ).reversed()
+    }
+
+    // A saved server the episode doesn't offer (e.g. the retired PixelDrain) would leave the page
+    // order in place, so the default server is preferred instead.
+    private fun preferredServer(isOffered: (String) -> Boolean): String {
+        val saved = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT)!!
+        return if (isOffered(saved)) saved else PREF_SERVER_DEFAULT
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
