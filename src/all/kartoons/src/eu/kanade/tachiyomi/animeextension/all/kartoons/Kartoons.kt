@@ -478,7 +478,7 @@ abstract class Kartoons :
             dialogTitle = "$name Token"
             dialogMessage = "1. Sign in to $baseUrl\n" +
                 "2. Go to Profile -> Stremio tab\n" +
-                "3. Copy the token from the Manifest URL (after ?token=)\n" +
+                "3. Copy the whole Manifest URL\n" +
                 "4. Paste it here"
             setOnPreferenceChangeListener { preference, newValue ->
                 val str = (newValue as String).trim()
