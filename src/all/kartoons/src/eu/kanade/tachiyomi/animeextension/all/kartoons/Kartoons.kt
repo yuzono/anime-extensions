@@ -154,9 +154,6 @@ abstract class Kartoons :
         fetchSeasons: Boolean,
     ): SAnimeSeasonUpdate {
         if (!fetchDetails && !fetchSeasons) return SAnimeSeasonUpdate(anime, seasons)
-        if (anime.url.startsWith("/movie/")) {
-            return SAnimeSeasonUpdate(if (fetchDetails) fetchDetails(anime) else anime, emptyList())
-        }
 
         val id = showId(anime.url)
         val show = fetchShow(id)
