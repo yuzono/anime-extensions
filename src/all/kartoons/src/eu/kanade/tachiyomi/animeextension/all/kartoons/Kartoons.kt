@@ -1,11 +1,8 @@
 package eu.kanade.tachiyomi.animeextension.all.kartoons
 
-import android.util.Log
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
-import androidx.preference.SwitchPreferenceCompat
-import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -33,7 +30,6 @@ import java.io.IOException
 import java.net.URLEncoder
 import java.util.Locale
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.Executors
 
 @Source
 abstract class Kartoons :
@@ -43,8 +39,6 @@ abstract class Kartoons :
     override val supportsLatest = true
 
     private val preferences by getPreferencesLazy()
-    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
-    private val syncExecutor = Executors.newSingleThreadExecutor()
 
     private val apiUrl: String
         get() = baseUrl.replace("://", "://api.")
@@ -359,32 +353,32 @@ abstract class Kartoons :
 
     override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
 
+    // Streams come from the Stremio addon API; fetching one also records it in the account's watch history.
     override suspend fun getVideoList(hoster: Hoster): List<Video> {
-        syncWatchHistory(hoster.hosterUrl)
-        val fakeEpisode = SEpisode.create().apply { url = hoster.hosterUrl }
-        return extractVideos(fakeEpisode)
-    }
-
-    private suspend fun extractVideos(episode: SEpisode): List<Video> {
-        val linkUrl = when {
-            episode.url.contains("/episode/") -> {
-                val epId = episode.url.substringAfter("/episode/").substringBefore("/").substringBefore("?")
-                buildApiUrl("episode/$epId/links")
+        val episodeUrl = hoster.hosterUrl
+        val stremioId = when {
+            episodeUrl.contains("/episode/") -> {
+                "series/kartoons:" + episodeUrl.substringAfter("/episode/").substringBefore("/").substringBefore("?")
             }
-            episode.url.contains("/movie/") -> {
-                val movieId = episode.url.substringAfter("/movie/").substringBefore("/").substringBefore("?")
-                buildApiUrl("movie/$movieId/links")
+            episodeUrl.contains("/movie/") -> {
+                "movie/kartoons:" + episodeUrl.substringAfter("/movie/").substringBefore("/").substringBefore("?")
             }
-            else -> buildApiUrl(episode.url)
+            else -> throw IOException("Unsupported episode url: $episodeUrl")
         }
-        val response = client.get(linkUrl, headers)
-        val linksRes = response.parseAs<LinksResponse>()
-        if (!linksRes.success) {
-            throw IOException(linksRes.message ?: linksRes.error ?: "Failed to fetch stream links")
-        }
-        val data = linksRes.data ?: throw IOException("Stream links data is null")
 
-        val subtitleTracks = data.subtitles.mapNotNull { sub ->
+        val streams = client.get(buildStremioUrl("stream/$stremioId"), headers)
+            .parseAs<StremioStreamResponse>()
+            .streams
+            .filter { it.url.isNotBlank() }
+        if (streams.isEmpty()) return emptyList()
+
+        val subtitles = runCatching {
+            client.get(buildStremioUrl("subtitles/$stremioId"), headers)
+                .parseAs<StremioSubtitlesResponse>()
+                .subtitles
+        }.getOrDefault(emptyList())
+
+        val subtitleTracks = subtitles.mapNotNull { sub ->
             if (sub.url.isBlank()) return@mapNotNull null
             val lang = when (sub.lang?.lowercase()?.trim()) {
                 "eng", "en" -> "English"
@@ -402,81 +396,17 @@ abstract class Kartoons :
             Track(sub.url, lang)
         }
 
-        val preferredAudio = preferences.getString(PREF_AUDIO_LANG_KEY, PREF_AUDIO_LANG_DEFAULT)
-            ?: PREF_AUDIO_LANG_DEFAULT
-        val preferredAudioName = when (preferredAudio) {
-            "hin" -> "Hindi"
-            "tam" -> "Tamil"
-            "tel" -> "Telugu"
-            "eng" -> "English"
-            else -> "Unknown"
-        }
-        val audioLangRegex = Regex("""(?i)(?:^|[^a-zA-Z])${Regex.escape(preferredAudio)}(?:[^a-zA-Z]|$)""")
-
-        val sortedLinks = data.links.sortedByDescending { link ->
-            when {
-                link.name.contains(preferredAudioName, ignoreCase = true) -> 2
-                audioLangRegex.containsMatchIn(link.name) -> 2
-                else -> 1
-            }
-        }
-
-        val videoList = mutableListOf<Video>()
-        for (link in sortedLinks) {
-            if (link.url.isBlank()) continue
-            try {
-                if (link.url.contains(".m3u8")) {
-                    videoList.add(
-                        Video(
-                            videoUrl = link.url,
-                            videoTitle = link.name,
-                            headers = headers,
-                            subtitleTracks = subtitleTracks,
-                        ),
-                    )
-
-                    runCatching {
-                        playlistUtils.extractFromHls(
-                            playlistUrl = link.url,
-                            videoNameGen = { quality -> "${link.name} - $quality" },
-                            subtitleList = subtitleTracks,
-                        ).map { video ->
-                            val fixedUrl = if (!video.videoUrl.contains(".m3u8")) {
-                                "${video.videoUrl}#.m3u8"
-                            } else {
-                                video.videoUrl
-                            }
-                            Video(
-                                videoUrl = fixedUrl,
-                                videoTitle = video.videoTitle,
-                                headers = headers,
-                                subtitleTracks = (video.subtitleTracks.orEmpty() + subtitleTracks).distinctBy { it.url },
-                                audioTracks = video.audioTracks,
-                            )
-                        }
-                    }.getOrNull()?.let { subVideos ->
-                        videoList.addAll(subVideos.filterNot { it.videoUrl == link.url })
-                    }
-                } else {
-                    videoList.add(
-                        Video(
-                            videoUrl = link.url,
-                            videoTitle = link.name,
-                            headers = headers,
-                            subtitleTracks = subtitleTracks,
-                        ),
-                    )
-                }
-            } catch (_: Exception) {
-                // Skip failed link and continue with remaining links
-            }
-        }
-        return videoList.distinctBy { it.videoUrl }.sortedByDescending { video ->
-            when {
-                video.videoTitle.contains(preferredAudioName, ignoreCase = true) -> 2
-                audioLangRegex.containsMatchIn(video.videoTitle) -> 2
-                else -> 1
-            }
+        // Each stream is a master playlist with every dub as an audio rendition. Its variant and
+        // audio playlists are served as text/plain without an .m3u8 extension, which ffmpeg only
+        // accepts when it reaches them through the master, so the master is played as is and the
+        // app picks the dub from its own preferred audio language.
+        return streams.map { stream ->
+            Video(
+                videoUrl = stream.url,
+                videoTitle = stream.title ?: stream.name ?: name,
+                headers = headers,
+                subtitleTracks = subtitleTracks,
+            )
         }
     }
 
@@ -529,40 +459,6 @@ abstract class Kartoons :
         }
     }
 
-    private fun syncWatchHistory(episodeUrl: String) {
-        val syncEnabled = preferences.getBoolean(PREF_SYNC_WATCH_HISTORY_KEY, true)
-        if (!syncEnabled) return
-
-        val token = getCleanToken()
-        if (token.isBlank()) return
-
-        val syncUrl = when {
-            episodeUrl.contains("movie/") -> {
-                val movieId = episodeUrl.substringAfter("movie/").substringBefore("/links").substringBefore("/").substringBefore("?")
-                if (movieId.isBlank()) return
-                "$apiUrl/api/stremio/stream/movie/kartoons:$movieId.json?token=$token"
-            }
-            episodeUrl.contains("episode/") -> {
-                val episodeId = episodeUrl.substringAfter("episode/").substringBefore("/links").substringBefore("/").substringBefore("?")
-                if (episodeId.isBlank()) return
-                "$apiUrl/api/stremio/stream/series/kartoons:$episodeId.json?token=$token"
-            }
-            else -> null
-        } ?: return
-
-        syncExecutor.execute {
-            try {
-                client.newCall(GET(syncUrl, headers)).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        Log.w(TAG, "Watch history sync returned HTTP ${response.code}")
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Watch history sync failed: ${e.message}")
-            }
-        }
-    }
-
     // ============================= Preferences ============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
@@ -586,30 +482,12 @@ abstract class Kartoons :
         }.also(screen::addPreference)
 
         ListPreference(screen.context).apply {
-            key = PREF_AUDIO_LANG_KEY
-            title = "Preferred Audio Language"
-            entries = arrayOf("Hindi", "Tamil", "Telugu", "English")
-            entryValues = arrayOf("hin", "tam", "tel", "eng")
-            setDefaultValue(PREF_AUDIO_LANG_DEFAULT)
-            summary = "%s"
-            setOnPreferenceChangeListener { _, _ -> true }
-        }.also(screen::addPreference)
-
-        ListPreference(screen.context).apply {
             key = PREF_HOME_CATALOG_KEY
             title = "Default Browse Catalog"
             entries = Filters.CATALOG_OPTIONS.map { it.first }.toTypedArray()
             entryValues = Filters.CATALOG_OPTIONS.map { it.second }.toTypedArray()
             setDefaultValue(PREF_HOME_CATALOG_DEFAULT)
             summary = "%s"
-            setOnPreferenceChangeListener { _, _ -> true }
-        }.also(screen::addPreference)
-
-        SwitchPreferenceCompat(screen.context).apply {
-            key = PREF_SYNC_WATCH_HISTORY_KEY
-            title = "Sync Watch Activity to Website"
-            summary = "Updates Continue Watching on $baseUrl when you play a title"
-            setDefaultValue(true)
             setOnPreferenceChangeListener { _, _ -> true }
         }.also(screen::addPreference)
     }
@@ -626,16 +504,18 @@ abstract class Kartoons :
         }
     }
 
-    private fun buildApiUrl(pathWithQuery: String): String {
-        val token = getCleanToken()
-        if (token.isBlank()) {
-            throw IOException(
-                "User token is required. Configure your token in extension settings (Settings > Browse > Anime extensions > $name).",
-            )
-        }
-        val sep = if (pathWithQuery.contains("?")) "&" else "?"
-        return "$apiUrl/api/cloudstream/$pathWithQuery${sep}token=$token"
+    private fun requireToken(): String = getCleanToken().ifBlank {
+        throw IOException(
+            "User token is required. Configure your token in extension settings (Settings > Browse > Anime extensions > $name).",
+        )
     }
+
+    private fun buildApiUrl(pathWithQuery: String): String {
+        val sep = if (pathWithQuery.contains("?")) "&" else "?"
+        return "$apiUrl/api/cloudstream/$pathWithQuery${sep}token=${requireToken()}"
+    }
+
+    private fun buildStremioUrl(path: String): String = "$apiUrl/api/stremio/$path.json?token=${requireToken()}"
 
     private fun buildStremioCatalogUrl(path: String, page: Int): String {
         val token = getCleanToken()
@@ -665,13 +545,9 @@ abstract class Kartoons :
     }
 
     companion object {
-        private const val TAG = "Kartoons"
         private val SEASON_PREFIX_REGEX = Regex("""^Season\s+\d+\s*[:\-]?\s*""", RegexOption.IGNORE_CASE)
         private const val TOKEN_KEY = "token"
-        private const val PREF_AUDIO_LANG_KEY = "pref_audio_lang"
-        private const val PREF_AUDIO_LANG_DEFAULT = "hin"
         private const val PREF_HOME_CATALOG_KEY = "pref_home_catalog"
         private const val PREF_HOME_CATALOG_DEFAULT = "catalog/show?catalog=popular"
-        private const val PREF_SYNC_WATCH_HISTORY_KEY = "pref_sync_watch_history"
     }
 }

@@ -115,24 +115,20 @@ class EpisodeItem(
 )
 
 @Serializable
-class LinksResponse(
-    val success: Boolean = false,
-    val message: String? = null,
-    val error: String? = null,
-    val data: LinksData? = null,
+class StremioStreamResponse(
+    val streams: List<StremioStream> = emptyList(),
 )
 
 @Serializable
-class LinksData(
-    val links: List<StreamLink> = emptyList(),
-    val subtitles: List<SubtitleItem> = emptyList(),
+class StremioStream(
+    val url: String,
+    val name: String? = null,
     val title: String? = null,
 )
 
 @Serializable
-class StreamLink(
-    val name: String,
-    val url: String,
+class StremioSubtitlesResponse(
+    val subtitles: List<SubtitleItem> = emptyList(),
 )
 
 @Serializable
