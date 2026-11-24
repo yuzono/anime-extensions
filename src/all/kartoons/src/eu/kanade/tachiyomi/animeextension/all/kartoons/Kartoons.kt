@@ -18,11 +18,13 @@ import keiyoushi.annotation.Source
 import keiyoushi.network.get
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
@@ -369,14 +371,18 @@ abstract class Kartoons :
         val streams = client.get(buildStremioUrl("stream/$stremioId"), headers)
             .parseAs<StremioStreamResponse>()
             .streams
-            .filter { it.url.isNotBlank() }
+            .filterNot { it.url.isNullOrBlank() }
         if (streams.isEmpty()) return emptyList()
 
-        val subtitles = runCatching {
+        val subtitles = try {
             client.get(buildStremioUrl("subtitles/$stremioId"), headers)
                 .parseAs<StremioSubtitlesResponse>()
                 .subtitles
-        }.getOrDefault(emptyList())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            emptyList()
+        }
 
         val subtitleTracks = subtitles.mapNotNull { sub ->
             if (sub.url.isBlank()) return@mapNotNull null
@@ -402,7 +408,7 @@ abstract class Kartoons :
         // app picks the dub from its own preferred audio language.
         return streams.map { stream ->
             Video(
-                videoUrl = stream.url,
+                videoUrl = stream.url!!,
                 videoTitle = stream.title ?: stream.name ?: name,
                 headers = headers,
                 subtitleTracks = subtitleTracks,
@@ -510,12 +516,14 @@ abstract class Kartoons :
         )
     }
 
-    private fun buildApiUrl(pathWithQuery: String): String {
-        val sep = if (pathWithQuery.contains("?")) "&" else "?"
-        return "$apiUrl/api/cloudstream/$pathWithQuery${sep}token=${requireToken()}"
-    }
+    private fun String.withToken(token: String): String = toHttpUrl().newBuilder()
+        .addQueryParameter("token", token)
+        .build()
+        .toString()
 
-    private fun buildStremioUrl(path: String): String = "$apiUrl/api/stremio/$path.json?token=${requireToken()}"
+    private fun buildApiUrl(pathWithQuery: String): String = "$apiUrl/api/cloudstream/$pathWithQuery".withToken(requireToken())
+
+    private fun buildStremioUrl(path: String): String = "$apiUrl/api/stremio/$path.json".withToken(requireToken())
 
     private fun buildStremioCatalogUrl(path: String, page: Int): String {
         val token = getCleanToken()
@@ -525,12 +533,13 @@ abstract class Kartoons :
             )
         }
         val cleanPath = path.removePrefix("/")
-        return if (page <= 1) {
-            "$apiUrl/api/stremio/$cleanPath.json?token=$token"
+        val url = if (page <= 1) {
+            "$apiUrl/api/stremio/$cleanPath.json"
         } else {
             val skip = (page - 1) * 20
-            "$apiUrl/api/stremio/$cleanPath/skip=$skip.json?token=$token"
+            "$apiUrl/api/stremio/$cleanPath/skip=$skip.json"
         }
+        return url.withToken(token)
     }
 
     override fun getFilterList(): AnimeFilterList = Filters.getFilterList()

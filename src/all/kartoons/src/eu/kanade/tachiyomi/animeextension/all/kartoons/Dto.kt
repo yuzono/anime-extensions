@@ -121,7 +121,7 @@ class StremioStreamResponse(
 
 @Serializable
 class StremioStream(
-    val url: String,
+    val url: String? = null,
     val name: String? = null,
     val title: String? = null,
 )
