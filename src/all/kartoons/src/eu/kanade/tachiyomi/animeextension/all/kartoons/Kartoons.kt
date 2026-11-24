@@ -29,6 +29,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
+import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.Locale
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -504,7 +505,9 @@ abstract class Kartoons :
         val raw = preferences.getString(TOKEN_KEY, "")?.trim().orEmpty()
         if (raw.isBlank()) return ""
         return if (raw.contains("token=")) {
-            raw.substringAfter("token=").substringBefore("&").trim()
+            // Taken from a URL, so it is still percent-encoded; addQueryParameter encodes it again.
+            val encoded = raw.substringAfter("token=").substringBefore("&").substringBefore("#").trim()
+            runCatching { URLDecoder.decode(encoded, "UTF-8") }.getOrDefault(encoded)
         } else {
             raw
         }
