@@ -139,10 +139,13 @@ abstract class Kartoons :
         episodes: List<SEpisode>,
         fetchDetails: Boolean,
         fetchEpisodes: Boolean,
-    ): SAnimeUpdate = SAnimeUpdate(
-        anime = if (fetchDetails) fetchDetails(anime) else anime,
-        episodes = if (fetchEpisodes) fetchEpisodes(anime) else episodes,
-    )
+    ): SAnimeUpdate {
+        val updated = if (fetchDetails) fetchDetails(anime) else anime
+        return SAnimeUpdate(
+            anime = updated,
+            episodes = if (fetchEpisodes) fetchEpisodes(updated) else episodes,
+        )
+    }
 
     override suspend fun fetchAnimeSeasonUpdate(
         anime: SAnime,
@@ -160,7 +163,7 @@ abstract class Kartoons :
         val details = if (fetchDetails) show.toSAnime(anime.url) else anime
         return SAnimeSeasonUpdate(
             anime = details,
-            seasons = if (fetchSeasons) show.toSeasonList(id, details) else seasons,
+            seasons = if (fetchSeasons) show.toSeasonList(id, details, anime.status) else seasons,
         )
     }
 
@@ -209,8 +212,8 @@ abstract class Kartoons :
 
     // ============================== Seasons ===============================
 
-    private fun ShowData.toSeasonList(id: String, anime: SAnime): List<SAnime> {
-        val showStatus = parseStatus(status).takeIf { it != SAnime.UNKNOWN } ?: anime.status
+    private fun ShowData.toSeasonList(id: String, anime: SAnime, fallbackStatus: Int): List<SAnime> {
+        val showStatus = parseStatus(status).takeIf { it != SAnime.UNKNOWN } ?: fallbackStatus
         return seasons.mapNotNull { season ->
             val seasonSlug = season.slug ?: season.seasonNumber?.toString() ?: return@mapNotNull null
             val seasonNum = season.seasonNumber ?: 1
