@@ -6,9 +6,9 @@ plugins {
 
 yuzono {
     name = "Animejl"
-    versionCode = 24
+    versionCode = 25
     contentWarning = ContentWarning.NSFW
-    libVersion = "14"
+    libVersion = "16"
 
     source {
         lang = "es"
@@ -25,5 +25,7 @@ dependencies {
     implementation(project(":lib:vidhideextractor"))
     implementation(project(":lib:universalextractor"))
     implementation(project(":lib:uqloadextractor"))
+    implementation(project(":lib:burstcloudextractor"))
+    implementation(project(":lib:filemoonextractor"))
     implementation(project(":lib:mp4uploadextractor"))
 }
