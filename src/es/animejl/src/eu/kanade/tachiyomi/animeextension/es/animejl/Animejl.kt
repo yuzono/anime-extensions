@@ -94,26 +94,31 @@ abstract class Animejl :
         // Episodes first: a malformed script must not leave details half-applied
         val newEpisodes = if (fetchEpisodes) parseEpisodes(document, anime.url) else episodes
         return SAnimeUpdate(
-            anime = if (fetchDetails) parseDetails(document, anime.url) else anime,
+            anime = if (fetchDetails) parseDetails(document, anime) else anime,
             episodes = newEpisodes,
         )
     }
 
-    private fun parseDetails(document: Document, animeUrl: String): SAnime = SAnime.create().apply {
-        url = animeUrl
+    private fun parseDetails(document: Document, anime: SAnime): SAnime = SAnime.create().apply {
+        url = anime.url
         title = document.selectFirst("div.Ficha.fchlt div.Container .Title")!!.text()
         thumbnail_url = document.selectFirst("div.AnimeCover div.Image figure img")?.absUrl("src")
+            ?.takeIf { it.isNotEmpty() } ?: anime.thumbnail_url
         description = document.selectFirst("div.Description")?.text()?.removeSurrounding("\"")
+            ?.takeIf { it.isNotEmpty() } ?: anime.description
         genre = document.select("nav.Nvgnrs a").joinToString { it.text() }
+            .takeIf { it.isNotEmpty() } ?: anime.genre
         status = parseStatus(document.select("span.fa-tv").text())
+            .takeIf { it != SAnime.UNKNOWN } ?: anime.status
         initialized = true
     }
 
     // anime.url already carries the canonical id and slug
     private fun parseEpisodes(document: Document, animeUrl: String): List<SEpisode> {
         val script = document.selectFirst("script:containsData(var episodes =)")?.data()
-            ?: return emptyList()
-        val episodes = script.jsArray("episodes") ?: return emptyList()
+            ?: throw Exception("Could not find the episode list. Check if there are any in WebView.")
+        val episodes = script.jsArray("episodes")
+            ?: throw Exception("Could not find the episode list. Check if there are any in WebView.")
         val animePath = animeUrl.trimEnd('/')
 
         return episodes.mapNotNull { entry ->
@@ -233,12 +238,14 @@ abstract class Animejl :
 
     // The arrays mix numbers and strings, so they are read with the JsonElement accessors
     private fun String.jsArray(variable: String): JsonArray? {
-        val raw = substringAfter("var $variable = [", "")
+        val marker = "var $variable = ["
+        if (!contains(marker)) return null
+        val raw = substringAfter(marker)
             .substringBefore("];", "")
             .replace(TRAILING_COMMA_REGEX, "$1")
             .trim()
             .removeSuffix(",")
-        return if (raw.isEmpty()) null else "[$raw]".parseAs<JsonArray>()
+        return "[$raw]".parseAs<JsonArray>()
     }
 
     private fun serverLabel(url: String): String = when {
