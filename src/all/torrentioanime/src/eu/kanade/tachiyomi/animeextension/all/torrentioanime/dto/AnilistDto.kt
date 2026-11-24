@@ -105,6 +105,7 @@ data class AnilistRelationsDto(
 
 @Serializable
 data class AnilistRelationsData(
+    @SerialName("Media")
     val media: AnilistMediaRelations? = null,
 )
 
@@ -126,7 +127,7 @@ data class AnilistRelationEdge(
 
 @Serializable
 data class AnilistRelationNode(
-    val id: Int,
+    val id: Int? = null,
     val type: String? = null,
     val title: AnilistTitle? = null,
     val coverImage: AnilistCoverImage? = null,
