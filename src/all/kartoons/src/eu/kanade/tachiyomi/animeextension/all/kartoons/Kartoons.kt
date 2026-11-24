@@ -304,7 +304,8 @@ abstract class Kartoons :
         ),
     )
 
-    // Streams come from the Stremio addon API; fetching one also records it in the account's watch history.
+    // Streams come from the Stremio addon API. Fetching one does not record watch history: the site
+    // records progress through its own watch endpoints, which need a login session.
     override suspend fun fetchVideoList(hoster: Hoster): List<Video> {
         val episodeUrl = hoster.hosterUrl
         val stremioId = when {
