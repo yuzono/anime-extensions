@@ -241,11 +241,12 @@ abstract class Animejl :
         val marker = "var $variable = ["
         if (!contains(marker)) return null
         val raw = substringAfter(marker)
-            .substringBefore("];", "")
+        if (!raw.contains("];")) return null // truncated payload, not empty
+        val content = raw.substringBefore("];")
             .replace(TRAILING_COMMA_REGEX, "$1")
             .trim()
             .removeSuffix(",")
-        return "[$raw]".parseAs<JsonArray>()
+        return "[$content]".parseAs<JsonArray>()
     }
 
     private fun serverLabel(url: String): String = when {
