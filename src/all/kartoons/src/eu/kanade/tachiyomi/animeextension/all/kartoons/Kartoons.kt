@@ -12,10 +12,12 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
-import eu.kanade.tachiyomi.network.GET
 import keiyoushi.annotation.Source
 import keiyoushi.network.get
+import keiyoushi.source.AniSource
+import keiyoushi.source.model.SAnimeSeasonUpdate
+import keiyoushi.source.model.SAnimeUpdate
+import keiyoushi.utils.firstInstanceOrNull
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
 import kotlinx.coroutines.CancellationException
@@ -26,8 +28,6 @@ import kotlinx.coroutines.coroutineScope
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.Request
-import okhttp3.Response
 import java.io.IOException
 import java.net.URLDecoder
 import java.net.URLEncoder
@@ -36,7 +36,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 
 @Source
 abstract class Kartoons :
-    AnimeHttpSource(),
+    AniSource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = true
@@ -52,36 +52,31 @@ abstract class Kartoons :
 
     // ============================== Popular ===============================
 
-    override fun popularAnimeRequest(page: Int): Request {
-        val defaultCatalog = preferences.getString(PREF_HOME_CATALOG_KEY, PREF_HOME_CATALOG_DEFAULT)
+    override suspend fun getPopularAnime(page: Int): AnimesPage {
+        val catalog = preferences.getString(PREF_HOME_CATALOG_KEY, PREF_HOME_CATALOG_DEFAULT)
             ?.takeIf { it.isNotBlank() } ?: PREF_HOME_CATALOG_DEFAULT
-
-        val url = if (defaultCatalog.startsWith("stremio:")) {
-            buildStremioCatalogUrl(defaultCatalog.removePrefix("stremio:"), page)
-        } else {
-            val sep = if (defaultCatalog.contains("?")) "&" else "?"
-            buildApiUrl("$defaultCatalog${sep}page=$page&limit=20")
-        }
-        return GET(url, headers)
+        return fetchCatalog(catalog, page)
     }
 
-    override fun popularAnimeParse(response: Response): AnimesPage {
-        val requestUrl = response.request.url.toString()
-        if (requestUrl.contains("/api/stremio/")) {
-            return parseStremioCatalog(response)
+    private suspend fun fetchCatalog(catalog: String, page: Int): AnimesPage {
+        if (catalog.startsWith("stremio:")) {
+            return fetchStremioCatalog(catalog.removePrefix("stremio:"), page)
         }
-        val catalog = response.parseAs<CatalogResponse>()
-        if (!catalog.success) {
-            throw IOException(catalog.message ?: catalog.error ?: "Failed to fetch catalog")
+        val sep = if (catalog.contains("?")) "&" else "?"
+        val res = client.get(buildApiUrl("$catalog${sep}page=$page&limit=20"), headers)
+            .parseAs<CatalogResponse>()
+        if (!res.success) {
+            throw IOException(res.message ?: res.error ?: "Failed to fetch catalog")
         }
-        val animeList = catalog.data.map { item ->
+        val animeList = res.data.map { item ->
             createAnime(item.id, item.title.trim(), item.image ?: item.coverImage, item.type)
         }
-        return AnimesPage(animeList, catalog.data.size >= 20)
+        return AnimesPage(animeList, res.data.size >= 20)
     }
 
-    private fun parseStremioCatalog(response: Response): AnimesPage {
-        val catalog = response.parseAs<StremioCatalogResponse>()
+    private suspend fun fetchStremioCatalog(path: String, page: Int): AnimesPage {
+        val catalog = client.get(buildStremioCatalogUrl(path, page), headers)
+            .parseAs<StremioCatalogResponse>()
         val animeList = catalog.metas.mapNotNull { meta ->
             val rawId = meta.id?.removePrefix("kartoons:")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val name = meta.name?.trim()?.takeIf { it.isNotBlank() }
@@ -94,31 +89,9 @@ abstract class Kartoons :
 
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request {
-        val url = buildApiUrl("catalog/show?catalog=latest&page=$page&limit=20")
-        return GET(url, headers)
-    }
-
-    override fun latestUpdatesParse(response: Response): AnimesPage = popularAnimeParse(response)
+    override suspend fun getLatestUpdates(page: Int): AnimesPage = fetchCatalog("catalog/show?catalog=latest", page)
 
     // =============================== Search ===============================
-
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val url = if (query.isNotBlank()) {
-            val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
-            buildApiUrl("search?q=$encodedQuery&page=$page&limit=20")
-        } else {
-            val catalogPath = filters.filterIsInstance<Filters.CatalogFilter>()
-                .firstOrNull()?.selected ?: PREF_HOME_CATALOG_DEFAULT
-            if (catalogPath.startsWith("stremio:")) {
-                buildStremioCatalogUrl(catalogPath.removePrefix("stremio:"), page)
-            } else {
-                val sep = if (catalogPath.contains("?")) "&" else "?"
-                buildApiUrl("$catalogPath${sep}page=$page&limit=20")
-            }
-        }
-        return GET(url, headers)
-    }
 
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (query.startsWith("http://") || query.startsWith("https://")) {
@@ -135,126 +108,119 @@ abstract class Kartoons :
                     } else {
                         "/$type/$id"
                     }
-                    val details = getAnimeDetails(SAnime.create().apply { this.url = animeUrl })
+                    val details = fetchDetails(SAnime.create().apply { this.url = animeUrl })
+                        .apply { initialized = true }
                     return AnimesPage(listOf(details), false)
                 }
             }
         }
-        return super.getSearchAnime(page, query, filters)
-    }
 
-    override fun searchAnimeParse(response: Response): AnimesPage {
-        val requestUrl = response.request.url.toString()
-        return if (requestUrl.contains("/search?")) {
-            val search = response.parseAs<SearchResponse>()
-            if (!search.success) {
-                throw IOException(search.message ?: search.error ?: "Search failed")
-            }
-            val animeList = search.data.map { item ->
-                createAnime(item.id, item.title.trim(), item.image, item.type)
-            }
-            AnimesPage(animeList, search.data.size >= 20)
-        } else {
-            popularAnimeParse(response)
+        if (query.isBlank()) {
+            val catalog = filters.firstInstanceOrNull<Filters.CatalogFilter>()?.selected ?: PREF_HOME_CATALOG_DEFAULT
+            return fetchCatalog(catalog, page)
         }
+
+        val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
+        val res = client.get(buildApiUrl("search?q=$encodedQuery&page=$page&limit=20"), headers)
+            .parseAs<SearchResponse>()
+        if (!res.success) {
+            throw IOException(res.message ?: res.error ?: "Search failed")
+        }
+        val animeList = res.data.map { item ->
+            createAnime(item.id, item.title.trim(), item.image, item.type)
+        }
+        return AnimesPage(animeList, res.data.size >= 20)
     }
 
     // =========================== Anime Details ============================
 
-    override fun animeDetailsParse(response: Response): SAnime = throw UnsupportedOperationException()
+    override suspend fun fetchAnimeUpdate(
+        anime: SAnime,
+        episodes: List<SEpisode>,
+        fetchDetails: Boolean,
+        fetchEpisodes: Boolean,
+    ): SAnimeUpdate = SAnimeUpdate(
+        anime = if (fetchDetails) fetchDetails(anime) else anime,
+        episodes = if (fetchEpisodes) fetchEpisodes(anime) else episodes,
+    )
 
-    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        val isMovie = anime.url.startsWith("/movie/")
-        val isSingleSeason = anime.url.contains("/season/")
-        val id = if (isSingleSeason) {
-            anime.url.substringAfter("/show/").substringBefore("/season/")
-        } else {
-            anime.url.substringAfterLast("/")
-        }
-        val showApiUrl = if (isMovie) {
-            buildApiUrl("movie/$id")
-        } else {
-            buildApiUrl("show/$id")
+    override suspend fun fetchAnimeSeasonUpdate(
+        anime: SAnime,
+        seasons: List<SAnime>,
+        fetchDetails: Boolean,
+        fetchSeasons: Boolean,
+    ): SAnimeSeasonUpdate {
+        if (!fetchDetails && !fetchSeasons) return SAnimeSeasonUpdate(anime, seasons)
+        if (anime.url.startsWith("/movie/")) {
+            return SAnimeSeasonUpdate(if (fetchDetails) fetchDetails(anime) else anime, emptyList())
         }
 
-        val response = client.get(showApiUrl, headers)
-        return if (isMovie) {
-            val res = response.parseAs<MovieDetailsResponse>()
-            if (!res.success) {
-                throw IOException(res.message ?: res.error ?: "Failed to fetch movie details")
-            }
-            val data = res.data ?: throw IOException("Movie data not found")
-            SAnime.create().apply {
-                this.url = anime.url
-                title = data.title.trim()
-                description = data.description
-                thumbnail_url = data.image ?: data.coverImage
-                genre = data.tags.joinToString(", ")
-                status = parseStatus(data.status).takeIf { it != SAnime.UNKNOWN } ?: SAnime.COMPLETED
-                fetch_type = FetchType.Episodes
-                initialized = true
-            }
-        } else {
-            val res = response.parseAs<ShowDetailsResponse>()
-            if (!res.success) {
-                throw IOException(res.message ?: res.error ?: "Failed to fetch show details")
-            }
-            val data = res.data ?: throw IOException("Show data not found")
-            SAnime.create().apply {
-                this.url = anime.url
-                title = data.title.trim()
-                description = data.description
-                thumbnail_url = data.image ?: data.coverImage
-                genre = data.tags.joinToString(", ")
-                status = parseStatus(data.status)
-                fetch_type = if (isSingleSeason) FetchType.Episodes else FetchType.Seasons
-                initialized = true
-            }
+        val id = showId(anime.url)
+        val show = fetchShow(id)
+        val details = if (fetchDetails) show.toSAnime(anime.url) else anime
+        return SAnimeSeasonUpdate(
+            anime = details,
+            seasons = if (fetchSeasons) show.toSeasonList(id, details) else seasons,
+        )
+    }
+
+    private suspend fun fetchDetails(anime: SAnime): SAnime {
+        if (!anime.url.startsWith("/movie/")) {
+            return fetchShow(showId(anime.url)).toSAnime(anime.url)
+        }
+
+        val res = client.get(buildApiUrl("movie/${anime.url.substringAfterLast("/")}"), headers)
+            .parseAs<MovieDetailsResponse>()
+        if (!res.success) {
+            throw IOException(res.message ?: res.error ?: "Failed to fetch movie details")
+        }
+        val data = res.data ?: throw IOException("Movie data not found")
+        return SAnime.create().apply {
+            url = anime.url
+            title = data.title.trim()
+            description = data.description
+            thumbnail_url = data.image ?: data.coverImage
+            genre = data.tags.joinToString()
+            status = parseStatus(data.status).takeIf { it != SAnime.UNKNOWN } ?: SAnime.COMPLETED
+            fetch_type = FetchType.Episodes
         }
     }
 
-    // ============================== Episodes ==============================
-
-    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
-
-    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
-
-    override suspend fun getSeasonList(anime: SAnime): List<SAnime> {
-        val isMovie = anime.url.startsWith("/movie/")
-        if (isMovie) return emptyList()
-
-        val id = if (anime.url.contains("/season/")) {
-            anime.url.substringAfter("/show/").substringBefore("/season/")
-        } else {
-            anime.url.substringAfterLast("/")
+    private suspend fun fetchShow(id: String): ShowData {
+        val res = client.get(buildApiUrl("show/$id"), headers).parseAs<ShowDetailsResponse>()
+        if (!res.success) {
+            throw IOException(res.message ?: res.error ?: "Failed to fetch show details")
         }
+        return res.data ?: throw IOException("Show data not found")
+    }
 
-        val showUrl = buildApiUrl("show/$id")
-        val showRes = client.get(showUrl, headers).parseAs<ShowDetailsResponse>()
-        if (!showRes.success) {
-            throw IOException(showRes.message ?: showRes.error ?: "Failed to fetch show details")
+    private fun ShowData.toSAnime(animeUrl: String): SAnime {
+        val show = this
+        return SAnime.create().apply {
+            url = animeUrl
+            title = show.title.trim()
+            description = show.description
+            thumbnail_url = show.image ?: show.coverImage
+            genre = show.tags.joinToString()
+            status = parseStatus(show.status)
+            fetch_type = if (animeUrl.contains("/season/")) FetchType.Episodes else FetchType.Seasons
         }
-        val showData = showRes.data ?: return emptyList()
-        val seasons = showData.seasons
-        if (seasons.isEmpty()) return emptyList()
+    }
 
+    // ============================== Seasons ===============================
+
+    private fun ShowData.toSeasonList(id: String, anime: SAnime): List<SAnime> {
+        val showStatus = parseStatus(status).takeIf { it != SAnime.UNKNOWN } ?: anime.status
         return seasons.mapNotNull { season ->
             val seasonSlug = season.slug ?: season.seasonNumber?.toString() ?: return@mapNotNull null
             val seasonNum = season.seasonNumber ?: 1
-            val cleanTitle = cleanSeasonTitle(season.title)
-            val seasonTitle = if (cleanTitle.isNotBlank()) {
-                String.format(Locale.US, "Season %02d: %s", seasonNum, cleanTitle)
-            } else {
-                String.format(Locale.US, "Season %02d", seasonNum)
-            }
-
             SAnime.create().apply {
                 url = "/show/$id/season/$seasonSlug"
-                title = seasonTitle
+                title = seasonTitle(seasonNum, season.title)
                 thumbnail_url = anime.thumbnail_url
                 description = anime.description
                 genre = anime.genre
-                status = parseStatus(showData.status).takeIf { it != SAnime.UNKNOWN } ?: anime.status
+                status = showStatus
                 season_number = seasonNum.toDouble()
                 fetch_type = FetchType.Episodes
                 initialized = true
@@ -262,56 +228,40 @@ abstract class Kartoons :
         }
     }
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        val isMovie = anime.url.startsWith("/movie/")
-        val id = anime.url.substringAfterLast("/")
+    // ============================== Episodes ==============================
 
-        if (isMovie) {
+    private suspend fun fetchEpisodes(anime: SAnime): List<SEpisode> {
+        if (anime.url.startsWith("/movie/")) {
             return listOf(
                 SEpisode.create().apply {
                     name = "Movie"
                     episode_number = 1F
-                    url = "/movie/$id"
+                    url = "/movie/${anime.url.substringAfterLast("/")}"
                     preview_url = anime.thumbnail_url
                     scanlator = "Movie"
                 },
             )
         }
 
+        val id = showId(anime.url)
         if (anime.url.contains("/season/")) {
-            val showId = anime.url.substringAfter("/show/").substringBefore("/season/")
             val seasonSlug = anime.url.substringAfter("/season/").substringBefore("?")
-            val episodesUrl = buildApiUrl("show/$showId/season/$seasonSlug/episodes")
-            val epRes = client.get(episodesUrl, headers).parseAs<EpisodesResponse>()
-            if (!epRes.success) {
-                throw IOException(epRes.message ?: epRes.error ?: "Failed to fetch episodes for season $seasonSlug")
-            }
             var episodeCount = 1F
-            return epRes.data.map { ep ->
-                createEpisode(ep, showId, seasonSlug, fallbackNumber = episodeCount++)
+            return fetchSeasonEpisodes(id, seasonSlug).map { ep ->
+                createEpisode(ep, id, seasonSlug, fallbackNumber = episodeCount++)
             }.reversed()
         }
 
-        val showUrl = buildApiUrl("show/$id")
-        val showRes = client.get(showUrl, headers).parseAs<ShowDetailsResponse>()
-        if (!showRes.success) {
-            throw IOException(showRes.message ?: showRes.error ?: "Failed to fetch show details")
-        }
-        val showData = showRes.data ?: throw IOException("Show data is null")
-        val seasons = showData.seasons
-
+        val seasons = fetchShow(id).seasons
         val recordedErrors = ConcurrentLinkedQueue<Throwable>()
         val seasonResults = coroutineScope {
             seasons.map { season ->
                 async(Dispatchers.IO) {
                     val seasonSlug = season.slug ?: season.seasonNumber?.toString() ?: return@async null
-                    val episodesUrl = buildApiUrl("show/$id/season/$seasonSlug/episodes")
                     try {
-                        val epRes = client.get(episodesUrl, headers).parseAs<EpisodesResponse>()
-                        if (!epRes.success) {
-                            throw IOException(epRes.message ?: epRes.error ?: "Failed to fetch season $seasonSlug")
-                        }
-                        Pair(season, epRes.data)
+                        season to fetchSeasonEpisodes(id, seasonSlug)
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         recordedErrors.add(e)
                         null
@@ -324,40 +274,35 @@ abstract class Kartoons :
             throw IOException("Failed to load seasons", recordedErrors.peek())
         }
 
-        val episodeList = mutableListOf<SEpisode>()
         var episodeCount = 1F
-
-        for ((season, episodes) in seasonResults) {
+        return seasonResults.flatMap { (season, episodes) ->
             val seasonNum = season.seasonNumber ?: 1
-            val cleanTitle = cleanSeasonTitle(season.title)
-            val scanlatorName = if (cleanTitle.isNotBlank()) {
-                String.format(Locale.US, "Season %02d: %s", seasonNum, cleanTitle)
-            } else {
-                String.format(Locale.US, "Season %02d", seasonNum)
-            }
+            val scanlatorName = seasonTitle(seasonNum, season.title)
             val seasonSlug = season.slug ?: "season-$seasonNum"
+            episodes.map { ep -> createEpisode(ep, id, seasonSlug, scanlatorName, episodeCount++) }
+        }.reversed()
+    }
 
-            for (ep in episodes) {
-                episodeList.add(createEpisode(ep, id, seasonSlug, scanlatorName, episodeCount++))
-            }
+    private suspend fun fetchSeasonEpisodes(showId: String, seasonSlug: String): List<EpisodeItem> {
+        val res = client.get(buildApiUrl("show/$showId/season/$seasonSlug/episodes"), headers)
+            .parseAs<EpisodesResponse>()
+        if (!res.success) {
+            throw IOException(res.message ?: res.error ?: "Failed to fetch episodes for season $seasonSlug")
         }
-
-        return episodeList.reversed()
+        return res.data
     }
 
     // ============================ Video Links =============================
 
-    override suspend fun getHosterList(episode: SEpisode): List<Hoster> = listOf(
+    override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> = listOf(
         Hoster(
             hosterUrl = episode.url,
             hosterName = name,
         ),
     )
 
-    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
-
     // Streams come from the Stremio addon API; fetching one also records it in the account's watch history.
-    override suspend fun getVideoList(hoster: Hoster): List<Video> {
+    override suspend fun fetchVideoList(hoster: Hoster): List<Video> {
         val episodeUrl = hoster.hosterUrl
         val stremioId = when {
             episodeUrl.contains("/episode/") -> {
@@ -417,9 +362,19 @@ abstract class Kartoons :
         }
     }
 
-    private fun cleanSeasonTitle(title: String?): String {
-        val raw = title?.trim().orEmpty()
-        return raw.replace(SEASON_PREFIX_REGEX, "").trim()
+    private fun seasonTitle(seasonNum: Int, title: String?): String {
+        val cleanTitle = title?.trim().orEmpty().replace(SEASON_PREFIX_REGEX, "").trim()
+        return if (cleanTitle.isNotBlank()) {
+            String.format(Locale.US, "Season %02d: %s", seasonNum, cleanTitle)
+        } else {
+            String.format(Locale.US, "Season %02d", seasonNum)
+        }
+    }
+
+    private fun showId(url: String): String = if (url.contains("/season/")) {
+        url.substringAfter("/show/").substringBefore("/season/")
+    } else {
+        url.substringAfterLast("/")
     }
 
     private fun parseStatus(status: String?): Int = when (status?.lowercase()?.trim()) {
@@ -546,15 +501,6 @@ abstract class Kartoons :
     }
 
     override fun getFilterList(): AnimeFilterList = Filters.getFilterList()
-
-    override fun getAnimeUrl(anime: SAnime): String = "$baseUrl${if (anime.url.startsWith("/")) "" else "/"}${anime.url}"
-
-    override fun getEpisodeUrl(episode: SEpisode): String = if (episode.url.startsWith("http://") || episode.url.startsWith("https://")) {
-        episode.url
-    } else {
-        val path = if (episode.url.startsWith("/")) episode.url else "/${episode.url}"
-        "$baseUrl$path"
-    }
 
     companion object {
         private val SEASON_PREFIX_REGEX = Regex("""^Season\s+\d+\s*[:\-]?\s*""", RegexOption.IGNORE_CASE)
