@@ -74,10 +74,11 @@ abstract class Torrentio :
 
         val graphQLHeaders = Headers.Builder()
             .add("Accept", "application/json")
+            .add("Content-Type","application/json")
             .add("Referer", "https://anilist.co")
             .build()
 
-        return client.post("https://graphql.anilist.co".toHttpUrl(), headers, requestBody)
+        return client.post("https://graphql.anilist.co".toHttpUrl(), graphQLHeaders, requestBody)
     }
 
     private fun pickTitle(romaji: String?, english: String?, native: String?): String = when (preferences.getString(PREF_TITLE_KEY, "romaji")) {
@@ -562,7 +563,7 @@ abstract class Torrentio :
         }
     }
 
-    private inline fun <T> runCatchingCancellable(block: () -> T): Result<T> = try { // happy now mech ?
+    private inline fun <T> runCatchingCancellable(block: () -> T): Result<T> = try {
         Result.success(block())
     } catch (e: CancellationException) {
         throw e

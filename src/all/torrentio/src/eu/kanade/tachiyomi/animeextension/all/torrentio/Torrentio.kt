@@ -461,7 +461,7 @@ abstract class Torrentio :
         thumbnail_url = poster.orEmpty()
     }
 
-    private inline fun <T> runCatchingCancellable(block: () -> T): Result<T> = try { // happy now mech?
+    private inline fun <T> runCatchingCancellable(block: () -> T): Result<T> = try { 
         Result.success(block())
     } catch (e: CancellationException) {
         throw e
