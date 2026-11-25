@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.CinemetaMetaDetail
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.CinemetaMetaDetailResponse
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.CinemetaSearchResponse
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.EpisodeVideo
+import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.SegmentsDto
 import eu.kanade.tachiyomi.animeextension.all.torrentio.dto.StreamDataTorrent
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
@@ -20,33 +21,45 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.TimeStamp
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import keiyoushi.annotation.Source
 import keiyoushi.network.get
+import keiyoushi.source.AniSource
+import keiyoushi.source.model.SAnimeUpdate
 import keiyoushi.utils.applicationContext
+import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelMap
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.tryParse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Request
-import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.TimeZone
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration.Companion.milliseconds
 
 @Source
 abstract class Torrentio :
-    AnimeHttpSource(),
+    AniSource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = true
 
-    override val supportsRelatedAnimes = false
+    override val hasRelatedAnime = false
 
     private val preferences by getPreferencesLazy()
+
+    override fun getAnimeUrl(anime: SAnime): String {
+        val id = anime.url.substringBefore(",")
+        return if (id.startsWith("tt")) "https://www.imdb.com/title/$id/" else baseUrl
+    }
 
     private val cinemetaUrl = "https://v3-cinemeta.strem.io"
 
@@ -55,29 +68,14 @@ abstract class Torrentio :
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     // ============================== Popular ================================
-    override fun popularAnimeRequest(page: Int): Request = throw UnsupportedOperationException()
 
-    override fun popularAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException()
-
-    override suspend fun getPopularAnime(page: Int): AnimesPage = coroutineScope {
-        val movieDeferred = async(Dispatchers.IO) {
-            runCatching {
-                val url = "$streamingCatalogUrl/catalog/movie/$DEFAULT_STREAMING_SERVICE.json"
-                val response = client.get(url)
-                response.parseAs<CinemetaSearchResponse>().metas.orEmpty()
+    override suspend fun getPopularAnime(page: Int): AnimesPage {
+        val (movieResults, seriesResults) = listOf("movie", "series").parallelMap { type ->
+            runCatchingCancellable {
+                client.get("$streamingCatalogUrl/catalog/$type/$DEFAULT_STREAMING_SERVICE.json")
+                    .parseAs<CinemetaSearchResponse>().metas.orEmpty()
             }.getOrDefault(emptyList())
         }
-
-        val seriesDeferred = async(Dispatchers.IO) {
-            runCatching {
-                val url = "$streamingCatalogUrl/catalog/series/$DEFAULT_STREAMING_SERVICE.json"
-                val response = client.get(url)
-                response.parseAs<CinemetaSearchResponse>().metas.orEmpty()
-            }.getOrDefault(emptyList())
-        }
-
-        val movieResults = movieDeferred.await()
-        val seriesResults = seriesDeferred.await()
 
         val combined = mutableListOf<CinemetaMeta>()
         val maxSize = maxOf(movieResults.size, seriesResults.size)
@@ -86,39 +84,23 @@ abstract class Torrentio :
             if (i < seriesResults.size) combined.add(seriesResults[i])
         }
 
-        AnimesPage(combined.distinctBy { it.id }.map { it.toSAnime() }, false)
+        return AnimesPage(combined.distinctBy { it.id }.map { it.toSAnime() }, false)
     }
 
     // =============================== Latest / Trending =====================
 
-    override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
-
-    override fun latestUpdatesParse(response: Response): AnimesPage = throw UnsupportedOperationException()
-
-    override suspend fun getLatestUpdates(page: Int): AnimesPage = coroutineScope {
-        val seriesDeferred = async(Dispatchers.IO) {
-            runCatching {
-                val url = buildCinemetaTopUrl("series", page)
-                val response = client.get(url.toString())
-                response.parseAs<CinemetaSearchResponse>().metas.orEmpty()
+    override suspend fun getLatestUpdates(page: Int): AnimesPage {
+        val (seriesResults, movieResults) = listOf("series", "movie").parallelMap { type ->
+            runCatchingCancellable {
+                client.get(buildCinemetaTopUrl(type, page))
+                    .parseAs<CinemetaSearchResponse>().metas.orEmpty()
             }.getOrDefault(emptyList())
         }
-
-        val movieDeferred = async(Dispatchers.IO) {
-            runCatching {
-                val url = buildCinemetaTopUrl("movie", page)
-                val response = client.get(url.toString())
-                response.parseAs<CinemetaSearchResponse>().metas.orEmpty()
-            }.getOrDefault(emptyList())
-        }
-
-        val seriesResults = seriesDeferred.await()
-        val movieResults = movieDeferred.await()
 
         val combined = (seriesResults + movieResults).distinctBy { it.id }.sortedByDescending { it.popularity ?: 0.0 }
         val hasNextPage = seriesResults.size == CINEMETA_PAGE_SIZE || movieResults.size == CINEMETA_PAGE_SIZE
 
-        AnimesPage(combined.map { it.toSAnime() }, hasNextPage)
+        return AnimesPage(combined.map { it.toSAnime() }, hasNextPage)
     }
 
     fun buildCinemetaTopUrl(type: String, page: Int) = cinemetaUrl.toHttpUrl().newBuilder()
@@ -144,39 +126,11 @@ abstract class Torrentio :
 
         if (query.startsWith(PREFIX_SEARCH)) {
             val imdbId = query.removePrefix(PREFIX_SEARCH)
-            val types = listOf("movie", "series")
-            var meta: CinemetaMetaDetail? = null
-            for (t in types) {
-                meta = runCatching {
-                    val res = client.get("$aioMetadataurl/meta/$t/$imdbId.json")
-                    res.parseAs<CinemetaMetaDetailResponse>().meta
-                }.getOrNull()
-                if (meta != null) break
-            }
-            if (meta == null) return AnimesPage(emptyList(), false)
+            val meta = fetchMeta("$imdbId,movie") ?: return AnimesPage(emptyList(), false)
             val resolvedType = meta.type?.lowercase() ?: "movie"
 
-            return AnimesPage(
-                listOf(
-                    SAnime.create().apply {
-                        url = "$imdbId,$resolvedType"
-                        meta.name?.let { title = it }
-                        meta.poster?.takeIf { it.isNotBlank() }?.let { thumbnail_url = it }
-                        meta.background?.takeIf { it.isNotBlank() }?.let { background_url = it }
-                        meta.description?.takeIf { it.isNotBlank() }?.let { description = it.trim() }
-                        (meta.genres ?: meta.genre)?.takeIf { it.isNotEmpty() }?.let { genre = it.joinToString() }
-                        (meta.writer ?: meta.director)?.takeIf { it.isNotEmpty() }?.let { author = it.joinToString() }
-                        (meta.appExtras?.cast?.mapNotNull { it.name }?.take(4) ?: meta.cast?.take(4))
-                            ?.takeIf { it.isNotEmpty() }?.let { artist = it.joinToString() }
-                        status = when (meta.status?.trim()?.lowercase()) {
-                            "continuing" -> SAnime.ONGOING
-                            "ended" -> SAnime.COMPLETED
-                            else -> SAnime.UNKNOWN
-                        }
-                    },
-                ),
-                false,
-            )
+            val anime = SAnime.create().apply { url = "$imdbId,$resolvedType" }
+            return AnimesPage(listOf(applyDetails(anime, meta)), false)
         }
 
         val types = CatalogFilters.mediaType(filters)
@@ -186,7 +140,7 @@ abstract class Torrentio :
         return coroutineScope {
             val deferredResults = types.map { type ->
                 async(Dispatchers.IO) {
-                    runCatching {
+                    runCatchingCancellable {
                         val url = if (trimmedQuery.isBlank()) {
                             "$streamingCatalogUrl/catalog/$type/$streamingService.json"
                         } else {
@@ -198,8 +152,7 @@ abstract class Torrentio :
                                 .build()
                                 .toString()
                         }
-                        val response = client.get(url)
-                        response.parseAs<CinemetaSearchResponse>().metas.orEmpty()
+                        client.get(url).parseAs<CinemetaSearchResponse>().metas.orEmpty()
                     }.getOrDefault(emptyList())
                 }
             }
@@ -213,29 +166,37 @@ abstract class Torrentio :
 
     override fun getFilterList(): AnimeFilterList = CatalogFilters.getFilterList()
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request = throw UnsupportedOperationException()
+    // ====================== Details & Episodes ==============================
 
-    override fun searchAnimeParse(response: Response): AnimesPage = throw UnsupportedOperationException()
-
-    // =========================== Anime Details ==============================
-
-    override fun animeDetailsParse(response: Response): SAnime = throw UnsupportedOperationException()
-
-    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        val parts = anime.url.split(",")
+    private suspend fun fetchMeta(animeUrl: String): CinemetaMetaDetail? {
+        val parts = animeUrl.split(",")
         val id = parts[0]
         val type = parts.getOrNull(1)?.lowercase()?.ifBlank { "movie" } ?: "movie"
 
         val types = if (type == "series") listOf("series", "movie") else listOf("movie", "series")
-        var meta: CinemetaMetaDetail? = null
         for (t in types) {
-            meta = runCatching {
-                val res = client.get("$aioMetadataurl/meta/$t/$id.json")
-                res.parseAs<CinemetaMetaDetailResponse>().meta
+            val meta = runCatchingCancellable {
+                client.get("$aioMetadataurl/meta/$t/$id.json")
+                    .parseAs<CinemetaMetaDetailResponse>().meta
             }.getOrNull()
-            if (meta != null) break
+            if (meta != null) return meta
         }
+        return null
+    }
 
+    override suspend fun fetchAnimeUpdate(
+        anime: SAnime,
+        episodes: List<SEpisode>,
+        fetchDetails: Boolean,
+        fetchEpisodes: Boolean,
+    ): SAnimeUpdate {
+        val meta = if (fetchDetails || fetchEpisodes) fetchMeta(anime.url) else null
+        val updatedAnime = if (fetchDetails) applyDetails(anime, meta) else anime
+        val updatedEpisodes = if (fetchEpisodes) buildEpisodes(meta) else episodes
+        return SAnimeUpdate(anime = updatedAnime, episodes = updatedEpisodes)
+    }
+
+    private fun applyDetails(anime: SAnime, meta: CinemetaMetaDetail?): SAnime {
         if (meta == null) return anime
 
         meta.name?.let { anime.title = it }
@@ -255,33 +216,14 @@ abstract class Torrentio :
         return anime
     }
 
-    // =============================== Seasons ================================
+    private fun parseReleaseTime(raw: String?): Long {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty()) return 0L
+        return DATE_FORMATTER.tryParse(value).takeIf { it != 0L }
+            ?: SIMPLE_DATE_FORMATTER.tryParse(value)
+    }
 
-    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
-
-    override suspend fun getSeasonList(anime: SAnime): List<SAnime> = throw UnsupportedOperationException()
-
-    // ============================== Episodes ================================
-
-    override fun episodeListRequest(anime: SAnime): Request = throw UnsupportedOperationException()
-
-    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
-
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        val parts = anime.url.split(",")
-        val id = parts[0]
-        val type = parts.getOrNull(1)?.lowercase()?.ifBlank { "movie" } ?: "movie"
-
-        val types = if (type == "series") listOf("series", "movie") else listOf("movie", "series")
-        var meta: CinemetaMetaDetail? = null
-        for (t in types) {
-            meta = runCatching {
-                val res = client.get("$aioMetadataurl/meta/$t/$id.json")
-                res.parseAs<CinemetaMetaDetailResponse>().meta
-            }.getOrNull()
-            if (meta != null) break
-        }
-
+    private fun buildEpisodes(meta: CinemetaMetaDetail?): List<SEpisode> {
         if (meta == null) return emptyList()
 
         return when (meta.type) {
@@ -293,18 +235,7 @@ abstract class Torrentio :
                 meta.videos.orEmpty()
                     .asSequence()
                     .filter { video -> showSeasonZero || (video.season ?: 0) > 0 }
-                    .map { video ->
-                        val raw = video.firstAired ?: video.released
-                        val value = raw?.trim().orEmpty()
-                        val releaseTime = if (value.isEmpty()) {
-                            0L
-                        } else {
-                            runCatching { DATE_FORMATTER.parse(value)?.time }.getOrNull()
-                                ?: runCatching { SIMPLE_DATE_FORMATTER.parse(value)?.time }.getOrNull()
-                                ?: 0L
-                        }
-                        video to releaseTime
-                    }
+                    .map { video -> video to parseReleaseTime(video.firstAired ?: video.released) }
                     .filter { (_, releaseTime) -> showUpcoming || releaseTime in 1L..now }
                     .sortedWith(
                         compareByDescending<Pair<EpisodeVideo, Long>> { it.first.season ?: 1 }
@@ -336,25 +267,14 @@ abstract class Torrentio :
                     .toList()
             }
 
-            "movie" -> {
-                val raw = meta.released
-                val value = raw?.trim().orEmpty()
-                val releaseTime = if (value.isEmpty()) {
-                    0L
-                } else {
-                    runCatching { DATE_FORMATTER.parse(value)?.time }.getOrNull()
-                        ?: runCatching { SIMPLE_DATE_FORMATTER.parse(value)?.time }.getOrNull()
-                        ?: 0L
-                }
-                listOf(
-                    SEpisode.create().apply {
-                        episode_number = 1f
-                        url = "/stream/movie/${meta.id}.json"
-                        name = "Complete Movie"
-                        date_upload = releaseTime
-                    },
-                )
-            }
+            "movie" -> listOf(
+                SEpisode.create().apply {
+                    episode_number = 1f
+                    url = "/stream/movie/${meta.id}.json"
+                    name = "Complete Movie"
+                    date_upload = parseReleaseTime(meta.released)
+                },
+            )
 
             else -> emptyList()
         }
@@ -362,23 +282,33 @@ abstract class Torrentio :
 
     // ============================== Hosters ==================================
 
-    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
-        val streamData = runCatching {
-            val url = buildUrl(episode.url)
-            val response = client.get(url)
-            response.parseAs<StreamDataTorrent>()
-        }.getOrNull()
+    override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> = coroutineScope {
+        val timestampsDeferred = async(Dispatchers.IO) {
+            fetchTimestamps(episode.url)
+        }
 
-        val streams = streamData?.streams.orEmpty()
-        if (streams.isEmpty()) return emptyList()
+        val streamsDeferred = async(Dispatchers.IO) {
+            runCatchingCancellable {
+                val url = buildUrl(episode.url)
+                client.get(url).parseAs<StreamDataTorrent>()
+            }.getOrNull()
+        }
+
+        val streams = streamsDeferred.await()?.streams.orEmpty()
+        if (streams.isEmpty()) {
+            timestampsDeferred.cancel()
+            return@coroutineScope emptyList()
+        }
+
+        val timestamps = timestampsDeferred.await()
 
         val debridProvider = preferences.getString(PREF_DEBRID_KEY, "none")
         val trackers = if (debridProvider == "none") buildTrackerList() else emptyList()
 
-        return streams
+        streams
             .groupBy { getProviderName(it.title, it.name) }
-            .mapNotNull { (provider, providerStreams) ->
-                val videoList = providerStreams.map { stream ->
+            .mapNotNull outer@{ (provider, providerStreams) ->
+                val videoList = providerStreams.mapNotNull { stream ->
                     val urlOrHash = if (debridProvider == "none") {
                         buildString {
                             append("magnet:?xt=urn:btih:${stream.infoHash}")
@@ -393,8 +323,11 @@ abstract class Torrentio :
                     Video(
                         videoUrl = urlOrHash,
                         videoTitle = (stream.name?.removePrefix("Torrentio\n") ?: "") + "\n" + (stream.title ?: ""),
+                        timestamps = timestamps,
                     )
                 }
+
+                if (videoList.isEmpty()) return@outer null
 
                 Hoster(
                     hosterName = PROVIDER_DISPLAY_NAMES[provider] ?: provider.replaceFirstChar { it.uppercase() },
@@ -403,9 +336,7 @@ abstract class Torrentio :
             }
     }
 
-    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
-
-    override suspend fun getVideoList(hoster: Hoster): List<Video> = hoster.videoList.orEmpty()
+    override suspend fun fetchVideoList(hoster: Hoster): List<Video> = hoster.videoList.orEmpty()
 
     private fun buildUrl(streamPath: String): String {
         val configSegments = mutableListOf<String>()
@@ -463,7 +394,7 @@ abstract class Torrentio :
             if (titleLower.contains(provider) || nameLower.contains(provider)) return provider
         }
 
-        val titleParts = title.orEmpty().split(Regex("\\[|\\]"))
+        val titleParts = title.orEmpty().split(BRACKET_REGEX)
         for (part in titleParts) {
             val cleanPart = part.trim().lowercase()
             for (provider in PROVIDER_DISPLAY_NAMES.keys) {
@@ -474,13 +405,42 @@ abstract class Torrentio :
         return "unknown"
     }
 
-    suspend fun buildTrackerList(): List<String> = runCatching { fetchTrackers().split("\n") }.getOrDefault(emptyList())
+    suspend fun buildTrackerList(): List<String> = runCatchingCancellable { fetchTrackers().split("\n") }.getOrDefault(emptyList())
 
-    suspend fun fetchTrackers(): String {
-        val response = client.get("https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt")
-        if (!response.isSuccessful) throw Exception("Unexpected code $response")
-        return response.body.string().trim()
-    }
+    suspend fun fetchTrackers(): String = client.get("https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt")
+        .bodyString()
+        .trim()
+
+    // ============================ Timestamps ================================
+
+    private suspend fun fetchTimestamps(streamPath: String): List<TimeStamp> = withTimeoutOrNull(TIMESTAMPS_TIMEOUT_MS.milliseconds) { requestTimestamps(streamPath) }
+        ?: emptyList()
+
+    private suspend fun requestTimestamps(streamPath: String): List<TimeStamp> = runCatchingCancellable {
+        val match = STREAM_PATH_REGEX.find(streamPath) ?: return@runCatchingCancellable emptyList()
+        val (type, imdbId, season, episode) = match.destructured
+        val isMovie = type == "movie"
+
+        if (!imdbId.startsWith("tt") || (!isMovie && (season.isEmpty() || episode.isEmpty()))) {
+            return@runCatchingCancellable emptyList()
+        }
+
+        val introDbUrl = "https://api.introdb.app"
+        val url = introDbUrl.toHttpUrl().newBuilder()
+            .addPathSegment("segments")
+            .addQueryParameter("imdb_id", imdbId)
+            .apply {
+                if (isMovie) {
+                    addQueryParameter("is_movie", "true")
+                } else {
+                    addQueryParameter("season", season)
+                    addQueryParameter("episode", episode)
+                }
+            }
+            .build()
+
+        client.get(url).parseAs<SegmentsDto>().toTimeStamps()
+    }.getOrDefault(emptyList())
 
     // ============================ Sorting / Helpers ==========================
 
@@ -489,7 +449,7 @@ abstract class Torrentio :
 
         return sortedWith(
             compareBy(
-                { Regex("\\[(.+?) download]").containsMatchIn(it.videoTitle) },
+                { DOWNLOAD_TAG_REGEX.containsMatchIn(it.videoTitle) },
                 { isEfficient && !arrayOf("hevc", "265", "av1").any { q -> it.videoTitle.contains(q, true) } },
             ),
         )
@@ -499,6 +459,14 @@ abstract class Torrentio :
         url = "${id.orEmpty()},${type.orEmpty()}"
         title = name.orEmpty()
         thumbnail_url = poster.orEmpty()
+    }
+
+    private inline fun <T> runCatchingCancellable(block: () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Result.failure(e)
     }
 
     // ============================ Preferences ==============================
@@ -585,6 +553,7 @@ abstract class Torrentio :
         const val PREFIX_SEARCH = "id:"
         const val DEFAULT_STREAMING_SERVICE = "nfx"
         private const val CINEMETA_PAGE_SIZE = 100
+        private const val TIMESTAMPS_TIMEOUT_MS = 3_000L
 
         private const val PREF_TOKEN_KEY = "token"
         private const val PREF_TOKEN_DEFAULT = ""
@@ -618,13 +587,37 @@ abstract class Torrentio :
 
         private const val PREF_PROVIDER_KEY = "provider_selection"
         private val PREF_PROVIDERS = arrayOf(
-            "YTS", "EZTV", "RARBG", "1337x", "EXT", "ThePirateBay", "KickassTorrents", "TorrentGalaxy", "MagnetDL",
-            "HorribleSubs", "NyaaSi", "TokyoTosho", "AniDex", "nekoBT", "🇷🇺 Rutor", "🇷🇺 Rutracker", "🇵🇹 Comando",
-            "🇵🇹 BluDV", "🇵🇹 MicoLeaoDublado", "🇫🇷 Torrent9", "🇮🇹 ilCorSaRoNero", "🇪🇸 MejorTorrent", "🇪🇸 Wolfmax4k", "🇲🇽 Cinecalidad", "🇵🇱 BestTorrents",
+            "YTS",
+            "EZTV",
+            "RARBG",
+            "1337x",
+            "EXT",
+            "ThePirateBay",
+            "KickassTorrents",
+            "TorrentGalaxy",
+            "MagnetDL",
+            "HorribleSubs",
+            "NyaaSi",
+            "TokyoTosho",
+            "AniDex",
+            "nekoBT",
+            "UIndex",
+            "Knaben",
+            "🇷🇺 Rutor",
+            "🇷🇺 Rutracker",
+            "🇵🇹 Comando",
+            "🇵🇹 BluDV",
+            "🇵🇹 MicoLeaoDublado",
+            "🇫🇷 Torrent9",
+            "🇮🇹 ilCorSaRoNero",
+            "🇪🇸 MejorTorrent",
+            "🇪🇸 Wolfmax4k",
+            "🇲🇽 Cinecalidad",
+            "🇵🇱 BestTorrents",
         )
         private val PREF_PROVIDERS_VALUE = arrayOf(
             "yts", "eztv", "rarbg", "1337x", "ext", "thepiratebay", "kickasstorrents", "torrentgalaxy", "magnetdl",
-            "horriblesubs", "nyaasi", "tokyotosho", "anidex", "nekobt", "rutor", "rutracker", "comando",
+            "horriblesubs", "nyaasi", "tokyotosho", "anidex", "nekobt", "uindex", "knaben", "rutor", "rutracker", "comando",
             "bludv", "micoleaodublado", "torrent9", "ilcorsaronero", "mejortorrent", "wolfmax4k", "cinecalidad", "besttorrents",
         )
         private val PREF_DEFAULT_PROVIDERS_VALUE = arrayOf(
@@ -677,11 +670,19 @@ abstract class Torrentio :
         private const val IS_EFFICIENT_DEFAULT = false
 
         private val DATE_FORMATTER by lazy {
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ENGLISH)
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ROOT).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
         }
 
         private val SIMPLE_DATE_FORMATTER by lazy {
-            SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH)
+            SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
         }
+
+        private val STREAM_PATH_REGEX = Regex("""/stream/(movie|series)/([^:/.]+)(?::(\d+):(\d+))?\.json""")
+        private val DOWNLOAD_TAG_REGEX = Regex("\\[(.+?) download]")
+        private val BRACKET_REGEX = Regex("\\[|\\]")
     }
 }

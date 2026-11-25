@@ -23,13 +23,17 @@ import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import keiyoushi.annotation.Source
 import keiyoushi.network.get
+import keiyoushi.network.post
+import keiyoushi.source.AniSource
+import keiyoushi.source.model.Related
+import keiyoushi.source.model.SAnimeUpdate
 import keiyoushi.utils.applicationContext
 import keiyoushi.utils.bodyString
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.tryParse
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -38,44 +42,43 @@ import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.Request
 import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.coroutines.cancellation.CancellationException
 
 @Source
 abstract class Torrentio :
-    AnimeHttpSource(),
+    AniSource(),
     ConfigurableAnimeSource {
 
     override val supportsLatest = true
 
-    override val disableRelatedAnimesBySearch = true
+    override val hasRelatedAnime = true
 
     private val preferences by getPreferencesLazy()
+
+    override fun getAnimeUrl(anime: SAnime): String = "https://anilist.co/anime/${anime.url.trim()}"
 
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     private val aioMetadataurl = "https://aiometadata.elfhosted.com/stremio/dd765d97-5443-49a9-b733-3f5ac44bbb72"
 
     // ============================== Anilist API Request ===================
-    private fun makeGraphQLRequest(query: String, variables: String): Request {
+    private suspend fun makeGraphQLRequest(query: String, variables: String): Response {
         val requestBody = FormBody.Builder()
             .add("query", query)
             .add("variables", variables)
             .build()
 
-        val headers = Headers.Builder()
+        val graphQLHeaders = Headers.Builder()
             .add("Accept", "application/json")
+            .add("Content-Type", "application/json")
             .add("Referer", "https://anilist.co")
             .build()
 
-        return Request.Builder()
-            .url("https://graphql.anilist.co")
-            .headers(headers)
-            .post(requestBody)
-            .build()
+        return client.post("https://graphql.anilist.co".toHttpUrl(), graphQLHeaders, requestBody)
     }
 
     private fun pickTitle(romaji: String?, english: String?, native: String?): String = when (preferences.getString(PREF_TITLE_KEY, "romaji")) {
@@ -92,15 +95,15 @@ abstract class Torrentio :
         else -> SAnime.UNKNOWN
     }
 
-    private fun parseSearchJson(jsonData: String, isLatestQuery: Boolean = false): AnimesPage {
+    private fun parseSearchResponse(response: Response, isLatestQuery: Boolean = false): AnimesPage {
         val (mediaList, hasNextPage) = if (isLatestQuery) {
-            val page = jsonData.parseAs<AnilistMetaLatest>().data?.page
+            val page = response.parseAs<AnilistMetaLatest>().data?.page
             val list = page?.airingSchedules?.mapNotNull { it.media }
                 ?.filter { media -> media.isAdult != true }
                 .orEmpty()
             list to (page?.pageInfo?.hasNextPage == true)
         } else {
-            val page = jsonData.parseAs<AnilistMeta>().data?.page
+            val page = response.parseAs<AnilistMeta>().data?.page
             val list = page?.media.orEmpty()
                 .filter { media -> media.isAdult != true }
             list to (page?.pageInfo?.hasNextPage == true)
@@ -123,7 +126,7 @@ abstract class Torrentio :
 
     // ============================== Popular ================================
 
-    override fun popularAnimeRequest(page: Int): Request {
+    override suspend fun getPopularAnime(page: Int): AnimesPage {
         val variables = buildJsonObject {
             put("page", page)
             put("perPage", ANILIST_PER_PAGE)
@@ -134,28 +137,46 @@ abstract class Torrentio :
             }
         }.toString()
 
-        return makeGraphQLRequest(anilistQuery(), variables)
+        return parseSearchResponse(makeGraphQLRequest(anilistQuery(), variables))
     }
-
-    override fun popularAnimeParse(response: Response): AnimesPage = parseSearchJson(response.bodyString())
 
     // ============================== Latest =================================
 
-    override fun latestUpdatesRequest(page: Int): Request {
+    override suspend fun getLatestUpdates(page: Int): AnimesPage {
         val variables = buildJsonObject {
             put("page", page)
             put("perPage", ANILIST_PER_PAGE)
             putJsonArray("sort") { add("TIME_DESC") }
         }.toString()
 
-        return makeGraphQLRequest(anilistLatestQuery(), variables)
+        return parseSearchResponse(makeGraphQLRequest(anilistLatestQuery(), variables), isLatestQuery = true)
     }
 
-    override fun latestUpdatesParse(response: Response): AnimesPage = parseSearchJson(response.bodyString(), isLatestQuery = true)
+    // ============================== Search & Filters =======================
 
-    // ============================== Search =================================
+    override fun getFilterList(): AnimeFilterList = AniListFilters.FILTER_LIST
 
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        val queryUrl = query.toHttpUrlOrNull()
+        if (queryUrl != null && queryUrl.host == baseUrl.toHttpUrl().host) {
+            val segments = queryUrl.pathSegments
+            val id = segments.getOrNull(1)
+                ?.takeIf { segments.firstOrNull() == "anime" && it.isNotEmpty() }
+                ?: throw Exception("Unsupported url")
+            return getSearchAnime(page, "$PREFIX_SEARCH$id", filters)
+        }
+
+        if (query.startsWith(PREFIX_SEARCH)) {
+            val id = query.removePrefix(PREFIX_SEARCH).trim()
+            val meta = fetchAioMeta(id) ?: return AnimesPage(emptyList(), false)
+            val anime = SAnime.create().apply {
+                url = id
+                title = meta.name.orEmpty()
+                thumbnail_url = meta.poster ?: meta.providerArt?.poster
+            }
+            return AnimesPage(listOf(anime), false)
+        }
+
         val params = AniListFilters.getSearchParameters(filters)
         val variables = buildJsonObject {
             put("page", page)
@@ -192,42 +213,12 @@ abstract class Torrentio :
             }
         }.toString()
 
-        return makeGraphQLRequest(anilistQuery(), variables)
-    }
-
-    override fun searchAnimeParse(response: Response): AnimesPage = parseSearchJson(response.bodyString())
-
-    // ============================== Filters ================================
-
-    override fun getFilterList(): AnimeFilterList = AniListFilters.FILTER_LIST
-
-    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
-        val queryUrl = query.toHttpUrlOrNull()
-        if (queryUrl != null && queryUrl.host == baseUrl.toHttpUrl().host) {
-            val segments = queryUrl.pathSegments
-            val id = segments.getOrNull(1)
-                ?.takeIf { segments.first() == "anime" && it.isNotEmpty() }
-                ?: throw Exception("Unsupported url")
-            return getSearchAnime(page, "$PREFIX_SEARCH$id", filters)
-        }
-
-        if (query.startsWith(PREFIX_SEARCH)) {
-            val id = query.removePrefix(PREFIX_SEARCH).trim()
-            val meta = fetchAioMeta(id) ?: return AnimesPage(emptyList(), false)
-            val anime = SAnime.create().apply {
-                url = id
-                title = meta.name.orEmpty()
-                thumbnail_url = meta.poster ?: meta.providerArt?.poster
-            }
-            return AnimesPage(listOf(anime), false)
-        }
-
-        return super.getSearchAnime(page, query, filters)
+        return parseSearchResponse(makeGraphQLRequest(anilistQuery(), variables))
     }
 
     // ============================== AIO metadata ===========================
 
-    private suspend fun fetchAioMeta(anilistId: String): AioMeta? = runCatching {
+    private suspend fun fetchAioMeta(anilistId: String): AioMeta? = runCatchingCancellable {
         val response = client.get("$aioMetadataurl/meta/anime/anilist:$anilistId.json")
         response.parseAs<AioMetaResponse>().meta
     }.getOrNull()
@@ -236,28 +227,35 @@ abstract class Torrentio :
         val trimmed = value?.trim().orEmpty()
         if (trimmed.isEmpty()) return null
         return synchronized(DATE_FORMATTER) {
-            runCatching { DATE_FORMATTER.parse(trimmed)?.time }.getOrNull()
-                ?: runCatching { SIMPLE_DATE_FORMATTER.parse(trimmed)?.time }.getOrNull()
+            DATE_FORMATTER.tryParse(trimmed).takeIf { it != 0L }
+                ?: SIMPLE_DATE_FORMATTER.tryParse(trimmed).takeIf { it != 0L }
         }
     }
 
     private fun cleanText(text: String?): String? = text
-        ?.replace(Regex("\\s*\\(Source: [^)]*\\)\\s*$"), "")
+        ?.replace(SOURCE_SUFFIX_REGEX, "")
         ?.trim()
         ?.takeIf { it.isNotBlank() }
 
-    // ============================== Anime Details ==========================
+    // ============================== Details & Episodes =====================
 
-    override fun animeDetailsRequest(anime: SAnime): Request = Request.Builder()
-        .url("$aioMetadataurl/meta/anime/anilist:${anime.url}.json")
-        .build()
+    override suspend fun fetchAnimeUpdate(
+        anime: SAnime,
+        episodes: List<SEpisode>,
+        fetchDetails: Boolean,
+        fetchEpisodes: Boolean,
+    ): SAnimeUpdate {
+        val meta = if (fetchDetails || fetchEpisodes) fetchAioMeta(anime.url.trim()) else null
+        val updatedAnime = if (fetchDetails) buildDetails(anime, meta) else anime
+        val updatedEpisodes = if (fetchEpisodes) loadEpisodes(anime, meta) else episodes
+        return SAnimeUpdate(anime = updatedAnime, episodes = updatedEpisodes)
+    }
 
-    override fun animeDetailsParse(response: Response): SAnime {
-        val meta = response.parseAs<AioMetaResponse>().meta
+    private fun buildDetails(anime: SAnime, meta: AioMeta?): SAnime {
+        if (meta == null) return anime
 
-        return SAnime.create().apply {
-            if (meta == null) return@apply
-
+        return anime.apply {
+            (meta.poster ?: meta.providerArt?.poster)?.takeIf { it.isNotBlank() }?.let { thumbnail_url = it }
             cleanText(meta.description)?.let { description = it }
             meta.genres?.takeIf { it.isNotEmpty() }?.let { genre = it.joinToString() }
             (meta.background ?: meta.providerArt?.background)?.takeIf { it.isNotBlank() }?.let { background_url = it }
@@ -269,46 +267,10 @@ abstract class Torrentio :
             }
         }
     }
-    // ============================== Related Anime  ==========================
 
-    override fun relatedAnimeListRequest(anime: SAnime): Request {
-        val variables = buildJsonObject {
-            put("id", anime.url.toIntOrNull() ?: 0)
-        }.toString()
-
-        return makeGraphQLRequest(anilistRelationsQuery(), variables)
-    }
-
-    override fun relatedAnimeListParse(response: Response): List<SAnime> {
-        val data = runCatching { response.parseAs<AnilistRelationsDto>() }.getOrNull()
-
-        return data?.data?.media?.relations?.edges
-            ?.mapNotNull { edge ->
-                val node = edge.node ?: return@mapNotNull null
-                if (node.type != "ANIME") return@mapNotNull null
-
-                SAnime.create().apply {
-                    url = node.id.toString()
-                    title = pickTitle(node.title?.romaji, node.title?.english, node.title?.native)
-                    thumbnail_url = node.coverImage?.extraLarge ?: node.coverImage?.large
-                    status = anilistStatus(node.status)
-                }
-            }.orEmpty()
-    }
-
-    // =============================== Seasons ===============================
-
-    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
-
-    // ============================== Episodes ===============================
-
-    override fun episodeListRequest(anime: SAnime): Request = throw UnsupportedOperationException()
-
-    override fun episodeListParse(response: Response): List<SEpisode> = throw UnsupportedOperationException()
-
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        val anilistId = anime.url
-        val meta = fetchAioMeta(anilistId)
+    private suspend fun loadEpisodes(anime: SAnime, meta: AioMeta?): List<SEpisode> {
+        val anilistId = anime.url.trim().takeIf { it.toIntOrNull()?.let { id -> id > 0 } == true }
+            ?: return emptyList()
 
         val currentTime = System.currentTimeMillis()
         val futureTolerance = currentTime + (7L * 24 * 60 * 60 * 1000)
@@ -343,7 +305,7 @@ abstract class Torrentio :
                     }
                 }
             } else {
-                val episodes = meta.videos.orEmpty()
+                val epList = meta.videos.orEmpty()
                     .filter { video ->
                         val dateUpload = parseDate(video.released) ?: return@filter false
                         if (dateUpload > futureTolerance) return@filter false
@@ -370,10 +332,11 @@ abstract class Torrentio :
                         }
                     }
 
-                if (episodes.isNotEmpty()) return episodes
+                if (epList.isNotEmpty()) return epList
             }
         }
-        val episodeResponse = runCatching {
+
+        val episodeResponse = runCatchingCancellable {
             val res = client.get("https://kenjitsu.vercel.app/api/anilist/anime/$anilistId/episodes")
             res.parseAs<BackUpEpisodeResponse>()
         }.getOrNull()
@@ -424,10 +387,46 @@ abstract class Torrentio :
             }
     }
 
-// ============================== Hosters ================================
+    // ============================== Related Anime ==========================
 
-    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
-        val streamData = runCatching {
+    override suspend fun fetchRelatedAnime(anime: SAnime): List<Related> {
+        val id = anime.url.trim().toIntOrNull()?.takeIf { it > 0 } ?: return emptyList()
+        val variables = buildJsonObject { put("id", id) }.toString()
+
+        val data = try {
+            makeGraphQLRequest(anilistRelationsQuery(), variables).parseAs<AnilistRelationsDto>()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return emptyList()
+        }
+
+        val relatedAnimes = data.data?.media?.relations?.edges.orEmpty()
+            .mapNotNull { edge ->
+                val node = edge.node ?: return@mapNotNull null
+                val nodeId = node.id ?: return@mapNotNull null
+                if (node.type != "ANIME") return@mapNotNull null
+
+                SAnime.create().apply {
+                    url = nodeId.toString()
+                    title = pickTitle(node.title?.romaji, node.title?.english, node.title?.native)
+                    thumbnail_url = node.coverImage?.extraLarge ?: node.coverImage?.large
+                    status = anilistStatus(node.status)
+                }
+            }
+            .distinctBy { it.url }
+
+        return if (relatedAnimes.isEmpty()) {
+            emptyList()
+        } else {
+            listOf(Related(name = "Related", animes = relatedAnimes))
+        }
+    }
+
+    // ============================== Hosters & Videos =======================
+
+    override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> {
+        val streamData = runCatchingCancellable {
             val url = buildUrl(episode.url)
             val response = client.get(url)
             response.parseAs<StreamDataTorrent>()
@@ -441,8 +440,8 @@ abstract class Torrentio :
 
         return streams
             .groupBy { getProviderName(it.title) }
-            .mapNotNull { (provider, providerStreams) ->
-                val videoList = providerStreams.map { stream ->
+            .mapNotNull outer@{ (provider, providerStreams) ->
+                val videoList = providerStreams.mapNotNull { stream ->
                     val urlOrHash = if (debridProvider == "none") {
                         buildString {
                             append("magnet:?xt=urn:btih:${stream.infoHash}")
@@ -460,15 +459,13 @@ abstract class Torrentio :
                     )
                 }
 
+                if (videoList.isEmpty()) return@outer null
+
                 Hoster(hosterName = provider, videoList = videoList)
             }
     }
 
-    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
-
-// ============================ Video Links ==============================
-
-    override suspend fun getVideoList(hoster: Hoster): List<Video> = hoster.videoList.orEmpty()
+    override suspend fun fetchVideoList(hoster: Hoster): List<Video> = hoster.videoList.orEmpty()
 
     private fun buildUrl(streamPath: String): String {
         val configSegments = mutableListOf<String>()
@@ -521,16 +518,15 @@ abstract class Torrentio :
     private fun getProviderName(title: String?): String {
         val raw = PROVIDER_REGEX.find(title.orEmpty())?.groupValues?.get(1)?.trim()
             ?: return "Unknown"
-        val key = raw.lowercase().replace(Regex("[^a-z0-9]"), "")
+        val key = raw.lowercase().replace(NON_ALNUM_REGEX, "")
         return PROVIDER_DISPLAY_NAMES[key] ?: raw
     }
 
-    private suspend fun buildTrackerList(): List<String> = runCatching { fetchTrackers().split("\n") }.getOrDefault(emptyList())
+    private suspend fun buildTrackerList(): List<String> = runCatchingCancellable { fetchTrackers().split("\n") }.getOrDefault(emptyList())
 
     private suspend fun fetchTrackers(): String {
         val response = client.get("https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt")
-        if (!response.isSuccessful) throw Exception("Unexpected code $response")
-        return response.body.string().trim()
+        return response.bodyString().trim()
     }
 
     private val codecPreferences
@@ -552,20 +548,29 @@ abstract class Torrentio :
         return if (codecs.isNotEmpty()) {
             filter { it.detectCodec() in codecs }.sortedWith(
                 compareBy(
-                    { Regex("\\[(.+?) download]").containsMatchIn(it.videoTitle) },
+                    { DOWNLOAD_TAG_REGEX.containsMatchIn(it.videoTitle) },
                     { isDub && !it.videoTitle.contains("dubbed", true) },
                 ),
             )
         } else {
             sortedWith(
                 compareBy(
-                    { Regex("\\[(.+?) download]").containsMatchIn(it.videoTitle) },
+                    { DOWNLOAD_TAG_REGEX.containsMatchIn(it.videoTitle) },
                     { isDub && !it.videoTitle.contains("dubbed", true) },
                     { isEfficient && !arrayOf("hevc", "265", "av1").any { q -> it.videoTitle.contains(q, true) } },
                 ),
             )
         }
     }
+
+    private inline fun <T> runCatchingCancellable(block: () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+    // ============================ Preferences ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
         ListPreference(screen.context).apply {
@@ -673,6 +678,9 @@ abstract class Torrentio :
         private const val ANILIST_PER_PAGE = 30
 
         private val PROVIDER_REGEX = Regex("\u2699\uFE0F?\\s*([^\\n]+)")
+        private val DOWNLOAD_TAG_REGEX = Regex("\\[(.+?) download]")
+        private val SOURCE_SUFFIX_REGEX = Regex("\\s*\\(Source: [^)]*\\)\\s*$")
+        private val NON_ALNUM_REGEX = Regex("[^a-z0-9]")
 
         private const val PREF_TOKEN_KEY = "token"
         private const val PREF_TOKEN_DEFAULT = ""
@@ -707,13 +715,13 @@ abstract class Torrentio :
         private const val PREF_PROVIDER_KEY = "provider_selection"
         private val PREF_PROVIDERS = arrayOf(
             "YTS", "EZTV", "RARBG", "1337x", "EXT", "ThePirateBay", "KickassTorrents", "TorrentGalaxy", "MagnetDL",
-            "HorribleSubs", "NyaaSi", "TokyoTosho", "AniDex", "nekoBT", "🇷🇺 Rutor", "🇷🇺 Rutracker", "🇵🇹 Comando",
+            "HorribleSubs", "NyaaSi", "TokyoTosho", "AniDex", "nekoBT", "UIndex", "Knaben", "🇷🇺 Rutor", "🇷🇺 Rutracker", "🇵🇹 Comando",
             "🇵🇹 BluDV", "🇵🇹 MicoLeaoDublado", "🇫🇷 Torrent9", "🇮🇹 ilCorSaRoNero", "🇪🇸 MejorTorrent", "🇪🇸 Wolfmax4k",
             "🇲🇽 Cinecalidad", "🇵🇱 BestTorrents",
         )
         private val PREF_PROVIDERS_VALUE = arrayOf(
             "yts", "eztv", "rarbg", "1337x", "ext", "thepiratebay", "kickasstorrents", "torrentgalaxy", "magnetdl",
-            "horriblesubs", "nyaasi", "tokyotosho", "anidex", "nekobt", "rutor", "rutracker", "comando",
+            "horriblesubs", "nyaasi", "tokyotosho", "anidex", "nekobt", "uindex", "knaben", "rutor", "rutracker", "comando",
             "bludv", "micoleaodublado", "torrent9", "ilcorsaronero", "mejortorrent", "wolfmax4k", "cinecalidad",
             "besttorrents",
         )
@@ -771,13 +779,13 @@ abstract class Torrentio :
         private val PREF_CODEC_DEFAULT = setOf<String>()
 
         private val DATE_FORMATTER by lazy {
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ENGLISH).apply {
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ROOT).apply {
                 timeZone = TimeZone.getTimeZone("UTC")
             }
         }
 
         private val SIMPLE_DATE_FORMATTER by lazy {
-            SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH).apply {
+            SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply {
                 timeZone = TimeZone.getTimeZone("UTC")
             }
         }

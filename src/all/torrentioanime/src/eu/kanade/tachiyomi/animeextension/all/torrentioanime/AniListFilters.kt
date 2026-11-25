@@ -132,7 +132,7 @@ object AniListFilters {
             Pair("Any", ""),
             Pair("Airing", "RELEASING"),
             Pair("Finished", "FINISHED"),
-            Pair("Not Yet Aired", "NOT_YET_RELEASED"),
+            Pair("Unreleased", "NOT_YET_RELEASED"),
             Pair("Cancelled", "CANCELLED"),
         )
 
