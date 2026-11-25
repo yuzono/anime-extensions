@@ -37,10 +37,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration.Companion.milliseconds
 
 @Source
 abstract class Torrentio :
@@ -53,6 +56,11 @@ abstract class Torrentio :
 
     private val preferences by getPreferencesLazy()
 
+    override fun getAnimeUrl(anime: SAnime): String {
+        val id = anime.url.substringBefore(",")
+        return if (id.startsWith("tt")) "https://www.imdb.com/title/$id/" else baseUrl
+    }
+
     private val cinemetaUrl = "https://v3-cinemeta.strem.io"
 
     private val aioMetadataurl = "https://aiometadata.elfhosted.com/stremio/f616d98a-3d3a-4c97-a68e-d970ee0c92ab"
@@ -63,7 +71,7 @@ abstract class Torrentio :
 
     override suspend fun getPopularAnime(page: Int): AnimesPage {
         val (movieResults, seriesResults) = listOf("movie", "series").parallelMap { type ->
-            runCatching {
+            runCatchingCancellable {
                 client.get("$streamingCatalogUrl/catalog/$type/$DEFAULT_STREAMING_SERVICE.json")
                     .parseAs<CinemetaSearchResponse>().metas.orEmpty()
             }.getOrDefault(emptyList())
@@ -83,7 +91,7 @@ abstract class Torrentio :
 
     override suspend fun getLatestUpdates(page: Int): AnimesPage {
         val (seriesResults, movieResults) = listOf("series", "movie").parallelMap { type ->
-            runCatching {
+            runCatchingCancellable {
                 client.get(buildCinemetaTopUrl(type, page))
                     .parseAs<CinemetaSearchResponse>().metas.orEmpty()
             }.getOrDefault(emptyList())
@@ -132,7 +140,7 @@ abstract class Torrentio :
         return coroutineScope {
             val deferredResults = types.map { type ->
                 async(Dispatchers.IO) {
-                    runCatching {
+                    runCatchingCancellable {
                         val url = if (trimmedQuery.isBlank()) {
                             "$streamingCatalogUrl/catalog/$type/$streamingService.json"
                         } else {
@@ -167,7 +175,7 @@ abstract class Torrentio :
 
         val types = if (type == "series") listOf("series", "movie") else listOf("movie", "series")
         for (t in types) {
-            val meta = runCatching {
+            val meta = runCatchingCancellable {
                 client.get("$aioMetadataurl/meta/$t/$id.json")
                     .parseAs<CinemetaMetaDetailResponse>().meta
             }.getOrNull()
@@ -280,7 +288,7 @@ abstract class Torrentio :
         }
 
         val streamsDeferred = async(Dispatchers.IO) {
-            runCatching {
+            runCatchingCancellable {
                 val url = buildUrl(episode.url)
                 client.get(url).parseAs<StreamDataTorrent>()
             }.getOrNull()
@@ -397,22 +405,24 @@ abstract class Torrentio :
         return "unknown"
     }
 
-    suspend fun buildTrackerList(): List<String> = runCatching { fetchTrackers().split("\n") }.getOrDefault(emptyList())
+    suspend fun buildTrackerList(): List<String> = runCatchingCancellable { fetchTrackers().split("\n") }.getOrDefault(emptyList())
 
-    suspend fun fetchTrackers(): String {
-        val response = client.get("https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt")
-        if (!response.isSuccessful) throw Exception("Unexpected code $response")
-        return response.bodyString().trim()
-    }
+    suspend fun fetchTrackers(): String = client.get("https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt")
+        .bodyString()
+        .trim()
 
     // ============================ Timestamps ================================
-    private suspend fun fetchTimestamps(streamPath: String): List<TimeStamp> = runCatching {
-        val match = STREAM_PATH_REGEX.find(streamPath) ?: return@runCatching emptyList()
+
+    private suspend fun fetchTimestamps(streamPath: String): List<TimeStamp> = withTimeoutOrNull(TIMESTAMPS_TIMEOUT_MS.milliseconds) { requestTimestamps(streamPath) }
+        ?: emptyList()
+
+    private suspend fun requestTimestamps(streamPath: String): List<TimeStamp> = runCatchingCancellable {
+        val match = STREAM_PATH_REGEX.find(streamPath) ?: return@runCatchingCancellable emptyList()
         val (type, imdbId, season, episode) = match.destructured
         val isMovie = type == "movie"
 
         if (!imdbId.startsWith("tt") || (!isMovie && (season.isEmpty() || episode.isEmpty()))) {
-            return@runCatching emptyList()
+            return@runCatchingCancellable emptyList()
         }
 
         val introDbUrl = "https://api.introdb.app"
@@ -449,6 +459,14 @@ abstract class Torrentio :
         url = "${id.orEmpty()},${type.orEmpty()}"
         title = name.orEmpty()
         thumbnail_url = poster.orEmpty()
+    }
+
+    private inline fun <T> runCatchingCancellable(block: () -> T): Result<T> = try { // happy now mech?
+        Result.success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Result.failure(e)
     }
 
     // ============================ Preferences ==============================
@@ -535,6 +553,7 @@ abstract class Torrentio :
         const val PREFIX_SEARCH = "id:"
         const val DEFAULT_STREAMING_SERVICE = "nfx"
         private const val CINEMETA_PAGE_SIZE = 100
+        private const val TIMESTAMPS_TIMEOUT_MS = 3_000L
 
         private const val PREF_TOKEN_KEY = "token"
         private const val PREF_TOKEN_DEFAULT = ""

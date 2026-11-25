@@ -42,7 +42,7 @@ import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.Request
+import okhttp3.Response
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
@@ -59,12 +59,14 @@ abstract class Torrentio :
 
     private val preferences by getPreferencesLazy()
 
+    override fun getAnimeUrl(anime: SAnime): String = "https://anilist.co/anime/${anime.url.trim()}"
+
     private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     private val aioMetadataurl = "https://aiometadata.elfhosted.com/stremio/dd765d97-5443-49a9-b733-3f5ac44bbb72"
 
     // ============================== Anilist API Request ===================
-    private fun makeGraphQLRequest(query: String, variables: String): Request {
+    private suspend fun makeGraphQLRequest(query: String, variables: String): Response {
         val requestBody = FormBody.Builder()
             .add("query", query)
             .add("variables", variables)
@@ -75,11 +77,7 @@ abstract class Torrentio :
             .add("Referer", "https://anilist.co")
             .build()
 
-        return Request.Builder()
-            .url("https://graphql.anilist.co")
-            .headers(graphQLHeaders)
-            .post(requestBody)
-            .build()
+        return client.post("https://graphql.anilist.co".toHttpUrl(), headers, requestBody)
     }
 
     private fun pickTitle(romaji: String?, english: String?, native: String?): String = when (preferences.getString(PREF_TITLE_KEY, "romaji")) {
@@ -96,15 +94,15 @@ abstract class Torrentio :
         else -> SAnime.UNKNOWN
     }
 
-    private fun parseSearchJson(jsonData: String, isLatestQuery: Boolean = false): AnimesPage {
+    private fun parseSearchResponse(response: Response, isLatestQuery: Boolean = false): AnimesPage {
         val (mediaList, hasNextPage) = if (isLatestQuery) {
-            val page = jsonData.parseAs<AnilistMetaLatest>().data?.page
+            val page = response.parseAs<AnilistMetaLatest>().data?.page
             val list = page?.airingSchedules?.mapNotNull { it.media }
                 ?.filter { media -> media.isAdult != true }
                 .orEmpty()
             list to (page?.pageInfo?.hasNextPage == true)
         } else {
-            val page = jsonData.parseAs<AnilistMeta>().data?.page
+            val page = response.parseAs<AnilistMeta>().data?.page
             val list = page?.media.orEmpty()
                 .filter { media -> media.isAdult != true }
             list to (page?.pageInfo?.hasNextPage == true)
@@ -138,9 +136,7 @@ abstract class Torrentio :
             }
         }.toString()
 
-        val request = makeGraphQLRequest(anilistQuery(), variables)
-        val json = client.post(request.url, request.headers, request.body!!).bodyString()
-        return parseSearchJson(json)
+        return parseSearchResponse(makeGraphQLRequest(anilistQuery(), variables))
     }
 
     // ============================== Latest =================================
@@ -152,9 +148,7 @@ abstract class Torrentio :
             putJsonArray("sort") { add("TIME_DESC") }
         }.toString()
 
-        val request = makeGraphQLRequest(anilistLatestQuery(), variables)
-        val json = client.post(request.url, request.headers, request.body!!).bodyString()
-        return parseSearchJson(json, isLatestQuery = true)
+        return parseSearchResponse(makeGraphQLRequest(anilistLatestQuery(), variables), isLatestQuery = true)
     }
 
     // ============================== Search & Filters =======================
@@ -218,15 +212,13 @@ abstract class Torrentio :
             }
         }.toString()
 
-        val request = makeGraphQLRequest(anilistQuery(), variables)
-        val json = client.post(request.url, request.headers, request.body!!).bodyString()
-        return parseSearchJson(json)
+        return parseSearchResponse(makeGraphQLRequest(anilistQuery(), variables))
     }
 
     // ============================== AIO metadata ===========================
 
-    private suspend fun fetchAioMeta(anilistId: String): AioMeta? = runCatching {
-        val response = client.get("$aioMetadataurl/meta/anime/anilist:$anilistId.json", headers)
+    private suspend fun fetchAioMeta(anilistId: String): AioMeta? = runCatchingCancellable {
+        val response = client.get("$aioMetadataurl/meta/anime/anilist:$anilistId.json")
         response.parseAs<AioMetaResponse>().meta
     }.getOrNull()
 
@@ -253,22 +245,25 @@ abstract class Torrentio :
         fetchEpisodes: Boolean,
     ): SAnimeUpdate {
         val meta = if (fetchDetails || fetchEpisodes) fetchAioMeta(anime.url.trim()) else null
-        val updatedAnime = if (fetchDetails) buildDetails(meta) else anime
+        val updatedAnime = if (fetchDetails) buildDetails(anime, meta) else anime
         val updatedEpisodes = if (fetchEpisodes) loadEpisodes(anime, meta) else episodes
         return SAnimeUpdate(anime = updatedAnime, episodes = updatedEpisodes)
     }
 
-    private fun buildDetails(meta: AioMeta?): SAnime = SAnime.create().apply {
-        if (meta == null) return@apply
+    private fun buildDetails(anime: SAnime, meta: AioMeta?): SAnime {
+        if (meta == null) return anime
 
-        cleanText(meta.description)?.let { description = it }
-        meta.genres?.takeIf { it.isNotEmpty() }?.let { genre = it.joinToString() }
-        (meta.background ?: meta.providerArt?.background)?.takeIf { it.isNotBlank() }?.let { background_url = it }
+        return anime.apply {
+            (meta.poster ?: meta.providerArt?.poster)?.takeIf { it.isNotBlank() }?.let { thumbnail_url = it }
+            cleanText(meta.description)?.let { description = it }
+            meta.genres?.takeIf { it.isNotEmpty() }?.let { genre = it.joinToString() }
+            (meta.background ?: meta.providerArt?.background)?.takeIf { it.isNotBlank() }?.let { background_url = it }
 
-        status = when (meta.status?.trim()?.lowercase()) {
-            "finished", "ended", "completed" -> SAnime.COMPLETED
-            "continuing", "ongoing", "releasing" -> SAnime.ONGOING
-            else -> if (meta.stability?.ongoing == true) SAnime.ONGOING else SAnime.UNKNOWN
+            status = when (meta.status?.trim()?.lowercase()) {
+                "finished", "ended", "completed" -> SAnime.COMPLETED
+                "continuing", "ongoing", "releasing" -> SAnime.ONGOING
+                else -> if (meta.stability?.ongoing == true) SAnime.ONGOING else SAnime.UNKNOWN
+            }
         }
     }
 
@@ -340,8 +335,8 @@ abstract class Torrentio :
             }
         }
 
-        val episodeResponse = runCatching {
-            val res = client.get("https://kenjitsu.vercel.app/api/anilist/anime/$anilistId/episodes", headers)
+        val episodeResponse = runCatchingCancellable {
+            val res = client.get("https://kenjitsu.vercel.app/api/anilist/anime/$anilistId/episodes")
             res.parseAs<BackUpEpisodeResponse>()
         }.getOrNull()
 
@@ -397,17 +392,8 @@ abstract class Torrentio :
         val id = anime.url.trim().toIntOrNull()?.takeIf { it > 0 } ?: return emptyList()
         val variables = buildJsonObject { put("id", id) }.toString()
 
-        val json = try {
-            val request = makeGraphQLRequest(anilistRelationsQuery(), variables)
-            client.post(request.url, request.headers, request.body!!).bodyString()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            return emptyList()
-        }
-
         val data = try {
-            json.parseAs<AnilistRelationsDto>()
+            makeGraphQLRequest(anilistRelationsQuery(), variables).parseAs<AnilistRelationsDto>()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -439,9 +425,9 @@ abstract class Torrentio :
     // ============================== Hosters & Videos =======================
 
     override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> {
-        val streamData = runCatching {
+        val streamData = runCatchingCancellable {
             val url = buildUrl(episode.url)
-            val response = client.get(url, headers)
+            val response = client.get(url)
             response.parseAs<StreamDataTorrent>()
         }.getOrNull()
 
@@ -535,10 +521,10 @@ abstract class Torrentio :
         return PROVIDER_DISPLAY_NAMES[key] ?: raw
     }
 
-    private suspend fun buildTrackerList(): List<String> = runCatching { fetchTrackers().split("\n") }.getOrDefault(emptyList())
+    private suspend fun buildTrackerList(): List<String> = runCatchingCancellable { fetchTrackers().split("\n") }.getOrDefault(emptyList())
 
     private suspend fun fetchTrackers(): String {
-        val response = client.get("https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt", headers)
+        val response = client.get("https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt")
         return response.bodyString().trim()
     }
 
@@ -576,6 +562,13 @@ abstract class Torrentio :
         }
     }
 
+    private inline fun <T> runCatchingCancellable(block: () -> T): Result<T> = try { // happy now mech ?
+        Result.success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
     // ============================ Preferences ==============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
