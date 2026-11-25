@@ -74,7 +74,7 @@ abstract class Torrentio :
 
         val graphQLHeaders = Headers.Builder()
             .add("Accept", "application/json")
-            .add("Content-Type","application/json")
+            .add("Content-Type", "application/json")
             .add("Referer", "https://anilist.co")
             .build()
 
