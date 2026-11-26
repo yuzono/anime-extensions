@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.animeextension.it.animeunity
 
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -10,9 +11,7 @@ class AnimePageDto(
     @SerialName("last_page") val lastPage: Int,
     val data: List<AnimeDto>,
 ) {
-    val hasNextPage get() = currentPage < lastPage
-
-    fun toAnimeList() = data.map { it.toSAnime() }
+    fun toAnimesPage() = AnimesPage(data.map { it.toSAnime() }, currentPage < lastPage)
 }
 
 @Serializable
@@ -27,9 +26,10 @@ class LatestPageDto(
     @Serializable
     class LatestEpisodeDto(val anime: AnimeDto)
 
-    val hasNextPage get() = currentPage < lastPage
-
-    fun toAnimeList() = data.map { it.episode.anime }.distinctBy { it.id }.map { it.toSAnime() }
+    fun toAnimesPage() = AnimesPage(
+        data.map { it.episode.anime }.distinctBy { it.id }.map { it.toSAnime() },
+        currentPage < lastPage,
+    )
 }
 
 @Serializable
@@ -83,7 +83,23 @@ class AnimeDto(
 class InertiaDto<T>(val props: T)
 
 @Serializable
-class AnimeProps(val anime: AnimeDto)
+class AnimeProps(
+    val anime: AnimeDto,
+    val loadedEpisodes: EpisodesDto,
+)
+
+@Serializable
+class RelatedProps(
+    val relatedAnimes: List<AnimeDto>,
+    val recommendedAnimes: List<AnimeDto>,
+)
+
+@Serializable
+class TimestampDto(
+    val kind: String,
+    @SerialName("start_time") val startTime: Double,
+    @SerialName("end_time") val endTime: Double,
+)
 
 @Serializable
 class EmbedProps(val embedUrl: String)
@@ -91,9 +107,14 @@ class EmbedProps(val embedUrl: String)
 @Serializable
 class EpisodesDto(
     val episodes: List<EpisodeDto>,
-    @SerialName("tab_size") val tabSize: Int,
-    val total: Int,
+    val start: Int,
+    @SerialName("tab_size") private val tabSize: Int,
+    private val total: Int,
+    private val offset: Int,
 ) {
+    /** The first episode number of every page; [total] counts the numbers from [offset] on. */
+    val pageStarts get() = offset until offset + total step tabSize
+
     @Serializable
     class EpisodeDto(
         val number: String,
@@ -103,7 +124,6 @@ class EpisodesDto(
         class VideoDto(
             val id: Int,
             val language: String,
-            @SerialName("is_hidden") val isHidden: Boolean = false,
         )
     }
 }

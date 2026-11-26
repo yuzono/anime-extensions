@@ -8,12 +8,12 @@ yuzono {
     name = "AnimeUnity"
     versionCode = 11
     contentWarning = ContentWarning.SAFE
-    libVersion = "14"
+    libVersion = "16"
 
     source {
         lang = "it"
         baseUrl {
-            custom("https://www.animeunity.co")
+            custom("https://animeunity.cx")
         }
     }
 }
