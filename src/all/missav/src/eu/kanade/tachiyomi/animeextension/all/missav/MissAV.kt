@@ -9,15 +9,18 @@ import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
+import eu.kanade.tachiyomi.animesource.model.Hoster.Companion.toHosterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
 import keiyoushi.lib.unpacker.Unpacker
-import keiyoushi.utils.AnimeHttpLegacySource
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
@@ -33,7 +36,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 @Source
 abstract class MissAV :
-    AnimeHttpLegacySource(),
+    AnimeHttpSource(),
     ConfigurableAnimeSource {
 
     private val preferences by getPreferencesLazy()
@@ -220,7 +223,13 @@ abstract class MissAV :
         },
     )
 
-    override fun videoListParse(response: Response): List<Video> {
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> = client.newCall(GET(baseUrl + episode.url, docHeaders))
+        .awaitSuccess()
+        .use(::videoListParse)
+        .sortVideos()
+        .toHosterList()
+
+    private fun videoListParse(response: Response): List<Video> {
         val document = response.asJsoup()
 
         val playlists = document.selectFirst("script:containsData(function(p,a,c,k,e,d))")
@@ -233,6 +242,12 @@ abstract class MissAV :
         return playlistExtractor.extractFromHls(masterPlaylist, referer = "$baseUrl/")
             .let(m3u8Integration::processVideoList)
     }
+
+    override suspend fun getVideoList(hoster: Hoster): List<Video> = hoster.videoList?.sortVideos().orEmpty()
+
+    override fun hosterListParse(response: Response): List<Hoster> = throw UnsupportedOperationException()
+
+    override fun seasonListParse(response: Response): List<SAnime> = throw UnsupportedOperationException()
 
     override fun List<Video>.sortVideos(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY, PREF_QUALITY_DEFAULT)!!
