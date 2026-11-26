@@ -24,6 +24,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import okhttp3.CacheControl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MultipartBody
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
@@ -121,11 +122,13 @@ abstract class UHDMovies :
             val release = prevP.replace(SIZE_REGEX, "").trim().ifEmpty { null }
             val name = if (isSeries) seasonName(row, prevP, doc) else movieName(row, quality)
 
-            row.select("a[href^=http][href*=?sid=], a[href^=http][href*=r?key=]")
+            row.select("a[href*=?sid=], a[href*=r?key=]")
                 .filterNot { el -> el.classNames().any { it.endsWith("-zip") } }
-                .mapIndexed { index, el ->
+                .mapIndexedNotNull { index, el ->
+                    // Only real http(s) links, so WebView never gets a script or other scheme
+                    val url = el.absUrl("href").toHttpUrlOrNull() ?: return@mapIndexedNotNull null
                     val episode = el.text().replace("Episode", "", true).trim().toIntOrNull() ?: (index + 1)
-                    (name to episode) to EpUrl(quality, el.attr("href"), size, release)
+                    (name to episode) to EpUrl(quality, url.toString(), size, release)
                 }
         }
 
