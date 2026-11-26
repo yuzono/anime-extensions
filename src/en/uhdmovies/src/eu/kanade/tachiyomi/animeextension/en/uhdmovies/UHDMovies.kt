@@ -19,15 +19,16 @@ import keiyoushi.source.model.SAnimeUpdate
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.stringOrNull
 import keiyoushi.utils.toJsonString
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonObject
 import okhttp3.CacheControl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MultipartBody
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import kotlin.coroutines.cancellation.CancellationException
 
 @Source
 abstract class UHDMovies :
@@ -82,7 +83,12 @@ abstract class UHDMovies :
         val document = client.get(baseUrl + anime.url, headers).asJsoup()
         return SAnimeUpdate(
             anime = if (fetchDetails) parseDetails(document, anime) else anime,
-            episodes = if (fetchEpisodes) parseEpisodes(document) else episodes,
+            // An empty parse must not wipe the stored episodes, so it only errors when episodes alone were asked for
+            episodes = if (fetchEpisodes) {
+                parseEpisodes(document).ifEmpty { if (fetchDetails) episodes else throw Exception("Only Zip packs available") }
+            } else {
+                episodes
+            },
         )
     }
 
@@ -118,9 +124,11 @@ abstract class UHDMovies :
 
             row.select("a[href*=?sid=], a[href*=r?key=]")
                 .filterNot { el -> el.classNames().any { it.endsWith("-zip") } }
-                .mapIndexed { index, el ->
+                .mapIndexedNotNull { index, el ->
+                    // Only real http(s) links, so WebView never gets a script or other scheme
+                    val url = el.absUrl("href").toHttpUrlOrNull() ?: return@mapIndexedNotNull null
                     val episode = el.text().replace("Episode", "", true).trim().toIntOrNull() ?: (index + 1)
-                    (name to episode) to EpUrl(quality, el.attr("href"), size, release)
+                    (name to episode) to EpUrl(quality, url.toString(), size, release)
                 }
         }
 
@@ -185,9 +193,9 @@ abstract class UHDMovies :
         val size = doc.selectFirst("li.list-group-item:contains(Size :)")?.text()?.substringAfter(":")?.trim() ?: link.size
         fun title(type: String) = listOfNotNull(link.quality, type, size).joinToString(" - ")
 
-        val cloud = doc.link(CLOUD_PAGE_SELECTOR)?.let { cloudLink(it) }
+        val cloud = doc.link(CLOUD_PAGE_SELECTOR)?.let { orNull { cloudLink(it) } }
             ?.let { Video(videoUrl = it, videoTitle = title("Cloud Resume")) }
-        val instant = doc.link(INSTANT_SELECTOR)?.let { instantLink(it) }
+        val instant = doc.link(INSTANT_SELECTOR)?.let { orNull { instantLink(it) } }
             ?.let { Video(videoUrl = it, videoTitle = title("Instant")) }
         return listOfNotNull(cloud, instant)
             .ifEmpty { throw Exception("No ready link yet: the cloud copy is being generated, try again in a few minutes") }
@@ -205,10 +213,8 @@ abstract class UHDMovies :
             .build()
         val generateHeaders = headers.newBuilder().set("x-token", doc.location().toHttpUrl().host).build()
         // Opening the returned page, as the site's button does, makes sure generation starts
-        runCatching {
-            val response = client.post(url, generateHeaders, body, ensureSuccess = false).parseAs<JsonObject>()
-            (response["visit_url"] ?: response["url"])?.stringOrNull?.let { client.get(it, headers, CacheControl.FORCE_NETWORK).close() }
-        }
+        val response = client.post(url, generateHeaders, body, ensureSuccess = false).parseAs<CloudGenerateDto>()
+        (response.visitUrl ?: response.url)?.let { client.get(it, headers, CacheControl.FORCE_NETWORK).close() }
         return null
     }
 
@@ -224,6 +230,15 @@ abstract class UHDMovies :
     private suspend fun fetchDoc(url: String): Document = client.get(url, headers, CacheControl.FORCE_NETWORK).asJsoup()
 
     private fun Document.link(selector: String): String? = selectFirst(selector)?.absUrl("href")?.ifEmpty { null }
+
+    // One link failing must not hide the other, but cancellation still has to propagate
+    private suspend fun <T> orNull(block: suspend () -> T?): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
+    }
 
     // ============================= Utilities ==============================
     private fun String.cleanTitle(): String = replace("Download", "", true).trim()
@@ -253,6 +268,9 @@ abstract class UHDMovies :
             summary = "%s\nOrder of the files after they are sorted by quality.",
         )
     }
+
+    @Serializable
+    class CloudGenerateDto(val url: String? = null, @SerialName("visit_url") val visitUrl: String? = null)
 
     @Serializable
     class EpLinks(val urls: List<EpUrl>)
