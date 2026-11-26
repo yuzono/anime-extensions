@@ -12,15 +12,20 @@ import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
 import keiyoushi.lib.drivelinkresolver.DriveLinkResolver
 import keiyoushi.network.get
+import keiyoushi.network.head
+import keiyoushi.network.post
 import keiyoushi.source.AniSource
 import keiyoushi.source.model.SAnimeUpdate
 import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
 import keiyoushi.utils.parseAs
+import keiyoushi.utils.stringOrNull
 import keiyoushi.utils.toJsonString
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 import okhttp3.CacheControl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.MultipartBody
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
@@ -180,25 +185,40 @@ abstract class UHDMovies :
         val size = doc.selectFirst("li.list-group-item:contains(Size :)")?.text()?.substringAfter(":")?.trim() ?: link.size
         fun title(type: String) = listOfNotNull(link.quality, type, size).joinToString(" - ")
 
-        // Files not cached yet only offer "Generate Cloud Link", which takes minutes, so Cloud Resume is listed when ready
-        val cloud = doc.link(CLOUD_PAGE_SELECTOR)?.let { fetchDoc(it).link(CLOUD_SELECTOR) }
+        val cloud = doc.link(CLOUD_PAGE_SELECTOR)?.let { cloudLink(it) }
             ?.let { Video(videoUrl = it, videoTitle = title("Cloud Resume")) }
-        // Instant links work once, so they are resolved at play time
-        val instant = doc.link(INSTANT_SELECTOR)
-            ?.let { Video(videoTitle = title("Instant"), internalData = it, initialized = false) }
-        return listOfNotNull(cloud, instant).ifEmpty { throw Exception("No playable links found") }
+        val instant = doc.link(INSTANT_SELECTOR)?.let { instantLink(it) }
+            ?.let { Video(videoUrl = it, videoTitle = title("Instant")) }
+        return listOfNotNull(cloud, instant)
+            .ifEmpty { throw Exception("No ready link yet: the cloud copy is being generated, try again in a few minutes") }
     }
 
-    override suspend fun fetchResolvedVideo(video: Video): Video? {
-        if (video.initialized) return video
-        return resolveInstantLink(video.internalData)?.let { video.copy(videoUrl = it, initialized = true) }
+    // Files not cached yet only offer "Generate Cloud Link": start it, the link is ready a few minutes later
+    private suspend fun cloudLink(url: String): String? {
+        val doc = fetchDoc(url)
+        doc.link(CLOUD_SELECTOR)?.let { return it }
+        val key = CLOUD_KEY_REGEX.find(doc.html())?.groupValues?.get(1) ?: return null
+        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("action", "cloud")
+            .addFormDataPart("key", key)
+            .addFormDataPart("action_token", "")
+            .build()
+        val generateHeaders = headers.newBuilder().set("x-token", doc.location().toHttpUrl().host).build()
+        // Opening the returned page, as the site's button does, makes sure generation starts
+        runCatching {
+            val response = client.post(url, generateHeaders, body, ensureSuccess = false).parseAs<JsonObject>()
+            (response["visit_url"] ?: response["url"])?.stringOrNull?.let { client.get(it, headers, CacheControl.FORCE_NETWORK).close() }
+        }
+        return null
     }
 
-    // Not followed: video-seed.dev only shows its "url" parameter as a download button
-    private suspend fun resolveInstantLink(instant: String): String? {
+    // Instant links are shared and stop working after about one full download, so dead ones are left out
+    private suspend fun instantLink(instant: String): String? {
+        // Not followed: video-seed.dev only shows its "url" parameter as a download button
         val location = noRedirectClient.get(instant, headers, CacheControl.FORCE_NETWORK, ensureSuccess = false)
             .use { it.request.url.resolve(it.header("Location") ?: return null) } ?: return null
-        return location.queryParameter("url") ?: location.toString()
+        val url = location.queryParameter("url") ?: location.toString()
+        return url.takeIf { client.head(url, headers, CacheControl.FORCE_NETWORK, ensureSuccess = false).use { it.isSuccessful } }
     }
 
     private suspend fun fetchDoc(url: String): Document = client.get(url, headers, CacheControl.FORCE_NETWORK).asJsoup()
@@ -253,6 +273,7 @@ abstract class UHDMovies :
         private const val CLOUD_PAGE_SELECTOR = "a[href*=/zfile/]"
         private const val CLOUD_SELECTOR = "div.card-body a[href*=workers.dev], div.card-body a.btn-success[href]"
         private const val INSTANT_SELECTOR = "div.card-body a[href*=video-gen], div.card-body a.btn-danger[href^=http]"
+        private val CLOUD_KEY_REGEX = Regex("""append\("key",\s*"([^"]+)"""")
 
         private val QUALITY_REGEX = Regex("""\d{3,4}p""", RegexOption.IGNORE_CASE)
         private val SEASON_REGEX = Regex("""[ .]?S(?:eason)?[ .]?(\d{1,2})[ .]?""", RegexOption.IGNORE_CASE)
