@@ -52,7 +52,7 @@ class DriveLinkResolver(private val client: OkHttpClient, private val headers: H
         val body = FormBody.Builder().apply {
             form.select("input[name]").forEach { add(it.attr("name"), it.attr("value")) }
         }.build()
-        return client.post(action, headers.withReferer(doc), body).asJsoup()
+        return client.post(action, headers.withReferer(doc), body, ensureSuccess = false).asJsoup()
     }
 
     private suspend fun goLink(doc: Document): String? {
@@ -67,7 +67,9 @@ class DriveLinkResolver(private val client: OkHttpClient, private val headers: H
         Cookie.parse(goUrl, "$cookieName=$cookieValue; path=/; max-age=$COOKIE_MAX_AGE")
             ?.let { client.cookieJar.saveFromResponse(goUrl, listOf(it)) }
 
-        return client.get(goUrl, headers.withReferer(doc), CacheControl.FORCE_NETWORK).asJsoup().redirectTarget()?.toString()
+        val page = client.get(goUrl, headers.withReferer(doc), CacheControl.FORCE_NETWORK, ensureSuccess = false).asJsoup()
+        // The go page usually forwards with a script, but may also have redirected straight to the drive
+        return (page.redirectTarget() ?: page.location().toHttpUrl().takeIf { it.isFile() })?.toString()
     }
 
     private fun Headers.withReferer(doc: Document) = newBuilder().set("Referer", doc.location()).build()
