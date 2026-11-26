@@ -149,13 +149,12 @@ abstract class UHDMovies :
     override fun getEpisodeUrl(episode: SEpisode): String = episode.url.parseAs<EpLinks>().urls.firstOrNull()?.url ?: baseUrl
 
     // ============================== Hosters ===============================
-    // Every release is a separate file, so each one is a hoster resolved only when it is opened
+    // Every release is a separate file, so each one is a hoster
     override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> = episode.url.parseAs<EpLinks>().urls.map {
         Hoster(
             hosterUrl = it.url,
             hosterName = listOfNotNull(it.quality, it.size, it.release).joinToString(" • "),
             internalData = it.toJsonString(),
-            lazy = true,
         )
     }
 
@@ -173,30 +172,26 @@ abstract class UHDMovies :
     private fun Hoster.data(): EpUrl = internalData.parseAs()
 
     // =============================== Videos ===============================
-    // The final links expire (Instant after its first use), so videos keep the button's link and resolve at play time
     override suspend fun fetchVideoList(hoster: Hoster): List<Video> {
         val link = hoster.data()
         val doc = fetchDoc(driveLinkResolver.fileUrl(link.url) ?: throw Exception("Could not bypass the download link"))
         if (doc.selectFirst("div.card-body:contains(no longer available)") != null) throw Exception("This file has been removed")
 
         val size = doc.selectFirst("li.list-group-item:contains(Size :)")?.text()?.substringAfter(":")?.trim() ?: link.size
-        return LINK_TYPES.mapNotNull { (type, selector) ->
-            val href = doc.selectFirst(selector)?.absUrl("href")?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
-            Video(
-                videoTitle = listOfNotNull(link.quality, type, size).joinToString(" - "),
-                internalData = "$type|$href",
-                initialized = false,
-            )
-        }.ifEmpty { throw Exception("No playable links found") }
+        fun title(type: String) = listOfNotNull(link.quality, type, size).joinToString(" - ")
+
+        // Files not cached yet only offer "Generate Cloud Link", which takes minutes, so Cloud Resume is listed when ready
+        val cloud = doc.link(CLOUD_PAGE_SELECTOR)?.let { fetchDoc(it).link(CLOUD_SELECTOR) }
+            ?.let { Video(videoUrl = it, videoTitle = title("Cloud Resume")) }
+        // Instant links work once, so they are resolved at play time
+        val instant = doc.link(INSTANT_SELECTOR)
+            ?.let { Video(videoTitle = title("Instant"), internalData = it, initialized = false) }
+        return listOfNotNull(cloud, instant).ifEmpty { throw Exception("No playable links found") }
     }
 
     override suspend fun fetchResolvedVideo(video: Video): Video? {
-        val (type, href) = video.internalData.split('|', limit = 2).takeIf { it.size == 2 } ?: return null
-        val url = when (type) {
-            CLOUD -> fetchDoc(href).selectFirst(CLOUD_SELECTOR)?.absUrl("href")
-            else -> resolveInstantLink(href)
-        } ?: return null
-        return video.copy(videoUrl = url, initialized = true)
+        if (video.initialized) return video
+        return resolveInstantLink(video.internalData)?.let { video.copy(videoUrl = it, initialized = true) }
     }
 
     // Not followed: video-seed.dev only shows its "url" parameter as a download button
@@ -207,6 +202,8 @@ abstract class UHDMovies :
     }
 
     private suspend fun fetchDoc(url: String): Document = client.get(url, headers, CacheControl.FORCE_NETWORK).asJsoup()
+
+    private fun Document.link(selector: String): String? = selectFirst(selector)?.absUrl("href")?.ifEmpty { null }
 
     // ============================= Utilities ==============================
     private fun String.cleanTitle(): String = replace("Download", "", true).trim()
@@ -253,15 +250,9 @@ abstract class UHDMovies :
         private const val NEXT_PAGE_SELECTOR = "div#content nav.gridlove-pagination a.next"
         private const val EPISODE_ROW_SELECTOR =
             "p:has(a[href*=?sid=],a[href*=r?key=]):has(a[class*=maxbutton])[style*=center]"
-        private const val CLOUD = "Cloud Resume"
-        private const val INSTANT = "Instant"
+        private const val CLOUD_PAGE_SELECTOR = "a[href*=/zfile/]"
         private const val CLOUD_SELECTOR = "div.card-body a[href*=workers.dev], div.card-body a.btn-success[href]"
-
-        // Ordered by preference: Cloud Resume can seek, Instant can't
-        private val LINK_TYPES = linkedMapOf(
-            CLOUD to "a[href*=/zfile/]",
-            INSTANT to "div.card-body a[href*=video-gen], div.card-body a.btn-danger[href^=http]",
-        )
+        private const val INSTANT_SELECTOR = "div.card-body a[href*=video-gen], div.card-body a.btn-danger[href^=http]"
 
         private val QUALITY_REGEX = Regex("""\d{3,4}p""", RegexOption.IGNORE_CASE)
         private val SEASON_REGEX = Regex("""[ .]?S(?:eason)?[ .]?(\d{1,2})[ .]?""", RegexOption.IGNORE_CASE)
