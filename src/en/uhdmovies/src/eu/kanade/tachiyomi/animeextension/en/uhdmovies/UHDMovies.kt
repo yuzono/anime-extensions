@@ -125,7 +125,7 @@ abstract class UHDMovies :
                 name = if (isSeries) "${key.first} Ep ${key.second}" else key.first
                 episode_number = (if (isSeries) key.second else index + 1).toFloat()
             }
-        }.ifEmpty { throw Exception("Only Zip Pack Available") }.reversed()
+        }.reversed()
     }
 
     private fun seasonName(row: Element, prevP: String, doc: Document): String {
@@ -142,7 +142,7 @@ abstract class UHDMovies :
     private fun movieName(row: Element, quality: String): String {
         val heading = row.previousElementSiblings().prev("h1,h2,h3,pre:not(:contains(plot))").first()?.text()
         val name = (heading ?: "Movie - $quality").cleanTitle()
-        return if (name.contains("Collection", true)) row.previousElementSibling()?.ownText() ?: name else name
+        return if (name.contains("Collection", true)) row.previousElementSibling()?.ownText()?.ifBlank { null } ?: name else name
     }
 
     // ============================== Hosters ===============================
@@ -162,7 +162,7 @@ abstract class UHDMovies :
 
         val bySize = compareBy<Hoster> { it.data().size.sizeInMb() }
         return sortedWith(
-            compareByDescending<Hoster> { it.data().quality.contains(quality) }
+            compareByDescending<Hoster> { it.data().quality.contains(quality, ignoreCase = true) }
                 .then(if (ascending) bySize else bySize.reversed()),
         )
     }
@@ -178,7 +178,7 @@ abstract class UHDMovies :
 
         val size = doc.selectFirst("li.list-group-item:contains(Size :)")?.text()?.substringAfter(":")?.trim() ?: link.size
         return LINK_TYPES.mapNotNull { (type, selector) ->
-            val href = doc.selectFirst(selector)?.absUrl("href") ?: return@mapNotNull null
+            val href = doc.selectFirst(selector)?.absUrl("href")?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
             Video(
                 videoTitle = listOfNotNull(link.quality, type, size).joinToString(" - "),
                 internalData = "$type|$href",
@@ -188,7 +188,7 @@ abstract class UHDMovies :
     }
 
     override suspend fun fetchResolvedVideo(video: Video): Video? {
-        val (type, href) = video.internalData.split('|', limit = 2).takeIf { it.size == 2 } ?: return video
+        val (type, href) = video.internalData.split('|', limit = 2).takeIf { it.size == 2 } ?: return null
         val url = when (type) {
             CLOUD -> fetchDoc(href).selectFirst(CLOUD_SELECTOR)?.absUrl("href")
             else -> resolveInstantLink(href)
