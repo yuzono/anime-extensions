@@ -18,5 +18,6 @@ yuzono {
 }
 
 dependencies {
+    implementation(project(":lib:drivelinkresolver"))
     implementation(project(":lib:playlistutils"))
 }

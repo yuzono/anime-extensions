@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.util.asJsoup
+import keiyoushi.lib.drivelinkresolver.DriveLinkResolver
 import keiyoushi.network.get
 import keiyoushi.network.head
 import keiyoushi.utils.Source
@@ -220,7 +221,7 @@ abstract class MoviesMod : Source() {
             ?: return emptyList()
 
         return links.parallelCatchingFlatMap { link ->
-            val mediaUrl = getMediaUrl(link) ?: return@parallelCatchingFlatMap emptyList()
+            val mediaUrl = driveLinkResolver.fileUrl(link.url) ?: return@parallelCatchingFlatMap emptyList()
             extractVideos(mediaUrl, link.quality)
         }
             .groupBy({ it.first }, { it.second })
@@ -308,26 +309,7 @@ abstract class MoviesMod : Source() {
     private fun String.toVideoResolution(): Int? = removeSuffix("p").toIntOrNull()
 
     // ============================= Utilities ==============================
-    private val redirectBypasser by lazy { RedirectorBypasser(client, headers) }
-
-    private suspend fun getMediaUrl(epUrl: EpUrl): String? {
-        val url = epUrl.url
-        val mediaResponse = when {
-            url.contains("?sid=") -> {
-                val finalUrl = redirectBypasser.bypass(url) ?: return null
-                client.get(finalUrl)
-            }
-            url.contains("r?key=") -> {
-                client.get(url)
-            }
-            else -> return null
-        }
-
-        val path = mediaResponse.body.string().substringAfter("replace(\"").substringBefore("\"")
-        if (path == "/404") return null
-
-        return "https://" + mediaResponse.request.url.host + path
-    }
+    private val driveLinkResolver by lazy { DriveLinkResolver(client, headers) }
 
     private fun List<Video>.sortVideosByPreference(): List<Video> {
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT) ?: PREF_QUALITY_DEFAULT
