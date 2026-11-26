@@ -6,12 +6,19 @@ plugins {
 
 yuzono {
     name = "UHD Movies"
-    versionCode = 20
+    versionCode = 21
     contentWarning = ContentWarning.SAFE
-    libVersion = "14"
+    libVersion = "16"
 
+    // Current domain: https://modlist.in/?type=uhdmovies
     source {
         lang = "en"
-        baseUrl = "https://uhdmovies.vip"
+        baseUrl {
+            custom("https://uhdmovies.ceo")
+        }
     }
+}
+
+dependencies {
+    implementation(project(":lib:drivelinkresolver"))
 }

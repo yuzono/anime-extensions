@@ -1,450 +1,292 @@
 package eu.kanade.tachiyomi.animeextension.en.uhdmovies
 
-import android.util.Base64
-import androidx.preference.EditTextPreference
-import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.util.asJsoup
 import keiyoushi.annotation.Source
-import keiyoushi.utils.ParsedAnimeHttpLegacySource
+import keiyoushi.lib.drivelinkresolver.DriveLinkResolver
+import keiyoushi.network.get
+import keiyoushi.network.head
+import keiyoushi.network.post
+import keiyoushi.source.AniSource
+import keiyoushi.source.model.SAnimeUpdate
+import keiyoushi.utils.addListPreference
 import keiyoushi.utils.getPreferencesLazy
-import keiyoushi.utils.parallelCatchingFlatMap
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.stringOrNull
+import keiyoushi.utils.toJsonString
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import okhttp3.CacheControl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MultipartBody
-import okhttp3.Request
-import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import uy.kohesive.injekt.injectLazy
 
 @Source
 abstract class UHDMovies :
-    ParsedAnimeHttpLegacySource(),
+    AniSource(),
     ConfigurableAnimeSource {
-
-    override val baseUrl by lazy {
-        preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!
-    }
-
-    private val currentBaseUrl by lazy {
-        runCatching {
-            runBlocking {
-                withContext(Dispatchers.Default) {
-                    client.newBuilder()
-                        .followRedirects(false)
-                        .build()
-                        .newCall(GET("$baseUrl/")).await().use { resp ->
-                            when (resp.code) {
-                                301 -> {
-                                    (resp.headers["location"]?.substringBeforeLast("/") ?: baseUrl).also {
-                                        preferences.edit().putString(PREF_DOMAIN_KEY, it).apply()
-                                    }
-                                }
-
-                                else -> baseUrl
-                            }
-                        }
-                }
-            }
-        }.getOrDefault(baseUrl)
-    }
 
     override val supportsLatest = false
 
-    private val json: Json by injectLazy()
-
     private val preferences by getPreferencesLazy()
 
+    private val driveLinkResolver by lazy { DriveLinkResolver(client, headers) }
+
+    // Keeps the Instant link's redirect target visible
+    private val noRedirectClient by lazy { client.newBuilder().followRedirects(false).build() }
+
     // ============================== Popular ===============================
-    override fun popularAnimeRequest(page: Int): Request = GET("$currentBaseUrl/page/$page/")
-
-    override fun popularAnimeSelector(): String = "div#content  div.gridlove-posts > div.layout-masonry"
-
-    override fun popularAnimeFromElement(element: Element) = SAnime.create().apply {
-        setUrlWithoutDomain(element.select("div.entry-image > a").attr("abs:href"))
-        thumbnail_url = element.select("div.entry-image > a > img").attr("abs:src")
-        title = element.select("div.entry-image > a").attr("title")
-            .replace("Download", "").trim()
-    }
-
-    override fun popularAnimeNextPageSelector(): String = "div#content  > nav.gridlove-pagination > a.next"
-
-    // =============================== Latest ===============================
-    override fun latestUpdatesRequest(page: Int): Request = throw UnsupportedOperationException()
-
-    override fun latestUpdatesSelector(): String = throw UnsupportedOperationException()
-
-    override fun latestUpdatesFromElement(element: Element): SAnime = throw UnsupportedOperationException()
-
-    override fun latestUpdatesNextPageSelector(): String = throw UnsupportedOperationException()
+    override suspend fun getPopularAnime(page: Int): AnimesPage = client.get("$baseUrl/page/$page/", headers)
+        .asJsoup()
+        .toAnimesPage()
 
     // =============================== Search ===============================
-    override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val cleanQuery = query.replace(" ", "+").lowercase()
-        return GET("$currentBaseUrl/page/$page/?s=$cleanQuery")
+    override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
+        val url = baseUrl.toHttpUrl().newBuilder()
+            .addPathSegments("page/$page/")
+            .addQueryParameter("s", query.trim())
+            .build()
+        return client.get(url, headers).asJsoup().toAnimesPage()
     }
 
-    override fun searchAnimeSelector(): String = popularAnimeSelector()
+    private fun Document.toAnimesPage(): AnimesPage = AnimesPage(
+        select(ANIME_SELECTOR).mapNotNull(::animeFromElement),
+        selectFirst(NEXT_PAGE_SELECTOR) != null,
+    )
 
-    override fun searchAnimeFromElement(element: Element): SAnime = popularAnimeFromElement(element)
+    private fun animeFromElement(element: Element): SAnime? = SAnime.create().apply {
+        val link = element.selectFirst("div.entry-image > a") ?: return null
+        setUrlWithoutDomain(link.absUrl("href"))
+        thumbnail_url = link.selectFirst("img")?.absUrl("src")
+        title = link.attr("title").cleanTitle()
+    }
 
-    override fun searchAnimeNextPageSelector(): String = popularAnimeNextPageSelector()
+    // ============================ Anime Update ============================
+    // Details and episodes come from the same page, so it is fetched only once
+    override suspend fun fetchAnimeUpdate(
+        anime: SAnime,
+        episodes: List<SEpisode>,
+        fetchDetails: Boolean,
+        fetchEpisodes: Boolean,
+    ): SAnimeUpdate {
+        if (!fetchDetails && !fetchEpisodes) return SAnimeUpdate(anime, episodes)
 
-    // =========================== Anime Details ============================
-    override fun animeDetailsParse(document: Document) = SAnime.create().apply {
-        initialized = true
-        title = document.selectFirst(".entry-title")?.text()
-            ?.replace("Download", "", true)?.trim() ?: "Movie"
-        status = SAnime.COMPLETED
+        val document = client.get(baseUrl + anime.url, headers).asJsoup()
+        return SAnimeUpdate(
+            anime = if (fetchDetails) parseDetails(document, anime) else anime,
+            episodes = if (fetchEpisodes) parseEpisodes(document) else episodes,
+        )
+    }
+
+    private fun parseDetails(document: Document, anime: SAnime): SAnime = SAnime.create().apply {
+        url = anime.url
+        title = document.selectFirst("h1.entry-title")?.text()?.cleanTitle() ?: anime.title
+        thumbnail_url = document.selectFirst("meta[property=og:image]")?.attr("content")
+            ?.takeIf { it.isNotBlank() } ?: anime.thumbnail_url
         description = document.selectFirst("pre:contains(plot)")?.text()
+            ?: document.selectFirst("div.entry-content > p")?.text()?.takeIf { it.isNotBlank() }
+        genre = document.selectFirst("div.entry-header div.entry-category, div.entry-category")
+            ?.select("a")
+            ?.joinToString { it.text() }
+            ?.takeIf { it.isNotBlank() }
+        status = SAnime.COMPLETED
+        initialized = true
     }
-
-    // ============================== Episodes ==============================
-    override fun episodeListRequest(anime: SAnime) = GET(currentBaseUrl + anime.url, headers)
 
     private fun Regex.firstValue(text: String) = find(text)?.groupValues?.get(1)?.let { Pair(text, it) }
 
-    override fun episodeListParse(response: Response): List<SEpisode> {
-        val doc = response.asJsoup()
-        val episodeElements = doc.select(episodeListSelector())
-            .asSequence()
-
-        val qualityRegex = "\\d{3,4}p".toRegex(RegexOption.IGNORE_CASE)
-        val seasonRegex = "[ .]?S(?:eason)?[ .]?(\\d{1,2})[ .]?".toRegex(RegexOption.IGNORE_CASE)
-        val seasonTitleRegex = "[ .\\[(]?S(?:eason)?[ .]?(\\d{1,2})[ .\\])]?".toRegex(RegexOption.IGNORE_CASE)
-        val partRegex = "Part ?(\\d{1,2})".toRegex(RegexOption.IGNORE_CASE)
-
-        val isSerie = doc.selectFirst(episodeListSelector())?.text().orEmpty().run {
-            contains("Episode", true) ||
-                contains("Zip", true) ||
-                contains("Pack", true)
+    private fun parseEpisodes(doc: Document): List<SEpisode> {
+        val rows = doc.select(EPISODE_ROW_SELECTOR)
+        val isSeries = rows.firstOrNull()?.text().orEmpty().let { text ->
+            listOf("Episode", "Zip", "Pack").any { text.contains(it, true) }
         }
 
-        val episodeList = episodeElements.map { row ->
-            val prevP = row.previousElementSibling()!!.text()
-            val qualityMatch = qualityRegex.find(prevP)
-            val quality = qualityMatch?.value ?: let {
-                val qualityMatchOwn = qualityRegex.find(row.text())
-                qualityMatchOwn?.value ?: "HD"
-            }
+        val links = rows.flatMap { row ->
+            val prevP = row.previousElementSibling()?.text().orEmpty()
+            val quality = (QUALITY_REGEX.find(prevP) ?: QUALITY_REGEX.find(row.text()))?.value ?: "HD"
+            val size = SIZE_REGEX.find(prevP)?.groupValues?.get(1)
+            val release = prevP.replace(SIZE_REGEX, "").trim().ifEmpty { null }
+            val name = if (isSeries) seasonName(row, prevP, doc) else movieName(row, quality)
 
-            val defaultName = if (isSerie) {
-                val (source, seasonNumber) = seasonRegex.firstValue(prevP) ?: run {
-                    val prevPre = row.previousElementSiblings().prev("pre,div.mks_separator").first()
-                        ?.text()
-                        .orEmpty()
-                    seasonRegex.firstValue(prevPre)
-                } ?: run {
-                    val title = doc.selectFirst("h1.entry-title")?.text().orEmpty()
-                    seasonTitleRegex.firstValue(title)
-                } ?: "" to "1"
-
-                val part = partRegex.find(source)?.groupValues?.get(1)
-                    ?.let { " Pt $it" }
-                    .orEmpty()
-
-                "Season ${seasonNumber.toIntOrNull() ?: 1 }$part"
-            } else {
-                row.previousElementSiblings().let { prevElem ->
-                    (prevElem.prev("h1,h2,h3,pre:not(:contains(plot))").first()?.text() ?: "Movie - $quality")
-                        .replace("Download", "", true).trim().let {
-                            if (it.contains("Collection", true)) {
-                                row.previousElementSibling()!!.ownText()
-                            } else {
-                                it
-                            }
-                        }
+            row.select("a[href*=?sid=], a[href*=r?key=]")
+                .filterNot { el -> el.classNames().any { it.endsWith("-zip") } }
+                .mapIndexed { index, el ->
+                    val episode = el.text().replace("Episode", "", true).trim().toIntOrNull() ?: (index + 1)
+                    (name to episode) to EpUrl(quality, el.attr("href"), size, release)
                 }
-            }
+        }
 
-            row.select("a").asSequence()
-                .filter { el -> el.classNames().none { it.endsWith("-zip") } }
-                .mapIndexedNotNull { index, linkElement ->
-                    val episode = linkElement.text()
-                        .replace("Episode", "", true)
-                        .trim()
-                        .toIntOrNull() ?: index + 1
-
-                    val url = linkElement.attr("href").takeUnless(String::isBlank)
-                        ?: return@mapIndexedNotNull null
-
-                    Triple(
-                        Pair(defaultName, episode),
-                        url,
-                        quality,
-                    )
-                }
-        }.flatten().groupBy { it.first }.values.mapIndexed { index, items ->
-            val (itemName, episodeNum) = items.first().first
-
+        return links.groupBy({ it.first }, { it.second }).entries.mapIndexed { index, (key, urls) ->
             SEpisode.create().apply {
-                url = EpLinks(
-                    urls = items.map { triple ->
-                        EpUrl(url = triple.second, quality = triple.third)
-                    },
-                ).toJson()
-
-                name = if (isSerie) "$itemName Ep $episodeNum" else itemName
-
-                episode_number = if (isSerie) episodeNum.toFloat() else (index + 1).toFloat()
+                url = EpLinks(urls).toJsonString()
+                name = if (isSeries) "${key.first} Ep ${key.second}" else key.first
+                episode_number = (if (isSeries) key.second else index + 1).toFloat()
             }
-        }
-
-        if (episodeList.isEmpty()) throw Exception("Only Zip Pack Available")
-        return episodeList.reversed()
+        }.reversed()
     }
 
-    override fun episodeListSelector(): String = "p:has(a[href*=?sid=],a[href*=r?key=]):has(a[class*=maxbutton])[style*=center]"
-
-    override fun episodeFromElement(element: Element): SEpisode = throw UnsupportedOperationException()
-
-    // ============================ Video Links =============================
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val urlJson = json.decodeFromString<EpLinks>(episode.url)
-
-        val videoList = urlJson.urls.parallelCatchingFlatMap { eplink ->
-            val quality = eplink.quality
-            val url = getMediaUrl(eplink) ?: return@parallelCatchingFlatMap emptyList()
-            val videos = extractVideo(url, quality)
-            when {
-                videos.isEmpty() -> {
-                    extractGDriveLink(url, quality).ifEmpty {
-                        getDirectLink(url, "instant", "/mfile/")?.let {
-                            listOf(Video(videoUrl = it, videoTitle = "$quality - GDrive Instant link"))
-                        } ?: emptyList()
-                    }
-                }
-
-                else -> videos
-            }
-        }
-
-        return videoList
+    private fun seasonName(row: Element, prevP: String, doc: Document): String {
+        val prevPre = row.previousElementSiblings().prev("pre,div.mks_separator").first()?.text().orEmpty()
+        val title = doc.selectFirst("h1.entry-title")?.text().orEmpty()
+        val (source, season) = SEASON_REGEX.firstValue(prevP)
+            ?: SEASON_REGEX.firstValue(prevPre)
+            ?: SEASON_TITLE_REGEX.firstValue(title)
+            ?: ("" to "1")
+        val part = PART_REGEX.find(source)?.groupValues?.get(1)?.let { " Pt $it" }.orEmpty()
+        return "Season ${season.toIntOrNull() ?: 1}$part"
     }
 
-    override fun videoFromElement(element: Element): Video = throw UnsupportedOperationException()
-
-    override fun videoListSelector(): String = throw UnsupportedOperationException()
-
-    // ============================= Utilities ==============================
-    private val redirectBypasser by lazy { RedirectorBypasser(client, headers) }
-
-    private fun getMediaUrl(epUrl: EpUrl): String? {
-        val url = epUrl.url
-        val mediaResponse = if (url.contains("?sid=")) {
-            /* redirector bs */
-            val finalUrl = redirectBypasser.bypass(url) ?: return null
-            client.newCall(GET(finalUrl)).execute()
-        } else if (url.contains("r?key=")) {
-            /* everything under control */
-            client.newCall(GET(url)).execute()
-        } else {
-            return null
-        }
-
-        val path = mediaResponse.body.string().substringAfter("replace(\"").substringBefore("\"")
-
-        if (path == "/404") return null
-
-        return "https://" + mediaResponse.request.url.host + path
+    private fun movieName(row: Element, quality: String): String {
+        val heading = row.previousElementSiblings().prev("h1,h2,h3,pre:not(:contains(plot))").first()?.text()
+        val name = (heading ?: "Movie - $quality").cleanTitle()
+        return if (name.contains("Collection", true)) row.previousElementSibling()?.ownText()?.ifBlank { null } ?: name else name
     }
 
-    private fun extractVideo(url: String, quality: String): List<Video> = (1..3).toList().flatMap { type ->
-        extractWorkerLinks(url, quality, type)
+    // Episodes store their download links, so WebView opens the first one
+    override fun getEpisodeUrl(episode: SEpisode): String = episode.url.parseAs<EpLinks>().urls.firstOrNull()?.url ?: baseUrl
+
+    // ============================== Hosters ===============================
+    // Every release is a separate file, so each one is a hoster
+    override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> = episode.url.parseAs<EpLinks>().urls.map {
+        Hoster(
+            hosterUrl = it.url,
+            hosterName = listOfNotNull(it.quality, it.size, it.release).joinToString(" • "),
+            internalData = it.toJsonString(),
+        )
     }
 
-    private fun extractWorkerLinks(mediaUrl: String, quality: String, type: Int): List<Video> {
-        val reqLink = mediaUrl.replace("/file/", "/wfile/") + "?type=$type"
-        val resp = client.newCall(GET(reqLink)).execute().asJsoup()
-        val sizeMatch = SIZE_REGEX.find(resp.select("div.card-header").text().trim())
-        val size = sizeMatch?.groups?.get(1)?.value?.let { " - $it" } ?: ""
-        return resp.select("div.card-body div.mb-4 > a").mapIndexed { index, linkElement ->
-            val link = linkElement.attr("href")
-            val decodedLink = if (link.contains("workers.dev")) {
-                link
-            } else {
-                String(Base64.decode(link.substringAfter("download?url="), Base64.DEFAULT))
-            }
+    override fun List<Hoster>.sortHosters(): List<Hoster> {
+        val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
+        val ascending = preferences.getString(PREF_SIZE_SORT_KEY, PREF_SIZE_SORT_DEFAULT)!! == "asc"
 
-            Video(
-                url = decodedLink,
-                quality = "$quality - CF $type Worker ${index + 1}$size",
-                videoUrl = decodedLink,
-            )
-        }
+        val bySize = compareBy<Hoster> { it.data().size.sizeInMb() }
+        return sortedWith(
+            compareByDescending<Hoster> { it.data().quality.contains(quality, ignoreCase = true) }
+                .then(if (ascending) bySize else bySize.reversed()),
+        )
     }
 
-    private fun getDirectLink(url: String, action: String = "direct", newPath: String = "/file/"): String? {
-        val doc = client.newCall(GET(url, headers)).execute().asJsoup()
-        val script = doc.selectFirst("script:containsData(async function taskaction)")
-            ?.data()
-            ?: return url
+    private fun Hoster.data(): EpUrl = internalData.parseAs()
 
-        val key = script.substringAfter("key\", \"").substringBefore('"')
-        val form = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart("action", action)
+    // =============================== Videos ===============================
+    override suspend fun fetchVideoList(hoster: Hoster): List<Video> {
+        val link = hoster.data()
+        val doc = fetchDoc(driveLinkResolver.fileUrl(link.url) ?: throw Exception("Could not bypass the download link"))
+        if (doc.selectFirst("div.card-body:contains(no longer available)") != null) throw Exception("This file has been removed")
+
+        val size = doc.selectFirst("li.list-group-item:contains(Size :)")?.text()?.substringAfter(":")?.trim() ?: link.size
+        fun title(type: String) = listOfNotNull(link.quality, type, size).joinToString(" - ")
+
+        val cloud = doc.link(CLOUD_PAGE_SELECTOR)?.let { cloudLink(it) }
+            ?.let { Video(videoUrl = it, videoTitle = title("Cloud Resume")) }
+        val instant = doc.link(INSTANT_SELECTOR)?.let { instantLink(it) }
+            ?.let { Video(videoUrl = it, videoTitle = title("Instant")) }
+        return listOfNotNull(cloud, instant)
+            .ifEmpty { throw Exception("No ready link yet: the cloud copy is being generated, try again in a few minutes") }
+    }
+
+    // Files not cached yet only offer "Generate Cloud Link": start it, the link is ready a few minutes later
+    private suspend fun cloudLink(url: String): String? {
+        val doc = fetchDoc(url)
+        doc.link(CLOUD_SELECTOR)?.let { return it }
+        val key = CLOUD_KEY_REGEX.find(doc.html())?.groupValues?.get(1) ?: return null
+        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("action", "cloud")
             .addFormDataPart("key", key)
             .addFormDataPart("action_token", "")
             .build()
-
-        val headers = headersBuilder().set("x-token", url.toHttpUrl().host).build()
-
-        val req = client.newCall(POST(url.replace("/file/", newPath), headers, form)).execute()
-        return runCatching {
-            json.decodeFromString<DriveLeechDirect>(req.body.string()).url
-        }.getOrNull()
-    }
-
-    private fun extractGDriveLink(mediaUrl: String, quality: String): List<Video> {
-        val neoUrl = getDirectLink(mediaUrl) ?: mediaUrl
-        val response = client.newCall(GET(neoUrl)).execute().asJsoup()
-        val gdBtn = response.selectFirst("div.card-body a.btn")!!
-        val gdLink = gdBtn.attr("href")
-        val sizeMatch = SIZE_REGEX.find(gdBtn.text())
-        val size = sizeMatch?.groups?.get(1)?.value?.let { " - $it" } ?: ""
-        val gdResponse = client.newCall(GET(gdLink)).execute().asJsoup()
-        val link = gdResponse.select("form#download-form")
-        return if (link.isNullOrEmpty()) {
-            emptyList()
-        } else {
-            val realLink = link.attr("action")
-            listOf(Video(videoUrl = realLink, videoTitle = "$quality - Gdrive$size"))
+        val generateHeaders = headers.newBuilder().set("x-token", doc.location().toHttpUrl().host).build()
+        // Opening the returned page, as the site's button does, makes sure generation starts
+        runCatching {
+            val response = client.post(url, generateHeaders, body, ensureSuccess = false).parseAs<JsonObject>()
+            (response["visit_url"] ?: response["url"])?.stringOrNull?.let { client.get(it, headers, CacheControl.FORCE_NETWORK).close() }
         }
+        return null
     }
 
-    override fun List<Video>.sortVideos(): List<Video> {
-        val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
-        val ascSort = preferences.getString(PREF_SIZE_SORT_KEY, PREF_SIZE_SORT_DEFAULT)!! == "asc"
-
-        val comparator = compareByDescending<Video> { it.videoTitle.contains(quality) }.let { cmp ->
-            if (ascSort) {
-                cmp.thenBy { it.videoTitle.fixQuality() }
-            } else {
-                cmp.thenByDescending { it.videoTitle.fixQuality() }
-            }
-        }
-        return sortedWith(comparator)
+    // Instant links are shared and stop working after about one full download, so dead ones are left out
+    private suspend fun instantLink(instant: String): String? {
+        // Not followed: video-seed.dev only shows its "url" parameter as a download button
+        val location = noRedirectClient.get(instant, headers, CacheControl.FORCE_NETWORK, ensureSuccess = false)
+            .use { it.request.url.resolve(it.header("Location") ?: return null) } ?: return null
+        val url = location.queryParameter("url") ?: location.toString()
+        return url.takeIf { client.head(url, headers, CacheControl.FORCE_NETWORK, ensureSuccess = false).use { it.isSuccessful } }
     }
 
-    private fun String.fixQuality(): Float {
-        val size = substringAfterLast("-").trim()
-        return if (size.contains("GB", true)) {
-            size.replace("GB", "", true)
-                .toFloatOrNull()?.let { it * 1000 } ?: 1F
-        } else {
-            size.replace("MB", "", true)
-                .toFloatOrNull() ?: 1F
-        }
+    private suspend fun fetchDoc(url: String): Document = client.get(url, headers, CacheControl.FORCE_NETWORK).asJsoup()
+
+    private fun Document.link(selector: String): String? = selectFirst(selector)?.absUrl("href")?.ifEmpty { null }
+
+    // ============================= Utilities ==============================
+    private fun String.cleanTitle(): String = replace("Download", "", true).trim()
+
+    private fun String?.sizeInMb(): Float {
+        val match = this?.let(SIZE_VALUE_REGEX::find) ?: return 0F
+        val value = match.groupValues[1].toFloatOrNull() ?: return 0F
+        return if (match.groupValues[2].equals("GB", true)) value * 1000 else value
     }
 
+    // ============================ Preferences =============================
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        ListPreference(screen.context).apply {
-            key = PREF_QUALITY_KEY
-            title = PREF_QUALITY_TITLE
-            entries = PREF_QUALITY_ENTRIES
-            entryValues = PREF_QUALITY_ENTRIES
-            setDefaultValue(PREF_QUALITY_DEFAULT)
-            summary = "%s"
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
-
-        ListPreference(screen.context).apply {
-            key = PREF_SIZE_SORT_KEY
-            title = PREF_SIZE_SORT_TITLE
-            entries = PREF_SIZE_SORT_ENTRIES
-            entryValues = PREF_SIZE_SORT_VALUES
-            setDefaultValue(PREF_SIZE_SORT_DEFAULT)
-            summary = PREF_SIZE_SORT_SUMMARY
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val selected = newValue as String
-                val index = findIndexOfValue(selected)
-                val entry = entryValues[index] as String
-                preferences.edit().putString(key, entry).commit()
-            }
-        }.also(screen::addPreference)
-
-        EditTextPreference(screen.context).apply {
-            key = PREF_DOMAIN_KEY
-            title = PREF_DOMAIN_TITLE
-            dialogTitle = PREF_DOMAIN_DIALOG_TITLE
-            setDefaultValue(PREF_DOMAIN_DEFAULT)
-            summary = getDomainPrefSummary()
-
-            setOnPreferenceChangeListener { _, newValue ->
-                runCatching {
-                    val value = (newValue as String).ifEmpty { PREF_DOMAIN_DEFAULT }
-                    preferences.edit().putString(key, value).commit().also {
-                        summary = getDomainPrefSummary()
-                    }
-                }.getOrDefault(false)
-            }
-        }.also(screen::addPreference)
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            title = "Preferred quality",
+            entries = PREF_QUALITY_ENTRIES,
+            entryValues = PREF_QUALITY_ENTRIES,
+            default = PREF_QUALITY_DEFAULT,
+            summary = "%s",
+        )
+        screen.addListPreference(
+            key = PREF_SIZE_SORT_KEY,
+            title = "Preferred size sort",
+            entries = listOf("Ascending", "Descending"),
+            entryValues = listOf("asc", "desc"),
+            default = PREF_SIZE_SORT_DEFAULT,
+            summary = "%s\nOrder of the files after they are sorted by quality.",
+        )
     }
 
     @Serializable
-    data class EpLinks(
-        val urls: List<EpUrl>,
-    )
+    class EpLinks(val urls: List<EpUrl>)
 
     @Serializable
-    data class EpUrl(
+    class EpUrl(
         val quality: String,
         val url: String,
+        val size: String? = null,
+        val release: String? = null,
     )
 
-    @Serializable
-    data class DriveLeechDirect(val url: String? = null)
-
-    private fun EpLinks.toJson(): String = json.encodeToString(this)
-
-    private fun getDomainPrefSummary(): String = preferences.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT)!!.let {
-        """$it
-                |For any change to be applied App restart is required.
-        """.trimMargin()
-    }
-
     companion object {
-        private val SIZE_REGEX = "\\[((?:.(?!\\[))+)][ ]*\\$".toRegex(RegexOption.IGNORE_CASE)
+        private const val ANIME_SELECTOR = "div#content div.gridlove-posts > div.layout-masonry"
+        private const val NEXT_PAGE_SELECTOR = "div#content nav.gridlove-pagination a.next"
+        private const val EPISODE_ROW_SELECTOR =
+            "p:has(a[href*=?sid=],a[href*=r?key=]):has(a[class*=maxbutton])[style*=center]"
+        private const val CLOUD_PAGE_SELECTOR = "a[href*=/zfile/]"
+        private const val CLOUD_SELECTOR = "div.card-body a[href*=workers.dev], div.card-body a.btn-success[href]"
+        private const val INSTANT_SELECTOR = "div.card-body a[href*=video-gen], div.card-body a.btn-danger[href^=http]"
+        private val CLOUD_KEY_REGEX = Regex("""append\("key",\s*"([^"]+)"""")
 
-        private const val PREF_DOMAIN_KEY = "pref_domain_new"
-        private const val PREF_DOMAIN_TITLE = "Currently used domain"
-        private const val PREF_DOMAIN_DEFAULT = "https://uhdmovies.vip"
-        private const val PREF_DOMAIN_DIALOG_TITLE = PREF_DOMAIN_TITLE
+        private val QUALITY_REGEX = Regex("""\d{3,4}p""", RegexOption.IGNORE_CASE)
+        private val SEASON_REGEX = Regex("""[ .]?S(?:eason)?[ .]?(\d{1,2})[ .]?""", RegexOption.IGNORE_CASE)
+        private val SEASON_TITLE_REGEX = Regex("""[ .\[(]?S(?:eason)?[ .]?(\d{1,2})[ .\])]?""", RegexOption.IGNORE_CASE)
+        private val PART_REGEX = Regex("""Part ?(\d{1,2})""", RegexOption.IGNORE_CASE)
+        private val SIZE_REGEX = Regex("""\[([\d.]+\s*[GM]B)]""", RegexOption.IGNORE_CASE)
+        private val SIZE_VALUE_REGEX = Regex("""([\d.]+)\s*([GM]B)""", RegexOption.IGNORE_CASE)
 
         private const val PREF_QUALITY_KEY = "preferred_quality"
-        private const val PREF_QUALITY_TITLE = "Prefferred quality"
         private const val PREF_QUALITY_DEFAULT = "1080p"
-        private val PREF_QUALITY_ENTRIES = arrayOf("2160p", "1080p", "720p", "480p")
+        private val PREF_QUALITY_ENTRIES = listOf("2160p", "1080p", "720p", "480p")
 
         private const val PREF_SIZE_SORT_KEY = "preferred_size_sort"
-        private const val PREF_SIZE_SORT_TITLE = "Preferred Size Sort"
         private const val PREF_SIZE_SORT_DEFAULT = "asc"
-        private val PREF_SIZE_SORT_SUMMARY = """%s
-            |Sort order to be used after the videos are sorted by their quality.
-        """.trimMargin()
-        private val PREF_SIZE_SORT_ENTRIES = arrayOf("Ascending", "Descending")
-        private val PREF_SIZE_SORT_VALUES = arrayOf("asc", "desc")
     }
 }
