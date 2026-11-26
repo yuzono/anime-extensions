@@ -145,6 +145,9 @@ abstract class UHDMovies :
         return if (name.contains("Collection", true)) row.previousElementSibling()?.ownText()?.ifBlank { null } ?: name else name
     }
 
+    // Episodes store their download links, so WebView opens the first one
+    override fun getEpisodeUrl(episode: SEpisode): String = episode.url.parseAs<EpLinks>().urls.firstOrNull()?.url ?: baseUrl
+
     // ============================== Hosters ===============================
     // Every release is a separate file, so each one is a hoster resolved only when it is opened
     override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> = episode.url.parseAs<EpLinks>().urls.map {
