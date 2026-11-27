@@ -6,12 +6,18 @@ plugins {
 
 yuzono {
     name = "AnimeUnity"
-    versionCode = 10
+    versionCode = 11
     contentWarning = ContentWarning.SAFE
-    libVersion = "14"
+    libVersion = "16"
 
     source {
         lang = "it"
-        baseUrl = "https://www.animeunity.so"
+        baseUrl {
+            custom("https://animeunity.cx")
+        }
     }
+}
+
+dependencies {
+    implementation(project(":lib:playlistutils"))
 }
