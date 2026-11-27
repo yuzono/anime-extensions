@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.animeextension.it.animeunity
 import android.util.Log
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
+import aniyomi.lib.playlistutils.PlaylistUtils
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -37,6 +38,8 @@ abstract class AnimeUnity :
     override val hasRelatedAnime = true
 
     private val preferences by getPreferencesLazy()
+
+    private val playlistUtils by lazy { PlaylistUtils(client, headers) }
 
     private val apiHeaders: Headers
         get() = headers.newBuilder()
@@ -214,22 +217,12 @@ abstract class AnimeUnity :
             append("&expires=")
             append(expires)
         }
-        val masterPl = client.get(masterPlUrl, headers).use { it.body.string() }
 
-        return RENDITION_REGEX.findAll(masterPl).map { match ->
-            var videoUrl = match.groupValues[0]
-            val filename = match.groupValues[1]
-            if (!filename.endsWith(".m3u8")) {
-                videoUrl = videoUrl.replaceFirst("/playlist/$filename?", "/playlist/$filename.m3u8?")
-            }
-            val quality = match.groupValues[2]
-            Video(
-                videoUrl = videoUrl,
-                videoTitle = "${quality}p - ${hoster.hosterName}",
-                timestamps = timestamps,
-                internalData = thumbnailsUrl,
-            )
-        }.toList()
+        return playlistUtils.extractFromHls(
+            playlistUrl = masterPlUrl,
+            referer = "$baseUrl/",
+            videoNameGen = { quality -> "$quality - ${hoster.hosterName}" },
+        ).map { it.copy(timestamps = timestamps, internalData = thumbnailsUrl) }
     }
 
     // Logged and skipped on failure, so bad skip times don't stop playback
@@ -277,7 +270,7 @@ abstract class AnimeUnity :
         val quality = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT)!!
 
         return sortedWith(
-            // The start of the title, since "80p" is also part of "480p" and "1080p"
+            // Titles start with the quality, as in "1080p (1920x1080) - 4.50 Mbps - ITA"
             compareByDescending<Video> { it.videoTitle.startsWith("${quality}p") }
                 .thenByDescending { it.videoTitle.substringBefore("p").toIntOrNull() ?: 0 },
         )
@@ -295,7 +288,6 @@ abstract class AnimeUnity :
         private val TOKEN_REGEX = Regex("""'token': ?'([\w-]+)'""")
         private val TIMESTAMPS_REGEX = Regex("""timestamps: ?(\[.*?])""")
         private val THUMBNAILS_REGEX = Regex("""thumbnailsUrl ?= ?'(.*?)'""")
-        private val RENDITION_REGEX = Regex("""https?://[^/\s]+/playlist/(.+)\?.*type=video&.*rendition=(\d+).*""")
     }
 
     // ============================== Settings ==============================
@@ -305,8 +297,8 @@ abstract class AnimeUnity :
             .apply {
                 key = PREF_QUALITY_KEY
                 title = "Preferred quality"
-                entries = arrayOf("1080p", "720p", "480p", "360p", "240p", "80p")
-                entryValues = arrayOf("1080", "720", "480", "360", "240", "80")
+                entries = arrayOf("1080p", "720p", "480p", "360p", "240p")
+                entryValues = arrayOf("1080", "720", "480", "360", "240")
                 setDefaultValue(PREF_QUALITY_DEFAULT)
                 summary = "%s"
             }.also(screen::addPreference)

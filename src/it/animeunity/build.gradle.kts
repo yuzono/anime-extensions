@@ -17,3 +17,7 @@ yuzono {
         }
     }
 }
+
+dependencies {
+    implementation(project(":lib:playlistutils"))
+}
