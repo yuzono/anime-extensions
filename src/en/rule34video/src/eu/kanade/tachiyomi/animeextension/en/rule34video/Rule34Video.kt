@@ -21,9 +21,11 @@ import keiyoushi.utils.getPreferencesLazy
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
 
 @Source
 abstract class Rule34Video :
@@ -40,28 +42,66 @@ abstract class Rule34Video :
 
     private val preferences by getPreferencesLazy()
 
+    private fun configuredUploaderId(): String? {
+        if (!preferences.getBoolean(PREF_UPLOADER_FILTER_ENABLED_KEY, false)) return null
+        return parseUploaderId(preferences.getString(PREF_UPLOADER_ID_KEY, ""))
+    }
+
+    // Accepts either the numeric member id or a member page URL on this source's host
+    // (e.g. https://rule34video.com/members/98965/videos/).
+    private fun parseUploaderId(raw: String?): String? {
+        val value = raw?.trim().orEmpty()
+        val numeric = value.trimEnd('/')
+        if (NUMERIC_ID_REGEX.matches(numeric)) {
+            return numeric.toLongOrNull()?.takeIf { it > 0 }?.toString()
+        }
+
+        val url = value.toHttpUrlOrNull() ?: return null
+        val baseHost = runCatching { baseUrl.toHttpUrl().host }.getOrNull() ?: return null
+        if (!url.host.equals(baseHost, ignoreCase = true) && !url.host.endsWith(".$baseHost", ignoreCase = true)) {
+            return null
+        }
+        if (url.pathSegments.firstOrNull() != "members") return null
+        val id = url.pathSegments.getOrNull(1)?.takeIf { NUMERIC_ID_REGEX.matches(it) } ?: return null
+        return id.toLongOrNull()?.takeIf { it > 0 }?.toString()
+    }
+
     // ============================== Popular ===============================
     override fun popularAnimeRequest(page: Int): Request {
-        if (preferences.getBoolean(PREF_UPLOADER_FILTER_ENABLED_KEY, false)) {
-            val uploaderId = preferences.getString(PREF_UPLOADER_ID_KEY, "")?.trim().orEmpty()
-            if (uploaderId.isNotBlank()) {
-                val url = "$baseUrl/members/$uploaderId/videos/?mode=async&function=get_block&block_id=list_videos_uploaded_videos&sort_by=&from_videos=$page"
-                return GET(url, headers)
-            }
+        val uploaderId = configuredUploaderId()
+        if (uploaderId != null) {
+            val urlBuilder = baseUrl.toHttpUrl().newBuilder()
+                .addPathSegment("members")
+                .addPathSegment(uploaderId)
+                .addPathSegment("videos")
+                .addPathSegment("")
+            if (page > 1) urlBuilder.addQueryParameter("from_videos", page.toString())
+            return GET(urlBuilder.build(), headers)
         }
         return GET("$baseUrl/latest-updates/$page/", headers)
     }
 
     override fun popularAnimeParse(response: Response): AnimesPage {
         val document = response.asJsoup()
-        val animeList = document.select("div.item.thumb:has(a.th[href*=\"/video\"])").mapNotNull { element ->
-            val link = element.selectFirst("a.th") ?: return@mapNotNull null
-            val href = link.attr("href").takeIf { it.contains("/video") } ?: return@mapNotNull null
-            val title = link.attr("title").ifBlank { link.selectFirst("div.thumb_title")?.text().orEmpty() }
-                .trim()
+        // 404 pages can still contain unrelated "related videos" cards, and the site
+        // occasionally serves a bare 200 shell; only parse a response with a real listing block.
+        val container = document.findVideoListContainer()
+            ?: throw Exception("Failed to load video list: no listing block (HTTP ${response.code})")
+        val animeList = container.select(VIDEO_CARD_SELECTOR).mapNotNull { element ->
+            // The site has two video card layouts: the classic `.item.thumb` grid (home,
+            // search, tag/artist/category pages) and the member page's `.item.ma-v` one.
+            val link = element.selectFirst("a.th[href*=\"/video\"], a.ma-thumb[href*=\"/video\"]")
+                ?: element.selectFirst("a[href*=\"/video\"]")
+                ?: return@mapNotNull null
+            val href = link.absUrl("href").takeIf { it.isNotBlank() }
+                ?: link.attr("href").takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+            val title = link.attr("title").ifBlank {
+                element.selectFirst("div.thumb_title, a.ma-v__t")?.text().orEmpty()
+            }.trim()
             if (title.isBlank()) return@mapNotNull null
 
-            val img = link.selectFirst("div.img img")
+            val img = element.selectFirst("div.img img, img.thumb, img")
             val thumb = img?.absUrl("data-rd-jpg")?.takeIf { it.isNotBlank() }
                 ?: img?.absUrl("data-rd-src")?.takeIf { it.isNotBlank() }
                 ?: img?.absUrl("data-original")?.takeIf { it.isNotBlank() }
@@ -73,8 +113,18 @@ abstract class Rule34Video :
                 thumbnail_url = thumb
             }
         }
-        val hasNext = document.selectFirst("nav.fs-pager a[rel=next], div.item.pager.next a") != null
+        val hasNext = document.selectFirst(NEXT_PAGE_SELECTOR) != null
         return AnimesPage(animeList, hasNext)
+    }
+
+    // The first recognized listing marker locates its card container, so cards from
+    // unrelated grids on the same page (related/recommended blocks) are never parsed.
+    private fun Document.findVideoListContainer(): Element? {
+        val marker = selectFirst(VIDEO_LIST_MARKER_SELECTOR) ?: return null
+        val blockId = marker.attr("data-rd-list")
+        return (if (blockId.isNotBlank()) getElementById("${blockId}_items") else null)
+            ?: marker.selectFirst(VIDEO_LIST_CONTAINER_SELECTOR)
+            ?: marker.parent()?.selectFirst(VIDEO_LIST_CONTAINER_SELECTOR)
     }
 
     // =============================== Latest ===============================
@@ -104,8 +154,9 @@ abstract class Rule34Video :
 
     private inline fun <reified R : UriPartFilter> AnimeFilterList.getUriPart(): String = (find { it is R } as? UriPartFilter)?.toUriPart().orEmpty()
 
+    private fun AnimeFilterList.getSortParameters(): List<Pair<String, String>> = (find { it is OrderFilter } as? OrderFilter)?.toQueryParameters().orEmpty()
+
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request {
-        val sortType = filters.getUriPart<OrderFilter>()
         val typeId = filters.getUriPart<CategoryBy>()
 
         if (query.startsWith(PREFIX_SEARCH)) {
@@ -141,8 +192,8 @@ abstract class Rule34Video :
                 }
             }
 
+            filters.getSortParameters().forEach { (key, value) -> addQueryParameter(key, value) }
             if (typeId.isNotBlank()) addQueryParameter("flag1", typeId)
-            if (sortType.isNotBlank()) addQueryParameter("sort_by", sortType)
             if (page > 1 && browse == null) addQueryParameter("from_videos", page.toString())
         }
 
@@ -388,8 +439,10 @@ abstract class Rule34Video :
             key = PREF_UPLOADER_ID_KEY,
             default = "",
             title = "Uploader ID",
-            summary = "Enter the ID of the uploader (e.g., 98965). Requires \"Filter by Uploader\" to be enabled.",
+            summary = "Member ID or member page URL (e.g., 98965 or https://rule34video.com/members/98965/). Requires \"Filter by Uploader\" to be enabled.",
             dialogMessage = "Enter Uploader ID",
+            validate = { parseUploaderId(it) != null },
+            validationMessage = { "Enter the member ID (e.g. 98965) or a member page URL." },
         )
 
         screen.addListPreference(
@@ -404,9 +457,7 @@ abstract class Rule34Video :
 
     // ============================== Filters ===============================
     override fun getFilterList(): AnimeFilterList {
-        if (preferences.getBoolean(PREF_UPLOADER_FILTER_ENABLED_KEY, false) &&
-            preferences.getString(PREF_UPLOADER_ID_KEY, "")?.isNotBlank() == true
-        ) {
+        if (configuredUploaderId() != null) {
             return AnimeFilterList()
         }
         return AnimeFilterList(
@@ -439,17 +490,38 @@ abstract class Rule34Video :
         )
 
     private class OrderFilter :
-        UriPartFilter(
+        AnimeFilter.Select<String>(
             "Sort By",
             arrayOf(
-                Pair("Default (Newest / Relevance)", ""),
-                Pair("Newest", "post_date"),
-                Pair("Most Viewed", "video_viewed"),
-                Pair("Top Rated", "rating"),
-                Pair("Longest", "duration"),
-                Pair("Random", "pseudo_rand"),
+                "Default (Newest / Relevance)",
+                "Newest",
+                "Most Viewed",
+                "Top Rated",
+                "Longest",
+                "Random",
+                "Most Viewed - Past 24 Hours",
+                "Most Viewed - Past 2 Days",
+                "Most Viewed - Past Week",
+                "Most Viewed - Past Month",
+                "Most Viewed - Past 3 Months",
+                "Most Viewed - Past Year",
             ),
-        )
+        ) {
+        fun toQueryParameters(): List<Pair<String, String>> = when (state) {
+            1 -> listOf("sort_by" to "post_date")
+            2 -> listOf("sort_by" to "video_viewed")
+            3 -> listOf("sort_by" to "rating")
+            4 -> listOf("sort_by" to "duration")
+            5 -> listOf("sort_by" to "pseudo_rand")
+            // The "past ..." sorts reuse the site's date filter, which is submitted as a
+            // numeric `post_date_from` preset: 1 = 24 hours, 2 = 2 days, 3 = week,
+            // 4 = month, 5 = 3 months, 6 = year. It is not listed in the site's sort menu.
+            // They are appended after the pre-existing options so saved searches keep
+            // their selected sort when they restore the old filter indices.
+            in 6..11 -> listOf("sort_by" to "video_viewed", "post_date_from" to (state - 5).toString())
+            else -> emptyList()
+        }
+    }
 
     private open class UriPartFilter(displayName: String, val vals: Array<Pair<String, String>>) : AnimeFilter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
@@ -458,6 +530,10 @@ abstract class Rule34Video :
     companion object {
         const val PREFIX_SEARCH = "slug:"
 
+        private const val VIDEO_LIST_MARKER_SELECTOR = "div.fs-ui.fs-list[data-rd-list], div.ma-block[data-rdm-list]"
+        private const val VIDEO_LIST_CONTAINER_SELECTOR = "div.ma-grid, div.thumbs"
+        private const val VIDEO_CARD_SELECTOR = "div.item.thumb, div.item.ma-v"
+        private const val NEXT_PAGE_SELECTOR = "nav.fs-pager a[rel=next], div.item.pager.next a"
         private const val DOWNLOAD_LINK_SELECTOR = "div.vp-sheet[data-sheet=download] a.tag_item_download, div.row:has(div.label:contains(Download)) a.tag_item"
         private const val ARTIST_SELECTOR =
             "div.col:has(div.label:contains(Artist)) a.item span.name, div.vp-group:has(> div.label:contains(Artist)) a.item span.name, div.col a[href*='/models/'] span.name, div.vp-group a[href*='/models/'] span.name, div.col a[href*='/models/'], div.vp-group a[href*='/models/']"
@@ -467,6 +543,7 @@ abstract class Rule34Video :
         private const val TAGS_SELECTOR = "div.vp-tags a.tag_item, div.row_spacer:has(div.label:contains(Tags)) a.tag_item:not(:contains(Suggest))"
 
         private val SLUG_REGEX = Regex("""[^\p{L}\p{N}]+""")
+        private val NUMERIC_ID_REGEX = Regex("""\d+""")
         private val QUALITY_REGEX = Regex("""\d{3,4}p""")
         private val FLASHVARS_URL_REGEX = Regex("""(video(?:_alt)?_url\d*)\s*:\s*['"](https?:[^'"]+)['"]""")
         private val FLASHVARS_TEXT_REGEX = Regex("""(video(?:_alt)?_url\d*)_text\s*:\s*['"]([^'"]+)['"]""")
