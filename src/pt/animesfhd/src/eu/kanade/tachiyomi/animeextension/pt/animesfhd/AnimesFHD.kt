@@ -1,5 +1,13 @@
 package eu.kanade.tachiyomi.animeextension.pt.animesfhd
 
+import android.content.SharedPreferences
+import android.media.MediaCodecInfo
+import android.media.MediaCodecList
+import android.os.Build
+import androidx.preference.PreferenceScreen
+import aniyomi.lib.playlistutils.HlsVariant
+import aniyomi.lib.playlistutils.parseHlsMasterPlaylist
+import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.Hoster
@@ -13,6 +21,9 @@ import keiyoushi.network.rateLimit
 import keiyoushi.source.AniSource
 import keiyoushi.source.model.Related
 import keiyoushi.source.model.SAnimeUpdate
+import keiyoushi.utils.addListPreference
+import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.parallelMap
 import keiyoushi.utils.parseAs
 import keiyoushi.utils.tryParse
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -22,7 +33,9 @@ import java.util.Locale
 import java.util.TimeZone
 
 @Source
-abstract class AnimesFHD : AniSource() {
+abstract class AnimesFHD :
+    AniSource(),
+    ConfigurableAnimeSource {
 
     override val supportsLatest = true
 
@@ -30,6 +43,25 @@ abstract class AnimesFHD : AniSource() {
 
     override fun headersBuilder() = super.headersBuilder()
         .add("Referer", "$baseUrl/")
+
+    /**
+     * Playlist requests tell the server that the player reads HLS with Matroska segments, so
+     * AV1 streams (up to 1080p) are listed in a form mpv seeks in correctly.
+     */
+    private val playlistHeaders by lazy { headers.newBuilder().add("X-Hls-Matroska", "1").build() }
+
+    private val preferences: SharedPreferences by getPreferencesLazy()
+
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        screen.addListPreference(
+            key = PREF_QUALITY_KEY,
+            default = PREF_QUALITY_DEFAULT,
+            title = "Qualidade preferida",
+            summary = "%s",
+            entries = listOf("Automática (pelo aparelho)", "1080p", "720p", "480p"),
+            entryValues = listOf(PREF_QUALITY_DEFAULT, "1080", "720", "480"),
+        )
+    }
 
     // ============================== Catalog ===============================
 
@@ -44,8 +76,8 @@ abstract class AnimesFHD : AniSource() {
             .addQueryParameter("pagination", "1")
             .addQueryParameter("page", page.toString())
             .addQueryParameter("per_page", PAGE_SIZE.toString())
-            .addQueryParameter("sort", sort)
-        if (query.isNotBlank()) url.addQueryParameter("q", query)
+        // Searches send no "sort", so the API ranks results by relevance (as the site search does).
+        if (query.isNotBlank()) url.addQueryParameter("q", query) else url.addQueryParameter("sort", sort)
         val dto = client.get(url.build().toString(), headers).parseAs<SeriesPageDto>()
         return AnimesPage(dto.series.map { it.toSAnime() }, dto.hasMore)
     }
@@ -156,32 +188,95 @@ abstract class AnimesFHD : AniSource() {
 
     // ============================== Videos ================================
 
-    /** Returns a single hoster with the episode's direct video sources and its subtitle, if any. */
+    /**
+     * Returns a single hoster with the episode's direct video sources and their subtitles. An HLS
+     * source with several qualities becomes one video per quality, ordered by [sortQualities].
+     */
     override suspend fun fetchHosterList(episode: SEpisode): List<Hoster> {
         val dto = client.get("$baseUrl/api/episodes/${episode.url}", headers)
             .parseAs<EpisodeDetailDto>()
 
-        val subtitles = dto.episode.subtitleUrl
-            ?.takeIf { it.isNotBlank() }
-            ?.let { listOf(Track(absolute(it), "Português")) }
-            ?: emptyList()
+        val episodeSubtitle = dto.episode.subtitleUrl?.takeIf { it.isNotBlank() }
 
         val videos = dto.sources
             .filter { it.nativeVideo && it.url.isNotBlank() }
-            .map { source ->
-                Video(
-                    videoUrl = absolute(source.url),
-                    videoTitle = listOfNotNull(
-                        source.label?.takeIf { it.isNotBlank() } ?: "Player",
-                        source.audio?.replaceFirstChar { it.uppercase() },
-                    ).joinToString(" - "),
-                    headers = headers,
-                    subtitleTracks = subtitles,
-                )
+            .parallelMap { source ->
+                // The player's own subtitle first; otherwise the episode subtitle.
+                val subtitles = (source.subtitleUrl?.takeIf { it.isNotBlank() } ?: episodeSubtitle)
+                    ?.let { listOf(Track(absolute(it), "Português")) }
+                    ?: emptyList()
+                val title = listOfNotNull(
+                    source.label?.takeIf { it.isNotBlank() } ?: "Player",
+                    source.audio?.replaceFirstChar { it.uppercase() },
+                ).joinToString(" - ")
+                val url = absolute(source.url)
+                val qualities = if (".m3u8" in url) qualityVariants(url) else null
+                qualities?.map { (label, variant) ->
+                    Video(videoUrl = variant.url, videoTitle = "$title - $label", headers = headers, subtitleTracks = subtitles)
+                } ?: listOf(Video(videoUrl = url, videoTitle = title, headers = headers, subtitleTracks = subtitles))
             }
+            .flatten()
 
         if (videos.isEmpty()) return emptyList()
         return listOf(Hoster(hosterUrl = "", hosterName = "AnimesFHD", videoList = videos))
+    }
+
+    /**
+     * Splits an HLS master playlist into its qualities, labelled like "1080p". Returns null when it
+     * has a single quality, alternative audio or subtitle renditions, or cannot be read; the
+     * playlist is then played as it is, requested without [playlistHeaders].
+     */
+    private suspend fun qualityVariants(url: String): List<Pair<String, HlsVariant>>? {
+        val master = fetchPlaylist(url) ?: fetchPlaylist(url) ?: return null
+        val variants = parseHlsMasterPlaylist(url, master)
+            ?.takeIf { list -> list.size > 1 && list.all { it.audioTracks.isEmpty() && it.subtitleTracks.isEmpty() } }
+            ?: return null
+        val heights = variants.groupingBy { it.height }.eachCount()
+        return sortQualities(variants).map { variant ->
+            val label = if (variant.height > 0) "${variant.height}p" else "Auto"
+            // Two variants of the same height: the H.264 one plays on any device.
+            (if (heights.getValue(variant.height) > 1 && !variant.isAv1) "$label (compatível)" else label) to variant
+        }
+    }
+
+    private suspend fun fetchPlaylist(url: String): String? = runCatching { client.get(url, playlistHeaders).use { it.body.string() } }.getOrNull()
+
+    /**
+     * The preferred quality first. "Automatic" picks the highest quality on devices that decode AV1
+     * in hardware, and the H.264 stream elsewhere, since software AV1 decoding can stutter.
+     */
+    private fun sortQualities(variants: List<HlsVariant>): List<HlsVariant> {
+        val preferred = preferences.getString(PREF_QUALITY_KEY, PREF_QUALITY_DEFAULT) ?: PREF_QUALITY_DEFAULT
+        val av1 = hasAv1Hardware
+        val target = preferred.toIntOrNull()
+            ?: (if (av1) null else variants.filter { !it.isAv1 }.maxOfOrNull { it.height })
+            ?: variants.maxOf { it.height }
+        return variants.sortedWith(
+            compareByDescending<HlsVariant> { it.height == target }
+                .thenByDescending { it.isAv1 == av1 }
+                .thenByDescending { it.height },
+        )
+    }
+
+    private val HlsVariant.height: Int
+        get() = attributes["RESOLUTION"]?.substringAfter('x')?.toIntOrNull() ?: 0
+
+    private val HlsVariant.isAv1: Boolean
+        get() = attributes["CODECS"].orEmpty().contains("av01")
+
+    /** Whether the device has a hardware AV1 decoder. */
+    private val hasAv1Hardware: Boolean by lazy {
+        runCatching {
+            MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
+                !info.isEncoder && info.supportedTypes.any { it.equals("video/av01", ignoreCase = true) } && info.isHardware()
+            }
+        }.getOrDefault(false)
+    }
+
+    private fun MediaCodecInfo.isHardware(): Boolean = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        isHardwareAccelerated
+    } else {
+        name.lowercase().let { !it.startsWith("omx.google.") && !it.startsWith("c2.android.") && !it.startsWith("c2.google.") }
     }
 
     /** The videos are already resolved in [fetchHosterList]. */
@@ -196,6 +291,9 @@ abstract class AnimesFHD : AniSource() {
         private const val PAGE_SIZE = 24
         private const val EPISODES_PAGE_SIZE = 200
         private const val MAX_LISTING_ATTEMPTS = 2
+
+        private const val PREF_QUALITY_KEY = "preferred_quality"
+        private const val PREF_QUALITY_DEFAULT = "auto"
 
         private val DATE_PATTERNS = listOf(
             "yyyy-MM-dd'T'HH:mm:ss.SSSX",

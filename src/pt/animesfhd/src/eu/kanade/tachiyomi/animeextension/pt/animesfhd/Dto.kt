@@ -113,4 +113,6 @@ class SourceDto(
     val url: String = "",
     val audio: String? = null,
     @SerialName("native_video") val nativeVideo: Boolean = false,
+    // Subtitle file of this player, when it is served apart from the video.
+    @SerialName("subtitle_url") val subtitleUrl: String? = null,
 )

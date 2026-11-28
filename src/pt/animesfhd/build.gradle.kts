@@ -6,7 +6,7 @@ plugins {
 
 yuzono {
     name = "AnimesFHD"
-    versionCode = 1
+    versionCode = 2
     contentWarning = ContentWarning.SAFE
     libVersion = "16"
 
@@ -15,4 +15,8 @@ yuzono {
         lang = "pt-BR"
         baseUrl = "https://animesfhd.net"
     }
+}
+
+dependencies {
+    implementation(project(":lib:playlistutils"))
 }
