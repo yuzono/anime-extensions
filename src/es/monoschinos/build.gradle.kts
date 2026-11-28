@@ -8,7 +8,7 @@ yuzono {
     name = "MonosChinos"
     versionCode = 59
     contentWarning = ContentWarning.SAFE
-    libVersion = "14"
+    libVersion = "16"
 
     source {
         lang = "es"
